@@ -313,7 +313,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
 
         // Ensure the aggregator's pubkey is in the declared subcommittee of the current sync committee
         let pubkey_bytes = chain
-            .validator_pubkey_bytes(aggregator_index as usize)?
+            .validator_bls_pubkey_bytes(aggregator_index as usize)?
             .ok_or(Error::UnknownValidatorIndex(aggregator_index as usize))?;
         let sync_subcommittee_pubkeys = chain
             .sync_committee_at_next_slot(contribution.get_slot())?
@@ -463,7 +463,7 @@ impl VerifiedSyncCommitteeMessage {
 
         // Ensure the `subnet_id` is valid for the given validator.
         let pubkey = chain
-            .validator_pubkey_bytes(sync_message.validator_index as usize)?
+            .validator_bls_pubkey_bytes(sync_message.validator_index as usize)?
             .ok_or(Error::UnknownValidatorIndex(
                 sync_message.validator_index as usize,
             ))?;
@@ -631,7 +631,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
     let signature_sets = [
         signed_sync_aggregate_selection_proof_signature_set(
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+            |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
             signed_aggregate,
             &fork,
             chain.genesis_validators_root,
@@ -639,7 +639,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         )
         .map_err(BeaconChainError::SignatureSetError)?,
         signed_sync_aggregate_signature_set(
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+            |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
             signed_aggregate,
             &fork,
             chain.genesis_validators_root,
@@ -647,11 +647,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         )
         .map_err(BeaconChainError::SignatureSetError)?,
         sync_committee_contribution_signature_set_from_pubkeys::<T::EthSpec, _>(
-            |validator_index| {
-                pubkey_cache
-                    .get_pubkey_from_pubkey_bytes(validator_index)
-                    .map(Cow::Borrowed)
-            },
+            |pubkey| pubkey.decompress().ok().map(Cow::Owned),
             participant_pubkeys,
             &signed_aggregate.message.contribution.signature,
             signed_aggregate
@@ -679,12 +675,10 @@ pub fn verify_sync_committee_message<T: BeaconChainTypes>(
     let signature_setup_timer =
         metrics::start_timer(&metrics::SYNC_MESSAGE_PROCESSING_SIGNATURE_SETUP_TIMES);
 
-    let pubkey_cache = chain.validator_pubkey_cache.read();
-
-    let pubkey = pubkey_cache
-        .get_pubkey_from_pubkey_bytes(pubkey_bytes)
-        .map(Cow::Borrowed)
-        .ok_or(Error::UnknownValidatorPubkey(*pubkey_bytes))?;
+    let pubkey = pubkey_bytes
+        .decompress()
+        .map(Cow::Owned)
+        .map_err(|_| Error::UnknownValidatorPubkey(*pubkey_bytes))?;
 
     let next_slot_epoch = (sync_message.get_slot() + 1).epoch(T::EthSpec::slots_per_epoch());
     let fork = chain.spec.fork_at_epoch(next_slot_epoch);

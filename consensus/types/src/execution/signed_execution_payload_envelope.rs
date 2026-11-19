@@ -4,7 +4,6 @@ use crate::{
     ExecutionBlockHash, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopePq,
     ExecutionPayloadGloas, ExecutionRequestsGloas, Fork, ForkName, Hash256,
     ProgressiveTransactions, ProgressiveWithdrawals, SignedRoot, Slot, Uint256, XmssSignature,
-    consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 use bls::{PublicKey, Signature};
 use context_deserialize::{ContextDeserialize, context_deserialize};
@@ -112,22 +111,8 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeGloas<E> {
     pub fn verify_signature_with_state(
         &self,
         state: &BeaconState<E>,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Result<bool, BeaconStateError> {
-        let builder_index = self.message.builder_index;
-
-        let pubkey_bytes = if builder_index == BUILDER_INDEX_SELF_BUILD {
-            let validator_index = state.latest_block_header().proposer_index;
-            state.get_validator(validator_index as usize)?.pubkey
-        } else {
-            state.get_builder(builder_index)?.pubkey
-        };
-
-        // TODO(gloas): Could use pubkey cache on state here, but it probably isn't worth
-        // it because this function is rarely used. Almost always the envelope should be signature
-        // verified prior to consensus code running.
-        let pubkey = pubkey_bytes.decompress()?;
-
         // Ensure the state's epoch matches the message's epoch before determining the Fork.
         if self.epoch() != state.current_epoch() {
             return Err(BeaconStateError::SignedEnvelopeIncorrectEpoch {
@@ -136,12 +121,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeGloas<E> {
             });
         }
 
-        Ok(self.verify_signature(
-            &pubkey,
-            &state.fork(),
-            state.genesis_validators_root(),
-            spec,
-        ))
+        Err(BeaconStateError::BlsRegistryKeysUnavailable)
     }
 }
 

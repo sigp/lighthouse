@@ -1780,12 +1780,14 @@ async fn proposer_shuffling_changing_with_lookahead() {
         .unwrap()
         .clone();
 
+    let validator_pubkey = types::encode_deposit_pubkey(validator_to_topup.pubkey).unwrap();
+
     // Craft a block with a deposit request and consolidation.
     // XXX: This is a really nasty way to do this, but we need better test facilities in
     // MockExecutionLayer to address this.
     let deposit_request: DepositRequest = DepositRequest {
         index: pre_deposit_state.eth1_deposit_index(),
-        pubkey: validator_to_topup.pubkey,
+        pubkey: validator_pubkey,
         withdrawal_credentials: validator_to_topup.withdrawal_credentials,
         amount: 63_000_000_000,
         signature: SignatureBytes::empty(),
@@ -1795,8 +1797,8 @@ async fn proposer_shuffling_changing_with_lookahead() {
         source_address: validator_to_topup
             .get_execution_withdrawal_address(spec)
             .unwrap(),
-        source_pubkey: validator_to_topup.pubkey,
-        target_pubkey: validator_to_topup.pubkey,
+        source_pubkey: validator_pubkey,
+        target_pubkey: validator_pubkey,
     };
 
     let execution_requests = ExecutionRequestsElectra::<E> {

@@ -18,7 +18,8 @@ use typenum::Unsigned;
 use types::{
     ActivationQueue, BeaconState, BeaconStateError, BuilderPendingPayment, ChainSpec, Checkpoint,
     CommitteeCache, DepositData, Epoch, EthSpec, ExitCache, ForkName, ParticipationFlags,
-    PendingDeposit, ProgressiveBalancesCache, RelativeEpoch, Validator,
+    PendingDeposit, ProgressiveBalancesCache, RelativeEpoch, Validator, compute_deposit_pubkey,
+    compute_deposit_vrf_root,
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
@@ -189,6 +190,9 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut next_epoch_cache = PreEpochCache::new_for_next_epoch(state)?;
 
     let pending_deposits_ctxt = if fork_name.electra_enabled() && conf.pending_deposits {
+        if fork_name == ForkName::Pq && !state.pending_deposits()?.is_empty() {
+            return Err(BeaconStateError::PqUnsupported("process_pending_deposits").into());
+        }
         Some(PendingDepositsContext::new(state, spec, &conf)?)
     } else {
         None
@@ -403,14 +407,16 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             };
             // Only check the signature if this is the first deposit for the validator,
             // following the logic from `apply_pending_deposit` in the spec.
-            if let Some(validator_index) = state.get_validator_index(&deposit_data.pubkey)? {
+            let pubkey = compute_deposit_pubkey(&deposit_data.pubkey);
+            if let Some(validator_index) = state.get_validator_index(&pubkey)? {
                 state
                     .get_balance_mut(validator_index)?
                     .safe_add_assign(deposit_data.amount)?;
             } else if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
                 // Apply the new deposit to the state
                 let validator_index = state.add_validator_to_registry(
-                    deposit_data.pubkey,
+                    pubkey,
+                    compute_deposit_vrf_root(&deposit_data.pubkey, &deposit_data.signature),
                     deposit_data.withdrawal_credentials,
                     deposit_data.amount,
                     spec,
@@ -1133,7 +1139,9 @@ impl PendingDepositsContext {
             // `true` both for the actual value & the default placeholder value (`FAR_FUTURE_EPOCH`).
             let mut is_validator_exited = false;
             let mut is_validator_withdrawn = false;
-            let opt_validator_index = state.pubkey_cache().get(&deposit.pubkey);
+            let opt_validator_index = state
+                .pubkey_cache()
+                .get(&compute_deposit_pubkey(&deposit.pubkey));
             if let Some(validator_index) = opt_validator_index {
                 let validator = state.get_validator(validator_index)?;
                 let already_exited = validator.exit_epoch < spec.far_future_epoch;
@@ -1175,7 +1183,7 @@ impl PendingDepositsContext {
                 processed_amount.safe_add_assign(deposit.amount)?;
 
                 // Deposit fits in the churn, process it. Increase balance and consume churn.
-                if let Some(validator_index) = state.pubkey_cache().get(&deposit.pubkey) {
+                if let Some(validator_index) = opt_validator_index {
                     validator_deposits_to_process
                         .entry(validator_index)
                         .or_insert(0)

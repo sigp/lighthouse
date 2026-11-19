@@ -1,7 +1,7 @@
 use super::errors::{BlockOperationError, ExitInvalid};
 use crate::per_block_processing::{
     VerifySignatures,
-    signature_sets::{exit_signature_set, get_pubkey_from_state},
+    signature_sets::{exit_signature_set, get_bls_pubkey_from_state},
 };
 use safe_arith::SafeArith;
 use types::*;
@@ -70,7 +70,7 @@ pub fn verify_exit<E: EthSpec>(
         verify!(
             exit_signature_set(
                 state,
-                |i| get_pubkey_from_state(state, i),
+                |i| get_bls_pubkey_from_state(state, i),
                 signed_exit,
                 spec
             )?

@@ -1804,8 +1804,8 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             .map_err(|_| GossipDataColumnError::PubkeyCacheTimeout)?;
 
         let pubkey = pubkey_cache
-            .get(proposer_index)
-            .ok_or_else(|| GossipDataColumnError::UnknownValidator(proposer_index as u64))?;
+            .get_bls(proposer_index)
+            .map_err(BeaconChainError::SignatureSetError)?;
         signed_block_header.verify_signature::<T::EthSpec>(
             pubkey,
             &fork,

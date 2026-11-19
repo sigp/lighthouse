@@ -40,7 +40,7 @@ pub fn get_existing_validator_index<E: EthSpec>(
     state: &mut BeaconState<E>,
     pub_key: &PublicKeyBytes,
 ) -> Result<Option<u64>> {
-    let validator_index = state.get_validator_index(pub_key)?;
+    let validator_index = state.get_validator_index(&compute_deposit_pubkey(pub_key))?;
     Ok(validator_index.map(|idx| idx as u64))
 }
 

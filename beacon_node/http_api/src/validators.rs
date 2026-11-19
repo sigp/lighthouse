@@ -6,12 +6,27 @@ use eth2::types::{
 };
 use std::{collections::HashSet, sync::Arc};
 
+pub(crate) fn bls_id_unsupported() -> warp::Rejection {
+    warp_utils::reject::custom_bad_request("The validator registry uses XMSS public keys".into())
+}
+
+pub(crate) fn validate_ids(ids: &[ValidatorId]) -> Result<(), warp::Rejection> {
+    if ids
+        .iter()
+        .any(|id| matches!(id, ValidatorId::BlsPublicKey(_)))
+    {
+        return Err(bls_id_unsupported());
+    }
+    Ok(())
+}
+
 pub fn get_beacon_state_validators<T: BeaconChainTypes>(
     state_id: StateId,
     chain: Arc<BeaconChain<T>>,
     query_ids: &Option<Vec<ValidatorId>>,
     query_statuses: &Option<Vec<ValidatorStatus>>,
 ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<ValidatorData>>, warp::Rejection> {
+    validate_ids(query_ids.as_deref().unwrap_or_default())?;
     let (data, execution_optimistic, finalized) = state_id
         .map_state_and_execution_optimistic_and_finalized(
             &chain,
@@ -88,6 +103,7 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     optional_ids: Option<&[ValidatorId]>,
 ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<ValidatorBalanceData>>, warp::Rejection> {
+    validate_ids(optional_ids.unwrap_or_default())?;
     let (data, execution_optimistic, finalized) = state_id
         .map_state_and_execution_optimistic_and_finalized(
             &chain,
@@ -136,6 +152,7 @@ pub fn get_beacon_state_validator_identities<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     optional_ids: Option<&[ValidatorId]>,
 ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<ValidatorIdentityData>>, warp::Rejection> {
+    validate_ids(optional_ids.unwrap_or_default())?;
     let (data, execution_optimistic, finalized) = state_id
         .map_state_and_execution_optimistic_and_finalized(
             &chain,

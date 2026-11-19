@@ -1,7 +1,5 @@
-use bls::PublicKeyBytes;
 use criterion::{Criterion, criterion_group, criterion_main};
 use rand::Rng;
-use ssz::Decode;
 use store::{
     StoreConfig,
     hdiff::{HDiff, HDiffBuffer},
@@ -78,12 +76,13 @@ fn bench_against_states(
 }
 
 fn rand_validator(mut rng: impl Rng) -> Validator {
-    let mut pubkey = [0u8; 48];
-    rng.fill_bytes(&mut pubkey);
+    let pubkey: [u8; 32] = rng.random();
+    let vrf_root: [u8; 32] = rng.random();
     let withdrawal_credentials: [u8; 32] = rng.random();
 
     Validator {
-        pubkey: PublicKeyBytes::from_ssz_bytes(&pubkey).unwrap(),
+        pubkey: pubkey.into(),
+        vrf_root: vrf_root.into(),
         withdrawal_credentials: withdrawal_credentials.into(),
         slashed: false,
         effective_balance: 32_000_000_000,

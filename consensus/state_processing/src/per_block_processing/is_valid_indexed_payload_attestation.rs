@@ -1,5 +1,5 @@
 use super::errors::{BlockOperationError, IndexedPayloadAttestationInvalid as Invalid};
-use super::signature_sets::{get_pubkey_from_state, indexed_payload_attestation_signature_set};
+use super::signature_sets::{get_bls_pubkey_from_state, indexed_payload_attestation_signature_set};
 use crate::VerifySignatures;
 use types::*;
 
@@ -18,7 +18,7 @@ pub fn is_valid_indexed_payload_attestation<E: EthSpec>(
         verify!(
             indexed_payload_attestation_signature_set(
                 state,
-                |i| get_pubkey_from_state(state, i),
+                |i| get_bls_pubkey_from_state(state, i),
                 &indexed_payload_attestation.signature,
                 indexed_payload_attestation,
                 spec

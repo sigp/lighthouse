@@ -97,7 +97,7 @@ use crate::{
     AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
     CachedHead, ChainDumpSnapshot, metrics,
 };
-use bls::{PublicKey, PublicKeyBytes, Signature};
+use bls::{PublicKeyBytes, Signature};
 use builder_client::{BidRequestContext, BidStreams, Builders};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
@@ -133,6 +133,7 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
 use state_processing::per_block_processing::errors::{ExitInvalid, ExitValidationError};
+use state_processing::signature_sets;
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
     VerifyBlockRoot, VerifyOperation,
@@ -164,6 +165,7 @@ use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tracing::{debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
+use types::XmssPublicKey;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::data::{ColumnIndex, FixedBlobSidecarList};
 use types::execution::BlockProductionVersion;
@@ -1625,7 +1627,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
-    pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
+    pub fn validator_index(&self, pubkey: &XmssPublicKey) -> Result<Option<usize>, Error> {
         let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get_index(pubkey))
@@ -1639,16 +1641,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_pubkeys: impl Iterator<Item = &'a PublicKeyBytes>,
     ) -> Result<Vec<u64>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
-
-        validator_pubkeys
-            .map(|pubkey| {
-                pubkey_cache
-                    .get_index(pubkey)
-                    .map(|id| id as u64)
-                    .ok_or(Error::ValidatorPubkeyUnknown(*pubkey))
-            })
-            .collect()
+        if validator_pubkeys.count() == 0 {
+            return Ok(vec![]);
+        }
+        Err(BeaconStateError::BlsRegistryKeysUnavailable.into())
     }
 
     /// Returns the validator pubkey (if any) for the given validator index.
@@ -1663,40 +1659,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
-    pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<PublicKey>, Error> {
+    pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<XmssPublicKey>, Error> {
         let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get(validator_index).cloned())
     }
 
-    /// As per `Self::validator_pubkey`, but returns `PublicKeyBytes`.
-    pub fn validator_pubkey_bytes(
+    /// Resolve a legacy BLS key by validator index.
+    pub fn validator_bls_pubkey_bytes(
         &self,
         validator_index: usize,
     ) -> Result<Option<PublicKeyBytes>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
-
-        Ok(pubkey_cache.get_pubkey_bytes(validator_index).copied())
+        let pubkeys = self.validator_pubkey_cache.read();
+        if pubkeys.get(validator_index).is_none() {
+            return Ok(None);
+        }
+        Err(BeaconStateError::BlsRegistryKeysUnavailable.into())
     }
 
-    /// As per `Self::validator_pubkey_bytes` but will resolve multiple indices at once to avoid
-    /// bouncing the read-lock on the pubkey cache.
-    ///
-    /// Returns a map that may have a length less than `validator_indices.len()` if some indices
-    /// were unable to be resolved.
-    pub fn validator_pubkey_bytes_many(
+    /// Resolve the legacy BLS keys required by legacy duty responses.
+    pub fn validator_bls_pubkey_bytes_many(
         &self,
         validator_indices: &[usize],
     ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
-
-        let mut map = HashMap::with_capacity(validator_indices.len());
-        for &validator_index in validator_indices {
-            if let Some(pubkey) = pubkey_cache.get_pubkey_bytes(validator_index) {
-                map.insert(validator_index, *pubkey);
-            }
+        if validator_indices.is_empty() {
+            return Ok(HashMap::new());
         }
-        Ok(map)
+        Err(BeaconStateError::BlsRegistryKeysUnavailable.into())
     }
 
     /// Returns the block canonical root of the current canonical chain at a given slot, starting from the given state.
@@ -1792,12 +1781,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?
         };
 
-        let pubkey_cache = self.validator_pubkey_cache.read();
-
         let duties = validator_indices
             .iter()
             .map(|&validator_index| -> Result<Option<PtcDuty>, Error> {
-                let Some(&pubkey) = pubkey_cache.get_pubkey_bytes(validator_index as usize) else {
+                let Some(pubkey) = self.validator_bls_pubkey_bytes(validator_index as usize)?
+                else {
                     return Ok(None);
                 };
                 let slot_opt =
@@ -5896,13 +5884,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
-        let pubkey = state
-            .validators()
-            .get(proposer_index as usize)
-            .map(|v| v.pubkey)
-            .ok_or(BlockProductionError::BeaconChain(Box::new(
-                BeaconChainError::ValidatorIndexUnknown(proposer_index as usize),
-            )))?;
+        let pubkey = signature_sets::get_bls_pubkey_from_state(&state, proposer_index as usize)
+            .map_err(|error| {
+                BlockProductionError::BeaconChain(Box::new(BeaconChainError::SignatureSetError(
+                    error,
+                )))
+            })?
+            .compress();
 
         let builder_params = BuilderParams {
             pubkey,
@@ -6806,19 +6794,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .as_ref()
                         .filter(|_| chain.builder_bid_streams().is_some())
                         .and_then(|attributes| {
-                            let pubkey = cached_head
-                                .snapshot
-                                .beacon_state
-                                .validators()
-                                .get(attributes.proposer_index as usize)
-                                .map(|validator| validator.pubkey);
-                            if pubkey.is_none() {
-                                debug!(
-                                    proposer_index = attributes.proposer_index,
-                                    "Unknown proposer pubkey; not opening builder bid streams"
-                                );
+                            match signature_sets::get_bls_pubkey_from_state(
+                                &cached_head.snapshot.beacon_state,
+                                attributes.proposer_index as usize,
+                            ) {
+                                Ok(pubkey) => Some(pubkey.compress()),
+                                Err(error) => {
+                                    debug!(
+                                        proposer_index = attributes.proposer_index,
+                                        ?error,
+                                        "Unable to resolve BLS proposer key for builder bid streams"
+                                    );
+                                    None
+                                }
                             }
-                            pubkey
                         });
                     let proposer_shuffling_decision_root = cached_head
                         .snapshot

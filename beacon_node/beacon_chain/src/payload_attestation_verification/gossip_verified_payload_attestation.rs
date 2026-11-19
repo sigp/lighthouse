@@ -132,7 +132,7 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             // [REJECT] The signature is valid with respect to the `validator_index`.
             let pubkey_cache = ctx.validator_pubkey_cache.read();
             let signature_set = indexed_payload_attestation_signature_set_from_pubkeys(
-                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
                 &indexed_payload_attestation.signature,
                 &indexed_payload_attestation,
                 ctx.genesis_validators_root,

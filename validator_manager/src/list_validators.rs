@@ -140,7 +140,10 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
             );
 
             let validator_data = beacon_node
-                .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(*validator))
+                .get_beacon_states_validator_id(
+                    StateId::Head,
+                    &ValidatorId::BlsPublicKey(*validator),
+                )
                 .await
                 .map_err(|e| format!("Failed to get updated validator details: {:?}", e))?
                 .ok_or_else(|| {

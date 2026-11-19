@@ -961,7 +961,7 @@ pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                     beacon_node
                         .get_beacon_states_validator_id(
                             StateId::Head,
-                            &ValidatorId::PublicKey(pubkey),
+                            &ValidatorId::BlsPublicKey(pubkey),
                         )
                         .await
                 })

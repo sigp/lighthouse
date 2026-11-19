@@ -1,233 +1,131 @@
 use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore};
-use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
-use bls::{PublicKey, PublicKeyBytes};
+use bls::PublicKey;
 use fixed_bytes::FixedBytesExtended;
-use rayon::prelude::*;
-use smallvec::SmallVec;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use state_processing::per_block_processing::signature_sets::get_pubkey_from_state;
-use std::borrow::Cow;
-use std::collections::HashMap;
+use state_processing::per_block_processing::signature_sets;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
 use tracing::instrument;
-use types::{BeaconState, Hash256};
+use types::{BeaconState, BeaconStateError, Hash256, XmssPublicKey};
 
-/// Provides a mapping of `validator_index -> validator_publickey`.
+/// Cached XMSS keys by validator index, with reverse lookup by public key.
 ///
-/// This cache exists for two reasons:
-///
-/// 1. To avoid reading a `BeaconState` from disk each time we need a public key.
-/// 2. To reduce the amount of public key _decompression_ required. A `BeaconState` stores public
-///    keys in compressed form and they are needed in decompressed form for signature verification.
-///    Decompression is expensive when many keys are involved.
+/// This cache tracks appended indices. For an operation tied to a specific state, consult
+/// that state's registry because an index can refer to different validators in different states.
 pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
-    pubkeys: Vec<PublicKey>,
-    indices: HashMap<PublicKeyBytes, usize>,
-    pubkey_bytes: Vec<PublicKeyBytes>,
+    pubkeys: Vec<XmssPublicKey>,
+    indices: HashMap<XmssPublicKey, usize>,
     _phantom: PhantomData<T>,
 }
 
 impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
-    /// Create a new public key cache using the keys in `state.validators`.
-    ///
-    /// The new cache will be updated with the keys from `state` and immediately written to disk.
+    fn empty() -> Self {
+        Self {
+            pubkeys: Vec::new(),
+            indices: HashMap::new(),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Create a new cache from the validator registry and immediately write it to disk.
     #[instrument(name = "validator_pubkey_cache_new", skip_all)]
     pub fn new(
         state: &BeaconState<T::EthSpec>,
         store: BeaconStore<T>,
     ) -> Result<Self, BeaconChainError> {
-        let mut cache = Self {
-            pubkeys: vec![],
-            indices: HashMap::new(),
-            pubkey_bytes: vec![],
-            _phantom: PhantomData,
-        };
-
+        let mut cache = Self::empty();
         let store_ops = cache.import_new_pubkeys(state)?;
         store.do_atomically_with_block_and_blobs_cache(store_ops)?;
-
         Ok(cache)
     }
 
     /// Load the pubkey cache from the given on-disk database.
     #[instrument(name = "validator_pubkey_cache_load_from_store", skip_all)]
     pub fn load_from_store(store: BeaconStore<T>) -> Result<Self, BeaconChainError> {
-        let mut pubkeys = vec![];
-        let mut indices = HashMap::new();
-        let mut pubkey_bytes = vec![];
-
+        let mut cache = Self::empty();
         for validator_index in 0.. {
-            if let Some(db_pubkey) =
+            let Some(DatabasePubkey { pubkey }) =
                 store.get_item(&DatabasePubkey::key_for_index(validator_index))?
-            {
-                let (pk, pk_bytes) = DatabasePubkey::as_pubkey(&db_pubkey)?;
-                pubkeys.push(pk);
-                indices.insert(pk_bytes, validator_index);
-                pubkey_bytes.push(pk_bytes);
-            } else {
+            else {
                 break;
+            };
+            if cache.indices.insert(pubkey, validator_index).is_some() {
+                return Err(BeaconChainError::DuplicateValidatorPublicKey);
             }
+            cache.pubkeys.push(pubkey);
         }
-
-        Ok(ValidatorPubkeyCache {
-            pubkeys,
-            indices,
-            pubkey_bytes,
-            _phantom: PhantomData,
-        })
+        Ok(cache)
     }
 
-    /// Scan the given `state` and add any new validator public keys.
+    /// Add any newly appended validator keys from the registry.
     ///
-    /// Does not delete any keys from `self` if they don't appear in `state`.
-    ///
-    /// NOTE: The caller *must* commit the returned I/O batch as part of the block import process.
+    /// The caller must commit the returned I/O batch as part of block import.
     #[instrument(skip_all)]
     pub fn import_new_pubkeys(
         &mut self,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError> {
-        if state.validators().len() > self.pubkeys.len() {
-            self.import(
-                state
-                    .validators()
-                    .iter_from(self.pubkeys.len())?
-                    .map(|v| v.pubkey),
-            )
-        } else {
-            Ok(vec![])
+        if state.validators().len() <= self.len() {
+            return Ok(vec![]);
         }
-    }
+        let validator_keys = state
+            .validators()
+            .iter_from(self.len())?
+            .map(|v| v.pubkey)
+            .collect::<Vec<_>>();
+        let mut seen = HashSet::with_capacity(validator_keys.len());
+        for &pubkey in &validator_keys {
+            if self.indices.contains_key(&pubkey) || !seen.insert(pubkey) {
+                return Err(BeaconChainError::DuplicateValidatorPublicKey);
+            }
+        }
 
-    /// Adds zero or more validators to `self`.
-    fn import<I>(
-        &mut self,
-        validator_keys: I,
-    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError>
-    where
-        I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
-    {
-        self.pubkey_bytes.reserve(validator_keys.len());
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
-
         let mut store_ops = Vec::with_capacity(validator_keys.len());
-
-        let is_initial_import = self.pubkeys.is_empty();
-
-        // Helper to insert a decompressed key
-        let mut insert_key =
-            |pubkey_bytes: PublicKeyBytes, pubkey: PublicKey| -> Result<(), BeaconChainError> {
-                let i = self.pubkeys.len();
-
-                if self.indices.contains_key(&pubkey_bytes) {
-                    return Err(BeaconChainError::DuplicateValidatorPublicKey);
-                }
-
-                // Stage the new validator key for writing to disk.
-                // It will be committed atomically when the block that introduced it is written to disk.
-                // Notably it is NOT written while the write lock on the cache is held.
-                // See: https://github.com/sigp/lighthouse/issues/2327
-                store_ops.push(StoreOp::KeyValueOp(
-                    DatabasePubkey::from_pubkey(&pubkey)
-                        .as_kv_store_op(DatabasePubkey::key_for_index(i)),
-                ));
-
-                self.pubkeys.push(pubkey);
-                self.pubkey_bytes.push(pubkey_bytes);
-                self.indices.insert(pubkey_bytes, i);
-                Ok(())
-            };
-
-        if is_initial_import {
-            // On first startup, decompress keys in parallel for better performance
-            let validator_keys_vec: Vec<PublicKeyBytes> = validator_keys.collect();
-
-            let decompressed: Vec<(PublicKeyBytes, PublicKey)> = validator_keys_vec
-                .into_par_iter()
-                .map(|pubkey_bytes| {
-                    let pubkey = (&pubkey_bytes)
-                        .try_into()
-                        .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
-                    Ok((pubkey_bytes, pubkey))
-                })
-                .collect::<Result<Vec<_>, BeaconChainError>>()?;
-
-            for (pubkey_bytes, pubkey) in decompressed {
-                insert_key(pubkey_bytes, pubkey)?;
-            }
-        } else {
-            // Sequential path for incremental updates
-            for pubkey_bytes in validator_keys {
-                let pubkey = (&pubkey_bytes)
-                    .try_into()
-                    .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
-                insert_key(pubkey_bytes, pubkey)?;
-            }
+        for pubkey in validator_keys {
+            let index = self.pubkeys.len();
+            store_ops.push(StoreOp::KeyValueOp(
+                DatabasePubkey::from_pubkey(&pubkey)
+                    .as_kv_store_op(DatabasePubkey::key_for_index(index)),
+            ));
+            self.pubkeys.push(pubkey);
+            self.indices.insert(pubkey, index);
         }
-
         Ok(store_ops)
     }
 
-    /// Get the public key for a validator with index `i`.
-    pub fn get(&self, i: usize) -> Option<&PublicKey> {
-        self.pubkeys.get(i)
+    pub fn get(&self, index: usize) -> Option<&XmssPublicKey> {
+        self.pubkeys.get(index)
     }
 
-    /// Get the public key for the validator with index `i` in `state`.
-    ///
-    /// Keys for validators in the cache are borrowed from the cache, whilst keys for validators
-    /// beyond the end of the cache are decompressed from `state`.
-    ///
-    /// Returns `None` if `state` does not contain a validator with index `i`.
-    pub fn get_for_state<'a>(
-        &'a self,
-        state: &'a BeaconState<T::EthSpec>,
-        i: usize,
-    ) -> Option<Cow<'a, PublicKey>> {
-        if i >= state.validators().len() {
-            return None;
-        }
-        self.get(i)
-            .map(Cow::Borrowed)
-            .or_else(|| get_pubkey_from_state(state, i))
+    /// Return an explicit error when a BLS verification path tries to use the XMSS cache.
+    pub fn get_bls(&self, index: usize) -> signature_sets::Result<&PublicKey> {
+        self.get(index)
+            .ok_or(signature_sets::Error::ValidatorUnknown(index as u64))?;
+        Err(BeaconStateError::BlsRegistryKeysUnavailable.into())
     }
 
-    /// Get the `PublicKey` for a validator with `PublicKeyBytes`.
-    pub fn get_pubkey_from_pubkey_bytes(&self, pubkey: &PublicKeyBytes) -> Option<&PublicKey> {
-        self.get_index(pubkey).and_then(|index| self.get(index))
-    }
-
-    /// Get the public key (in bytes form) for a validator with index `i`.
-    pub fn get_pubkey_bytes(&self, i: usize) -> Option<&PublicKeyBytes> {
-        self.pubkey_bytes.get(i)
-    }
-
-    /// Get the index of a validator with `pubkey`.
-    pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<usize> {
+    pub fn get_index(&self, pubkey: &XmssPublicKey) -> Option<usize> {
         self.indices.get(pubkey).copied()
     }
 
-    /// Returns the number of validators in the cache.
     pub fn len(&self) -> usize {
-        self.indices.len()
+        self.pubkeys.len()
     }
 
-    /// Returns `true` if there are no validators in the cache.
     pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
+        self.pubkeys.is_empty()
     }
 }
 
-/// Wrapper for a public key stored in the database.
-///
-/// Keyed by the validator index as `Hash256::from_low_u64_be(index)`.
+/// XMSS key stored under the validator index as `Hash256::from_low_u64_be(index)`.
 #[derive(Encode, Decode)]
 pub struct DatabasePubkey {
-    pubkey: SmallVec<[u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN]>,
+    pubkey: XmssPublicKey,
 }
 
 impl StoreItem for DatabasePubkey {
@@ -249,166 +147,87 @@ impl DatabasePubkey {
         Hash256::from_low_u64_be(index as u64)
     }
 
-    pub fn from_pubkey(pubkey: &PublicKey) -> Self {
-        Self {
-            pubkey: pubkey.serialize_uncompressed().into(),
-        }
-    }
-
-    pub fn as_pubkey(&self) -> Result<(PublicKey, PublicKeyBytes), BeaconChainError> {
-        let pubkey = PublicKey::deserialize_uncompressed(&self.pubkey)
-            .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
-        let pubkey_bytes = pubkey.compress();
-        Ok((pubkey, pubkey_bytes))
+    pub fn from_pubkey(pubkey: &XmssPublicKey) -> Self {
+        Self { pubkey: *pubkey }
     }
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use bls::Keypair;
-    use logging::create_test_tracing_subscriber;
+    use crate::test_utils::EphemeralHarnessType;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{EthSpec, Spec};
+    use types::{Eth1Data, EthSpec, Spec, Validator};
 
-    type E = Spec;
-    type T = EphemeralHarnessType<E>;
+    type T = EphemeralHarnessType<Spec>;
 
-    fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
-        let harness = BeaconChainHarness::builder(Spec::default())
-            .default_spec()
-            .deterministic_keypairs(validator_count)
-            .fresh_ephemeral_store()
-            .build();
-
-        harness.advance_slot();
-
-        (harness.get_current_state(), harness.validator_keypairs)
-    }
-
-    fn get_store() -> BeaconStore<T> {
-        create_test_tracing_subscriber();
-        Arc::new(HotColdDB::open_ephemeral(<_>::default(), Arc::new(E::default_spec())).unwrap())
-    }
-
-    #[allow(clippy::needless_range_loop)]
-    fn check_cache_get(cache: &ValidatorPubkeyCache<T>, keypairs: &[Keypair]) {
-        let validator_count = keypairs.len();
-
-        for i in 0..validator_count + 1 {
-            if i < validator_count {
-                let pubkey = cache.get(i).expect("pubkey should be present");
-                assert_eq!(pubkey, &keypairs[i].pk, "pubkey should match cache");
-
-                let pubkey_bytes: PublicKeyBytes = pubkey.clone().into();
-
-                assert_eq!(
-                    i,
-                    cache
-                        .get_index(&pubkey_bytes)
-                        .expect("should resolve index"),
-                    "index should match cache"
-                );
-            } else {
-                assert_eq!(
-                    cache.get(i),
-                    None,
-                    "should not get pubkey for out of bounds index",
-                );
-            }
+    fn state_with_keys(count: u8) -> BeaconState<Spec> {
+        let mut state = BeaconState::new(0, Eth1Data::default(), &Spec::default_spec());
+        for i in 0..count {
+            state
+                .validators_mut()
+                .push(Validator {
+                    pubkey: [i; 32].into(),
+                    ..Validator::default()
+                })
+                .unwrap();
         }
+        state
+    }
+
+    fn store() -> BeaconStore<T> {
+        Arc::new(HotColdDB::open_ephemeral(<_>::default(), Arc::new(Spec::default_spec())).unwrap())
+    }
+
+    fn check_cache(cache: &ValidatorPubkeyCache<T>, count: u8) {
+        assert_eq!(cache.len(), usize::from(count));
+        for i in 0..count {
+            let pubkey = XmssPublicKey::from([i; 32]);
+            assert_eq!(cache.get(usize::from(i)), Some(&pubkey));
+            assert_eq!(cache.get_index(&pubkey), Some(usize::from(i)));
+        }
+        assert_eq!(cache.get(usize::from(count)), None);
     }
 
     #[test]
-    fn basic_operation() {
-        // >= 32 validators required for Gloas genesis under the mainnet preset (32 slots/epoch).
-        let (state, keypairs) = get_state(32);
+    fn initial_and_incremental_persistence() {
+        let store = store();
+        let cache = ValidatorPubkeyCache::new(&state_with_keys(32), store.clone()).unwrap();
+        check_cache(&cache, 32);
+        assert!(matches!(
+            cache.get_bls(0),
+            Err(signature_sets::Error::BeaconStateError(
+                BeaconStateError::BlsRegistryKeysUnavailable
+            ))
+        ));
 
-        let store = get_store();
+        let mut cache = ValidatorPubkeyCache::load_from_store(store.clone()).unwrap();
+        check_cache(&cache, 32);
+        assert!(
+            cache
+                .import_new_pubkeys(&state_with_keys(32))
+                .unwrap()
+                .is_empty()
+        );
 
-        let mut cache = ValidatorPubkeyCache::new(&state, store).expect("should create cache");
-
-        check_cache_get(&cache, &keypairs[..]);
-
-        // Try adding a state with the same number of keypairs.
-        let (state, keypairs) = get_state(32);
-        cache
-            .import_new_pubkeys(&state)
-            .expect("should import pubkeys");
-        check_cache_get(&cache, &keypairs[..]);
-
-        // Try adding a state with more keypairs.
-        let (state, keypairs) = get_state(48);
-        cache
-            .import_new_pubkeys(&state)
-            .expect("should import pubkeys");
-        check_cache_get(&cache, &keypairs[..]);
-    }
-
-    #[test]
-    fn persistence() {
-        let (state, keypairs) = get_state(32);
-
-        let store = get_store();
-
-        // Create a new cache.
-        let cache = ValidatorPubkeyCache::new(&state, store.clone()).expect("should create cache");
-        check_cache_get(&cache, &keypairs[..]);
-        drop(cache);
-
-        // Re-init the cache from the store.
-        let mut cache =
-            ValidatorPubkeyCache::load_from_store(store.clone()).expect("should open cache");
-        check_cache_get(&cache, &keypairs[..]);
-
-        // Add some more keypairs.
-        let (state, keypairs) = get_state(48);
-        let ops = cache
-            .import_new_pubkeys(&state)
-            .expect("should import pubkeys");
+        let ops = cache.import_new_pubkeys(&state_with_keys(48)).unwrap();
         store.do_atomically_with_block_and_blobs_cache(ops).unwrap();
-        check_cache_get(&cache, &keypairs[..]);
-        drop(cache);
+        check_cache(&cache, 48);
 
-        // Re-init the cache from the store.
-        let cache = ValidatorPubkeyCache::load_from_store(store).expect("should open cache");
-        check_cache_get(&cache, &keypairs[..]);
+        let cache = ValidatorPubkeyCache::load_from_store(store).unwrap();
+        check_cache(&cache, 48);
     }
 
     #[test]
-    fn parallel_import_maintains_order() {
-        // Test that parallel decompression on first startup maintains correct order and indices
-        let (state, keypairs) = get_state(100);
-        let store = get_store();
-
-        // Create cache from empty state (triggers parallel path)
-        let cache: ValidatorPubkeyCache<T> =
-            ValidatorPubkeyCache::new(&state, store).expect("should create cache");
-
-        check_cache_get(&cache, &keypairs[..]);
-    }
-
-    #[test]
-    fn incremental_import_maintains_order() {
-        // Test that incremental imports maintain correct order (triggers sequential path)
-        let store = get_store();
-
-        // Start with 50 validators
-        let (state1, keypairs1) = get_state(50);
-        let mut cache =
-            ValidatorPubkeyCache::new(&state1, store.clone()).expect("should create cache");
-        check_cache_get(&cache, &keypairs1[..]);
-
-        // Add 50 more validators
-        let (state2, keypairs2) = get_state(100);
-        let ops = cache
-            .import_new_pubkeys(&state2)
-            .expect("should import pubkeys");
-        store.do_atomically_with_block_and_blobs_cache(ops).unwrap();
-
-        // Verify all 100 validators are correctly indexed
-        check_cache_get(&cache, &keypairs2[..]);
+    fn duplicate_key_does_not_partially_update_cache() {
+        let mut cache = ValidatorPubkeyCache::new(&state_with_keys(2), store()).unwrap();
+        let mut state = state_with_keys(4);
+        state.validators_mut().get_mut(3).unwrap().pubkey = XmssPublicKey::empty();
+        assert!(matches!(
+            cache.import_new_pubkeys(&state),
+            Err(BeaconChainError::DuplicateValidatorPublicKey)
+        ));
+        check_cache(&cache, 2);
     }
 }

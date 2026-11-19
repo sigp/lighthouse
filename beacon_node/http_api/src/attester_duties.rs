@@ -225,7 +225,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
 
     let usize_indices = indices.iter().map(|i| *i as usize).collect::<Vec<_>>();
     let index_to_pubkey_map = chain
-        .validator_pubkey_bytes_many(&usize_indices)
+        .validator_bls_pubkey_bytes_many(&usize_indices)
         .map_err(warp_utils::reject::unhandled_error)?;
 
     let data = duties

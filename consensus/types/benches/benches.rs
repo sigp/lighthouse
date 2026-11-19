@@ -4,10 +4,7 @@ use rayon::prelude::*;
 use ssz::Encode;
 use std::hint::black_box;
 use std::sync::Arc;
-use types::{
-    BeaconState, Epoch, Eth1Data, EthSpec, Hash256, Spec, Validator,
-    test_utils::generate_deterministic_keypair,
-};
+use types::{BeaconState, Epoch, Eth1Data, EthSpec, Hash256, Spec, Validator};
 
 fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     let spec = &E::default_spec();
@@ -30,7 +27,8 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
         .collect::<Vec<_>>()
         .par_iter()
         .map(|&i| Validator {
-            pubkey: generate_deterministic_keypair(i).pk.compress(),
+            pubkey: Hash256::from_low_u64_le(i as u64).0.into(),
+            vrf_root: Hash256::from_low_u64_be(i as u64),
             withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
             effective_balance: spec.max_effective_balance,
             slashed: false,

@@ -2,7 +2,6 @@ use crate::StateId;
 use crate::caches::{HistoricalCommitteeCache, HistoricalShufflingId};
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::ResponseFilter;
-use crate::validator::pubkey_to_validator_index;
 use crate::version::{
     ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response,
@@ -777,14 +776,12 @@ pub fn get_beacon_state_validators_id<T: BeaconChainTypes>(
                             &chain,
                             |state, execution_optimistic, finalized| {
                                 let index_opt = match &validator_id {
-                                    ValidatorId::PublicKey(pubkey) => pubkey_to_validator_index(
-                                        &chain, state, pubkey,
-                                    )
-                                    .map_err(|e| {
-                                        warp_utils::reject::custom_not_found(format!(
-                                            "unable to access pubkey cache: {e:?}",
-                                        ))
-                                    })?,
+                                    ValidatorId::PublicKey(pubkey) => state
+                                        .find_validator_index(pubkey)
+                                        .map_err(warp_utils::reject::beacon_state_error)?,
+                                    ValidatorId::BlsPublicKey(_) => {
+                                        return Err(crate::validators::bls_id_unsupported());
+                                    }
                                     ValidatorId::Index(index) => Some(*index as usize),
                                 };
 

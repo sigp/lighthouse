@@ -950,7 +950,7 @@ impl<E: EthSpec> MockBuilder<E> {
         // a block on top of `head_block_root` for the given slot
         let val_index = validator_index.unwrap_or(
             self.beacon_client
-                .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(pubkey))
+                .get_beacon_states_validator_id(StateId::Head, &ValidatorId::BlsPublicKey(pubkey))
                 .await
                 .map_err(|_| "couldn't get validator".to_string())?
                 .ok_or_else(|| "missing validator".to_string())?

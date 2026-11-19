@@ -73,6 +73,7 @@ pub fn validator_inclusion_data<T: BeaconChainTypes>(
 
     let validator_index = match validator_id {
         ValidatorId::Index(index) => *index as usize,
+        ValidatorId::BlsPublicKey(_) => return Err(crate::validators::bls_id_unsupported()),
         ValidatorId::PublicKey(pubkey) => {
             if let Some(index) = state
                 .get_validator_index(pubkey)

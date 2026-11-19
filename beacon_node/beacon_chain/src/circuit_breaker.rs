@@ -22,10 +22,10 @@
 
 use std::collections::HashMap;
 
-use bls::PublicKeyBytes;
 use execution_layer::FailedCondition;
 use parking_lot::RwLock;
 use safe_arith::ArithError;
+use types::XmssPublicKey;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, Hash256, Slot};
 
@@ -93,7 +93,7 @@ pub struct CircuitBreaker {
     /// it empties.
     ///
     /// This lock is a leaf: it is never held while another lock is taken.
-    banned: RwLock<HashMap<PublicKeyBytes, Vec<BanEntry>>>,
+    banned: RwLock<HashMap<XmssPublicKey, Vec<BanEntry>>>,
 }
 
 impl CircuitBreaker {
@@ -176,7 +176,7 @@ impl CircuitBreaker {
     /// entry with its own expiry. Recording the same offending block twice is a no-op.
     pub fn ban_builder(
         &self,
-        pubkey: PublicKeyBytes,
+        pubkey: XmssPublicKey,
         block_root: Hash256,
         block_slot: Slot,
         detected_at: Slot,
@@ -203,7 +203,7 @@ impl CircuitBreaker {
     /// therefore stops banning, and one we re-org back to bans again.
     pub fn is_banned<E: EthSpec>(
         &self,
-        pubkey: &PublicKeyBytes,
+        pubkey: &XmssPublicKey,
         state: &BeaconState<E>,
         slot: Slot,
     ) -> bool {
@@ -223,7 +223,7 @@ impl CircuitBreaker {
     /// Always `false` when checks are disabled.
     pub fn is_banned_with(
         &self,
-        pubkey: &PublicKeyBytes,
+        pubkey: &XmssPublicKey,
         slot: Slot,
         is_canonical: impl Fn(&BanEntry) -> bool,
     ) -> bool {
@@ -453,10 +453,8 @@ mod tests {
         CircuitBreaker::new::<E>(config(skips, skips_per_epoch))
     }
 
-    fn pubkey(byte: u8) -> PublicKeyBytes {
-        let mut bytes = [0u8; 48];
-        bytes[0] = byte;
-        PublicKeyBytes::deserialize(&bytes).unwrap()
+    fn pubkey(byte: u8) -> XmssPublicKey {
+        [byte; 32].into()
     }
 
     fn root(byte: u8) -> Hash256 {

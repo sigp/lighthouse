@@ -773,7 +773,8 @@ pub fn apply_deposit<E: EthSpec>(
         }
 
         state.add_validator_to_registry(
-            deposit_data.pubkey,
+            compute_deposit_pubkey(&deposit_data.pubkey),
+            compute_deposit_vrf_root(&deposit_data.pubkey, &deposit_data.signature),
             deposit_data.withdrawal_credentials,
             if state.fork_name_unchecked() >= ForkName::Electra {
                 0
@@ -816,7 +817,10 @@ pub fn process_withdrawal_requests<E: EthSpec>(
         }
 
         // Verify pubkey exists
-        let Some(validator_index) = state.pubkey_cache().get(&request.validator_pubkey) else {
+        let Some(validator_index) = state
+            .pubkey_cache()
+            .get(&compute_deposit_pubkey(&request.validator_pubkey))
+        else {
             continue;
         };
 
@@ -945,17 +949,18 @@ fn process_builder_deposit_request<E: EthSpec>(
         return Ok(());
     }
 
+    let pubkey = compute_deposit_pubkey(&builder_deposit_request.pubkey);
     let builder_index = state
         .builders()?
         .iter()
-        .position(|builder| builder.pubkey == builder_deposit_request.pubkey);
+        .position(|builder| builder.pubkey == pubkey);
 
     match builder_index {
         None => {
             if builder_deposit_request.is_valid_builder_deposit_signature(spec) {
                 let slot = state.slot();
                 state.add_builder_to_registry(
-                    builder_deposit_request.pubkey,
+                    pubkey,
                     PAYLOAD_BUILDER_VERSION,
                     builder_deposit_request.withdrawal_credentials,
                     builder_deposit_request.amount,
@@ -1002,10 +1007,11 @@ fn process_builder_exit_request<E: EthSpec>(
     builder_exit_request: &BuilderExitRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let pubkey = compute_deposit_pubkey(&builder_exit_request.pubkey);
     let Some(builder_index) = state
         .builders()?
         .iter()
-        .position(|builder| builder.pubkey == builder_exit_request.pubkey)
+        .position(|builder| builder.pubkey == pubkey)
         .map(|i| i as u64)
     else {
         return Ok(());
@@ -1052,10 +1058,9 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
     }
 
     // Verify pubkey exists
-    let Some(source_index) = state
-        .pubkey_cache()
-        .get(&consolidation_request.source_pubkey)
-    else {
+    let Some(source_index) = state.pubkey_cache().get(&compute_deposit_pubkey(
+        &consolidation_request.source_pubkey,
+    )) else {
         // source validator doesn't exist
         return Ok(false);
     };
@@ -1102,10 +1107,9 @@ pub fn process_consolidation_request<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if is_valid_switch_to_compounding_request(state, consolidation_request, spec)? {
-        let Some(source_index) = state
-            .pubkey_cache()
-            .get(&consolidation_request.source_pubkey)
-        else {
+        let Some(source_index) = state.pubkey_cache().get(&compute_deposit_pubkey(
+            &consolidation_request.source_pubkey,
+        )) else {
             // source validator doesn't exist. This is unreachable as `is_valid_switch_to_compounding_request`
             // will return false in that case.
             return Ok(());
@@ -1128,17 +1132,15 @@ pub fn process_consolidation_request<E: EthSpec>(
         return Ok(());
     }
 
-    let Some(source_index) = state
-        .pubkey_cache()
-        .get(&consolidation_request.source_pubkey)
-    else {
+    let Some(source_index) = state.pubkey_cache().get(&compute_deposit_pubkey(
+        &consolidation_request.source_pubkey,
+    )) else {
         // source validator doesn't exist
         return Ok(());
     };
-    let Some(target_index) = state
-        .pubkey_cache()
-        .get(&consolidation_request.target_pubkey)
-    else {
+    let Some(target_index) = state.pubkey_cache().get(&compute_deposit_pubkey(
+        &consolidation_request.target_pubkey,
+    )) else {
         // target validator doesn't exist
         return Ok(());
     };

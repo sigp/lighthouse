@@ -444,7 +444,7 @@ impl ValidatorsAndDeposits {
                 match bn_http_client
                     .get_beacon_states_validator_id(
                         StateId::Head,
-                        &ValidatorId::PublicKey(voting_public_key),
+                        &ValidatorId::BlsPublicKey(voting_public_key),
                     )
                     .await
                 {

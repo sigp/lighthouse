@@ -260,7 +260,8 @@ pub struct FinalityCheckpointsData {
 #[serde(into = "String")]
 #[serde(try_from = "std::borrow::Cow<str>")]
 pub enum ValidatorId {
-    PublicKey(PublicKeyBytes),
+    PublicKey(XmssPublicKey),
+    BlsPublicKey(PublicKeyBytes),
     Index(u64),
 }
 
@@ -277,9 +278,12 @@ impl FromStr for ValidatorId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.starts_with("0x") {
+            if let Ok(pubkey) = XmssPublicKey::from_str(s) {
+                return Ok(ValidatorId::PublicKey(pubkey));
+            }
             PublicKeyBytes::from_str(s)
-                .map(ValidatorId::PublicKey)
-                .map_err(|e| format!("{} cannot be parsed as a public key: {}", s, e))
+                .map(ValidatorId::BlsPublicKey)
+                .map_err(|e| format!("{s} cannot be parsed as a validator public key: {e}"))
         } else {
             u64::from_str(s)
                 .map(ValidatorId::Index)
@@ -291,7 +295,8 @@ impl FromStr for ValidatorId {
 impl fmt::Display for ValidatorId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ValidatorId::PublicKey(pubkey) => write!(f, "{:?}", pubkey),
+            ValidatorId::PublicKey(pubkey) => write!(f, "{pubkey}"),
+            ValidatorId::BlsPublicKey(pubkey) => write!(f, "{pubkey:?}"),
             ValidatorId::Index(index) => write!(f, "{}", index),
         }
     }
@@ -307,7 +312,7 @@ impl From<ValidatorId> for String {
 #[serde(into = "String")]
 #[serde(try_from = "std::borrow::Cow<str>")]
 pub enum BuilderId {
-    PublicKey(PublicKeyBytes),
+    PublicKey(XmssPublicKey),
     Index(u64),
 }
 
@@ -324,7 +329,7 @@ impl FromStr for BuilderId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.starts_with("0x") {
-            PublicKeyBytes::from_str(s)
+            XmssPublicKey::from_str(s)
                 .map(BuilderId::PublicKey)
                 .map_err(|e| format!("{} cannot be parsed as a public key: {}", s, e))
         } else {
@@ -338,7 +343,7 @@ impl FromStr for BuilderId {
 impl fmt::Display for BuilderId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BuilderId::PublicKey(pubkey) => write!(f, "{:?}", pubkey),
+            BuilderId::PublicKey(pubkey) => write!(f, "{pubkey}"),
             BuilderId::Index(index) => write!(f, "{}", index),
         }
     }
@@ -372,7 +377,7 @@ pub struct ValidatorBalanceData {
 pub struct ValidatorIdentityData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
-    pub pubkey: PublicKeyBytes,
+    pub pubkey: XmssPublicKey,
     pub activation_epoch: Epoch,
 }
 

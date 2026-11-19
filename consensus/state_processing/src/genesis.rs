@@ -22,6 +22,9 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, BlockProcessingError> {
+    if spec.fork_name_at_slot::<E>(spec.genesis_slot) == ForkName::Pq {
+        return Err(BeaconStateError::PqUnsupported("initialize_beacon_state_from_eth1").into());
+    }
     let genesis_time = eth2_genesis_time(eth1_timestamp, spec)?;
     let eth1_data = Eth1Data {
         // Temporary deposit root

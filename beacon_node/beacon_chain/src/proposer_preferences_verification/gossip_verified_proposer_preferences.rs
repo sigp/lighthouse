@@ -182,8 +182,8 @@ impl GossipVerifiedProposerPreferences {
         let signature_is_valid = {
             let pubkey_cache = ctx.validator_pubkey_cache.read();
             let pubkey = pubkey_cache
-                .get(validator_index as usize)
-                .ok_or(ProposerPreferencesError::BadSignature)?;
+                .get_bls(validator_index as usize)
+                .map_err(BeaconChainError::SignatureSetError)?;
             signed_preferences.verify_signature::<T::EthSpec>(
                 pubkey,
                 &proposer.fork,

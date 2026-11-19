@@ -4043,6 +4043,69 @@ mod tests {
     use bls::Signature;
 
     #[test]
+    fn pq_genesis_snapshot_matches_ethpandaops() {
+        use crate::KeyValueStore;
+        use tree_hash::TreeHash;
+
+        type E = MinimalEthSpec;
+        let spec = Arc::new(ForkName::Pq.make_genesis_spec(E::default_spec()));
+
+        // eth-beacon-genesis #114 at 284025a0. The minimal preset includes eight
+        // validators and one builder. The generator and pinned pyspec agree on both roots.
+        let compressed = include_bytes!(
+            "../../../consensus/types/tests/fixtures/pq/minimal.ethpandaops-genesis.ssz.gz",
+        );
+        let mut bytes = Vec::new();
+        flate2::read::GzDecoder::new(compressed.as_slice())
+            .read_to_end(&mut bytes)
+            .unwrap();
+        let mut state = BeaconState::<E>::from_ssz_bytes(&bytes, &spec).unwrap();
+        let first_pubkey = state.get_validator(0).unwrap().pubkey;
+        assert_eq!(state.find_validator_index(&first_pubkey).unwrap(), Some(0));
+        state.build_caches(&spec).unwrap();
+        assert_eq!(state.get_validator_index(&first_pubkey).unwrap(), Some(0));
+
+        let state_root = "0xbef163ddd5580ae80e8243d5ff0f96556e60b299e093f666b8bac296659e75ff"
+            .parse()
+            .unwrap();
+        let validators_root: Hash256 =
+            "0x75db8015dc55970d1ae7de5acf3c1199a5f40b9d4496124adcc6000295d54a1c"
+                .parse()
+                .unwrap();
+
+        assert_eq!(state.validators().len(), 8);
+        assert_eq!(state.builders().unwrap().len(), 1);
+        assert_eq!(
+            state.validators_progressive().unwrap().tree_hash_root(),
+            validators_root
+        );
+        assert_eq!(state.genesis_validators_root(), validators_root);
+        assert_eq!(state.canonical_root().unwrap(), state_root);
+        assert_eq!(state.as_ssz_bytes(), bytes);
+        assert_eq!(
+            state_processing::genesis::genesis_block(&state, &spec)
+                .unwrap()
+                .body_root(),
+            state.latest_block_header().body_root
+        );
+
+        let store =
+            HotColdDB::<E, MemoryStore, MemoryStore>::open_ephemeral(StoreConfig::default(), spec)
+                .unwrap();
+        let anchor = store
+            .init_anchor_info(Hash256::ZERO, Slot::new(0), Slot::new(0), false)
+            .unwrap();
+        store.hot_db.do_atomically(vec![anchor]).unwrap();
+        store.put_state(&state_root, &state).unwrap();
+        let mut restored = store
+            .load_hot_state_as_snapshot(state_root)
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.as_ssz_bytes(), bytes);
+        assert_eq!(restored.canonical_root().unwrap(), state_root);
+    }
+
+    #[test]
     fn payload_pruning_fast_path_skips_withheld_gloas_blocks() {
         type E = Spec;
 

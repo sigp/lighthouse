@@ -146,7 +146,7 @@ fn get_non_aggregator(
             subcommittee.iter().find_map(|pubkey| {
                 let validator_index = harness
                     .chain
-                    .validator_index(pubkey)
+                    .validator_index(&types::compute_deposit_pubkey(pubkey))
                     .expect("should get validator index")
                     .expect("pubkey should exist in beacon chain");
 

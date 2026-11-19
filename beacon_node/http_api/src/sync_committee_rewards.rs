@@ -12,6 +12,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     block_id: BlockId,
     validators: Vec<ValidatorId>,
 ) -> Result<(Option<Vec<SyncCommitteeReward>>, ExecutionOptimistic, bool), warp::Rejection> {
+    crate::validators::validate_ids(&validators)?;
     let (block, execution_optimistic, finalized) = block_id.blinded_block(&chain)?;
 
     let mut state = get_state_before_applying_block(chain.clone(), &block)?;
@@ -32,6 +33,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
                 .filter(|reward| {
                     validators.iter().any(|validator| match validator {
                         ValidatorId::Index(i) => reward.validator_index == *i,
+                        ValidatorId::BlsPublicKey(_) => false,
                         ValidatorId::PublicKey(pubkey) => match state.get_validator_index(pubkey) {
                             Ok(Some(i)) => reward.validator_index == i as u64,
                             _ => false,

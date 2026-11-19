@@ -326,7 +326,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
                 let keypair = &validator_keypairs[validator_index];
                 genesis_state
                     .add_builder_to_registry(
-                        PublicKeyBytes::from(&keypair.pk),
+                        types::compute_deposit_pubkey(&keypair.pk.compress()),
                         PAYLOAD_BUILDER_VERSION,
                         builder_withdrawal_credentials(&keypair.pk, spec),
                         balance,
@@ -967,10 +967,11 @@ where
             .get_execution_withdrawal_address(&self.spec)
             .expect("validator should have execution withdrawal address");
 
+        let pubkey = types::encode_deposit_pubkey(validator.pubkey).expect("valid deposit key");
         ConsolidationRequest {
             source_address,
-            source_pubkey: validator.pubkey,
-            target_pubkey: validator.pubkey,
+            source_pubkey: pubkey,
+            target_pubkey: pubkey,
         }
     }
 
@@ -1414,7 +1415,7 @@ where
         let keypair = self
             .validator_keypairs
             .iter()
-            .find(|keypair| PublicKeyBytes::from(&keypair.pk) == builder_pubkey)
+            .find(|keypair| types::compute_deposit_pubkey(&keypair.pk.compress()) == builder_pubkey)
             .expect("builder keypair should belong to a harness validator");
         let epoch = slot.epoch(E::slots_per_epoch());
         let domain = self.spec.get_domain(
@@ -1489,7 +1490,7 @@ where
         let keypair = self
             .validator_keypairs
             .iter()
-            .find(|keypair| PublicKeyBytes::from(&keypair.pk) == builder_pubkey)
+            .find(|keypair| types::compute_deposit_pubkey(&keypair.pk.compress()) == builder_pubkey)
             .expect("builder keypair should belong to a harness validator");
         let epoch = post_state.slot().epoch(E::slots_per_epoch());
         let domain = self.spec.get_domain(
@@ -2409,7 +2410,7 @@ where
                     .map(|(subcommittee_position, pubkey)| {
                         let validator_index = self
                             .chain
-                            .validator_index(pubkey)
+                            .validator_index(&types::compute_deposit_pubkey(pubkey))
                             .expect("should find validator index")
                             .expect("pubkey should exist in the beacon chain");
 
@@ -2840,7 +2841,7 @@ where
                         .find_map(|pubkey| {
                             let validator_index = self
                                 .chain
-                                .validator_index(pubkey)
+                                .validator_index(&types::compute_deposit_pubkey(pubkey))
                                 .expect("should find validator index")
                                 .expect("pubkey should exist in the beacon chain");
 

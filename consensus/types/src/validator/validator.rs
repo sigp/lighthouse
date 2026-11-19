@@ -1,4 +1,3 @@
-use bls::PublicKeyBytes;
 use context_deserialize::context_deserialize;
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -6,6 +5,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    XmssPublicKey,
     attestation::Checkpoint,
     core::{Address, ChainSpec, Epoch, EthSpec, Hash256},
     fork::ForkName,
@@ -14,12 +14,13 @@ use crate::{
 
 /// Information about a `BeaconChain` validator.
 ///
-/// Spec v0.12.1
+/// Registry entry in the PQ beacon state.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct Validator {
-    pub pubkey: PublicKeyBytes,
+    pub pubkey: XmssPublicKey,
+    pub vrf_root: Hash256,
     pub withdrawal_credentials: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub effective_balance: u64,
@@ -33,7 +34,8 @@ pub struct Validator {
 impl Validator {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn from_deposit(
-        pubkey: PublicKeyBytes,
+        pubkey: XmssPublicKey,
+        vrf_root: Hash256,
         withdrawal_credentials: Hash256,
         amount: u64,
         fork_name: ForkName,
@@ -41,6 +43,7 @@ impl Validator {
     ) -> Self {
         let mut validator = Validator {
             pubkey,
+            vrf_root,
             withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,
@@ -292,7 +295,8 @@ impl Default for Validator {
     /// Yields a "default" `Validator`. Primarily used for testing.
     fn default() -> Self {
         Self {
-            pubkey: PublicKeyBytes::empty(),
+            pubkey: XmssPublicKey::empty(),
+            vrf_root: Hash256::ZERO,
             withdrawal_credentials: Hash256::zero(),
             activation_eligibility_epoch: Epoch::from(u64::MAX),
             activation_epoch: Epoch::from(u64::MAX),

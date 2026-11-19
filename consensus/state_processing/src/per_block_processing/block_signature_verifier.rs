@@ -83,7 +83,7 @@ impl From<BlockOperationError<PayloadAttestationInvalid>> for Error {
 pub struct BlockSignatureVerifier<'a, E, F, D>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    F: Fn(usize) -> super::signature_sets::Result<Cow<'a, PublicKey>> + Clone,
     D: Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 {
     get_pubkey: F,
@@ -107,7 +107,7 @@ impl<'a> From<Vec<SignatureSet<'a>>> for ParallelSignatureSets<'a> {
 impl<'a, E, F, D> BlockSignatureVerifier<'a, E, F, D>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    F: Fn(usize) -> super::signature_sets::Result<Cow<'a, PublicKey>> + Clone,
     D: Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 {
     /// Create a new verifier without any included signatures. See the `include...` functions to
@@ -412,7 +412,7 @@ where
             // TODO(gloas): if we implement a global builder pubkey cache we need to inject it here
             if let Some(signature_set) = execution_payload_bid_signature_set(
                 self.state,
-                |builder_index| get_builder_pubkey_from_state(self.state, builder_index),
+                |builder_index| get_bls_builder_pubkey_from_state(self.state, builder_index),
                 signed_execution_payload_bid,
                 self.spec,
             )? {

@@ -84,6 +84,7 @@ use state_processing::per_block_processing::errors::IntoWithIndex;
 use state_processing::per_block_processing::{
     process_operations::verify_operation_list_lengths, verify_execution_request_list_lengths,
 };
+use state_processing::signature_sets;
 use state_processing::{
     AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext,
     GloasVerificationContext, SlotProcessingError, VerifyBlockRoot,
@@ -719,8 +720,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     }
 
     // verify signatures
-    let pubkey_cache = get_validator_pubkey_cache(chain)?;
-    let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+    let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
     for svb in &mut signature_verified_blocks {
         signature_verifier
             .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
@@ -729,8 +729,6 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     if signature_verifier.verify().is_err() {
         return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
     }
-
-    drop(pubkey_cache);
 
     if let Some(signature_verified_block) = signature_verified_blocks.first_mut() {
         signature_verified_block.parent = Some(parent);
@@ -1082,8 +1080,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let signature_is_valid = {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
-                .get(block.message().proposer_index() as usize)
-                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
+                .get_bls(block.message().proposer_index() as usize)
+                .map_err(BeaconChainError::SignatureSetError)?;
             block.verify_signature(
                 Some(block_root),
                 pubkey,
@@ -1229,9 +1227,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
-
-        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+        let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
 
         let mut consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
@@ -1246,13 +1242,15 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 parent: Some(parent),
             })
         } else {
-            // Re-verify the proposer signature in isolation to attribute fault
-            let pubkey = pubkey_cache
-                .get(block.message().proposer_index() as usize)
-                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
+            // Re-verify the proposer signature in isolation to attribute fault.
+            let pubkey = signature_sets::get_bls_pubkey_from_state(
+                &state,
+                block.message().proposer_index() as usize,
+            )
+            .map_err(BeaconChainError::SignatureSetError)?;
             if block.as_block().verify_signature(
                 Some(block_root),
-                pubkey,
+                pubkey.as_ref(),
                 &state.fork(),
                 chain.genesis_validators_root,
                 &chain.spec,
@@ -1301,9 +1299,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
-
-        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+        let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
 
         // Gossip verification has already checked the proposer index. Use it to check the RANDAO
         // signature.
@@ -2250,31 +2246,21 @@ pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
 /// The signature verifier is empty because it does not yet have any of this block's signatures
 /// added to it. Use `Self::apply_to_signature_verifier` to apply the signatures.
 #[allow(clippy::type_complexity)]
-fn get_signature_verifier<'a, T: BeaconChainTypes>(
-    state: &'a BeaconState<T::EthSpec>,
-    validator_pubkey_cache: &'a ValidatorPubkeyCache<T>,
+fn get_signature_verifier<'a, E: EthSpec>(
+    state: &'a BeaconState<E>,
     spec: &'a ChainSpec,
 ) -> BlockSignatureVerifier<
     'a,
-    T::EthSpec,
-    impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    E,
+    impl Fn(usize) -> signature_sets::Result<Cow<'a, PublicKey>> + Clone,
     impl Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 > {
-    // The pubkey cache can lag behind `state`: validators may be added to the registry by epoch
-    // processing before any block from that epoch has been imported. Keys for validators beyond the
-    // end of the cache are read from `state`, and validators that are not in `state` are rejected.
-    let get_pubkey =
-        move |validator_index| validator_pubkey_cache.get_for_state(state, validator_index);
-
-    let decompressor = move |pk_bytes: &'a PublicKeyBytes| {
-        // Use the cached key if `pk_bytes` belongs to a cached validator, otherwise decompress it.
-        validator_pubkey_cache
-            .get_pubkey_from_pubkey_bytes(pk_bytes)
-            .map(Cow::Borrowed)
-            .or_else(|| pk_bytes.decompress().ok().map(Cow::Owned))
-    };
-
-    BlockSignatureVerifier::new(state, get_pubkey, decompressor, spec)
+    BlockSignatureVerifier::new(
+        state,
+        |index| signature_sets::get_bls_pubkey_from_state(state, index),
+        |pubkey| pubkey.decompress().ok().map(Cow::Owned),
+        spec,
+    )
 }
 
 /// Verify that `header` was signed with a valid signature from its proposer.
@@ -2285,9 +2271,12 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     header: &SignedBeaconBlockHeaderBase,
 ) -> Result<(), Err> {
     let proposer_pubkey = get_validator_pubkey_cache(chain)?
-        .get(header.message.proposer_index as usize)
+        .get_bls(header.message.proposer_index as usize)
         .cloned()
-        .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
+        .map_err(|error| match error {
+            signature_sets::Error::ValidatorUnknown(index) => Err::unknown_validator_error(index),
+            error => BeaconChainError::SignatureSetError(error).into(),
+        })?;
     let fork = chain
         .spec
         .fork_at_epoch(header.message.slot.epoch(T::EthSpec::slots_per_epoch()));

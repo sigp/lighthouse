@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use bls::{Keypair, PublicKeyBytes, Signature};
+use bls::{Keypair, Signature};
 use ethereum_hashing::hash;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
@@ -107,7 +107,7 @@ impl TestContext {
             let creds = builder_withdrawal_credentials(&keypair.pk, &spec);
             state
                 .add_builder_to_registry(
-                    PublicKeyBytes::from(keypair.pk.clone()),
+                    types::compute_deposit_pubkey(&keypair.pk.compress()),
                     PAYLOAD_BUILDER_VERSION,
                     creds,
                     BUILDER_BALANCE,
@@ -128,7 +128,7 @@ impl TestContext {
         let inactive_creds = builder_withdrawal_credentials(&inactive_keypair.pk, &spec);
         let inactive_builder_index = state
             .add_builder_to_registry(
-                PublicKeyBytes::from(inactive_keypair.pk.clone()),
+                types::compute_deposit_pubkey(&inactive_keypair.pk.compress()),
                 PAYLOAD_BUILDER_VERSION,
                 inactive_creds,
                 BUILDER_BALANCE,
@@ -731,7 +731,7 @@ fn parent_payload_exits_builder_on_matching_exit_request() {
         exit_test_parent_root(),
         BuilderExitRequest {
             source_address: builder.execution_address,
-            pubkey: builder.pubkey,
+            pubkey: types::encode_deposit_pubkey(builder.pubkey).unwrap(),
         },
     );
 
@@ -760,7 +760,7 @@ fn parent_payload_exit_from_other_address_does_not_exit_builder() {
         exit_test_parent_root(),
         BuilderExitRequest {
             source_address: Address::repeat_byte(0xee),
-            pubkey: builder.pubkey,
+            pubkey: types::encode_deposit_pubkey(builder.pubkey).unwrap(),
         },
     );
 
@@ -810,7 +810,7 @@ fn parent_payload_exit_check_uses_summary_after_body_pruning() {
         exit_test_parent_root(),
         BuilderExitRequest {
             source_address: builder.execution_address,
-            pubkey: builder.pubkey,
+            pubkey: types::encode_deposit_pubkey(builder.pubkey).unwrap(),
         },
     );
     ctx.store
@@ -1037,7 +1037,7 @@ fn bid_state_conditions_reject_wrong_version_before_coverage() {
     let keypair = &ctx.keypairs[NUM_BUILDERS + 1];
     let builder_index = state
         .add_builder_to_registry(
-            PublicKeyBytes::from(keypair.pk.clone()),
+            types::compute_deposit_pubkey(&keypair.pk.compress()),
             PAYLOAD_BUILDER_VERSION + 1,
             builder_withdrawal_credentials(&keypair.pk, &ctx.spec),
             BUILDER_BALANCE,

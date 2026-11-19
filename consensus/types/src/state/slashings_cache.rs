@@ -69,13 +69,13 @@ impl SlashingsCache {
 mod tests {
     use super::*;
     use crate::{Epoch, Hash256};
-    use bls::PublicKeyBytes;
 
     /// Build a minimal validator with the given `slashed` flag. The other fields are irrelevant to
     /// the slashings cache.
     fn validator(slashed: bool) -> Validator {
         Validator {
-            pubkey: PublicKeyBytes::empty(),
+            pubkey: crate::XmssPublicKey::empty(),
+            vrf_root: Hash256::ZERO,
             withdrawal_credentials: Hash256::ZERO,
             effective_balance: 0,
             slashed,

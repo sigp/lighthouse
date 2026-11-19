@@ -1,6 +1,5 @@
 //! Hierarchical diff implementation.
 use crate::{DBColumn, StoreConfig, StoreItem, metrics};
-use bls::PublicKeyBytes;
 use itertools::Itertools;
 use milhouse::List;
 use serde::{Deserialize, Serialize};
@@ -9,12 +8,9 @@ use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
-use std::sync::LazyLock;
 use superstruct::superstruct;
 use types::state::HistoricalSummary;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, Validator};
-
-static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
 
 #[derive(Debug)]
 pub enum Error {
@@ -23,6 +19,8 @@ pub enum Error {
     UnableToComputeDiff(xdelta3::Error),
     UnableToApplyDiff(xdelta3::Error),
     BalancesIncompleteChunk,
+    InvalidValidatorDiff(ssz::DecodeError),
+    InvalidValidatorDiffIndex(u64),
     Compression(std::io::Error),
     InvalidSszState(ssz::DecodeError),
     InvalidBalancesLength,
@@ -135,8 +133,7 @@ pub struct HDiff {
     /// The validators array represents the vast majority of data in a BeaconState. Due to its big
     /// size we have seen the performance of xdelta3 degrade. Comparing each entry of the
     /// validators array manually significantly speeds up the computation of the diff (+10x faster)
-    /// and result in the same minimal diff. As the `Validator` record is unlikely to change,
-    /// maintaining this extra complexity should be okay.
+    /// and yields a similarly small diff.
     validators_diff: ValidatorsDiff,
     /// `historical_roots` is an unbounded forever growing (after Capella it's
     /// historical_summaries) list of unique roots. This data is pure entropy so there's no point
@@ -449,71 +446,10 @@ impl ValidatorsDiff {
             .iter()
             .enumerate()
             .filter_map(|(i, y)| {
-                let validator_diff = if let Some(x) = xs.get(i) {
-                    if y == x {
-                        return None;
-                    } else {
-                        let pubkey_changed = y.pubkey != x.pubkey;
-                        // Note: If researchers attempt to change the Validator container, go quickly to
-                        // All Core Devs and push hard to add another List in the BeaconState instead.
-                        Validator {
-                            // The pubkey can be changed on index re-use
-                            pubkey: if pubkey_changed {
-                                y.pubkey
-                            } else {
-                                PublicKeyBytes::empty()
-                            },
-                            // withdrawal_credentials can be set to zero initially but can never be
-                            // changed INTO zero. On index re-use it can be set to zero, but in that
-                            // case the pubkey will also change.
-                            withdrawal_credentials: if pubkey_changed
-                                || y.withdrawal_credentials != x.withdrawal_credentials
-                            {
-                                y.withdrawal_credentials
-                            } else {
-                                Hash256::ZERO
-                            },
-                            // effective_balance can increase and decrease
-                            effective_balance: y
-                                .effective_balance
-                                .wrapping_sub(x.effective_balance),
-                            // slashed can only change from false into true. In an index re-use it can
-                            // switch back to false, but in that case the pubkey will also change.
-                            slashed: y.slashed,
-                            // activation_eligibility_epoch can never be zero under any case. It's
-                            // set to either FAR_FUTURE_EPOCH or get_current_epoch(state) + 1
-                            activation_eligibility_epoch: if y.activation_eligibility_epoch
-                                != x.activation_eligibility_epoch
-                            {
-                                y.activation_eligibility_epoch
-                            } else {
-                                Epoch::new(0)
-                            },
-                            // activation_epoch can never be zero under any case. It's
-                            // set to either FAR_FUTURE_EPOCH or epoch + 1 + MAX_SEED_LOOKAHEAD
-                            activation_epoch: if y.activation_epoch != x.activation_epoch {
-                                y.activation_epoch
-                            } else {
-                                Epoch::new(0)
-                            },
-                            // exit_epoch can never be zero under any case. It's set to either
-                            // FAR_FUTURE_EPOCH or > epoch + 1 + MAX_SEED_LOOKAHEAD
-                            exit_epoch: if y.exit_epoch != x.exit_epoch {
-                                y.exit_epoch
-                            } else {
-                                Epoch::new(0)
-                            },
-                            // withdrawable_epoch can never be zero under any case. It's set to
-                            // either FAR_FUTURE_EPOCH or > epoch + 1 + MAX_SEED_LOOKAHEAD
-                            withdrawable_epoch: if y.withdrawable_epoch != x.withdrawable_epoch {
-                                y.withdrawable_epoch
-                            } else {
-                                Epoch::new(0)
-                            },
-                        }
-                    }
-                } else {
-                    y.clone()
+                let validator_diff = match xs.get(i) {
+                    Some(x) if x == y => return None,
+                    Some(x) => xor_validator(x, y),
+                    None => y.clone(),
                 };
 
                 Some(ValidatorDiffEntry {
@@ -543,39 +479,16 @@ impl ValidatorsDiff {
                 index,
                 validator_diff: diff,
             } = ValidatorDiffEntry::from_ssz_bytes(diff_bytes)
-                .map_err(|_| Error::BalancesIncompleteChunk)?;
+                .map_err(Error::InvalidValidatorDiff)?;
 
-            if let Some(x) = xs.get_mut(index as usize) {
-                // Note: a pubkey change implies index re-use. In that case over-write
-                // withdrawal_credentials and slashed inconditionally as their default values
-                // are valid values.
-                let pubkey_changed = diff.pubkey != *EMPTY_PUBKEY;
-                if pubkey_changed {
-                    x.pubkey = diff.pubkey;
-                }
-                if pubkey_changed || diff.withdrawal_credentials != Hash256::ZERO {
-                    x.withdrawal_credentials = diff.withdrawal_credentials;
-                }
-                if diff.effective_balance != 0 {
-                    x.effective_balance = x.effective_balance.wrapping_add(diff.effective_balance);
-                }
-                if pubkey_changed || diff.slashed {
-                    x.slashed = diff.slashed;
-                }
-                if diff.activation_eligibility_epoch != Epoch::new(0) {
-                    x.activation_eligibility_epoch = diff.activation_eligibility_epoch;
-                }
-                if diff.activation_epoch != Epoch::new(0) {
-                    x.activation_epoch = diff.activation_epoch;
-                }
-                if diff.exit_epoch != Epoch::new(0) {
-                    x.exit_epoch = diff.exit_epoch;
-                }
-                if diff.withdrawable_epoch != Epoch::new(0) {
-                    x.withdrawable_epoch = diff.withdrawable_epoch;
-                }
+            let index_usize =
+                usize::try_from(index).map_err(|_| Error::InvalidValidatorDiffIndex(index))?;
+            if let Some(x) = xs.get_mut(index_usize) {
+                *x = xor_validator(x, &diff);
+            } else if index_usize == xs.len() {
+                xs.push(diff);
             } else {
-                xs.push(diff)
+                return Err(Error::InvalidValidatorDiffIndex(index));
             }
         }
 
@@ -585,6 +498,34 @@ impl ValidatorsDiff {
     /// Byte size of this instance
     pub fn size(&self) -> usize {
         self.bytes.len()
+    }
+}
+
+// XOR leaves unchanged fields zero and preserves all field values, including a zero key
+// or VRF root when a validator index is reused. Applying the XOR again recovers the new entry.
+fn xor_validator(left: &Validator, right: &Validator) -> Validator {
+    let mut pubkey = left.pubkey.to_bytes();
+    for (byte, other_byte) in pubkey.iter_mut().zip(right.pubkey.as_bytes()) {
+        *byte ^= other_byte;
+    }
+
+    Validator {
+        pubkey: pubkey.into(),
+        vrf_root: left.vrf_root ^ right.vrf_root,
+        withdrawal_credentials: left.withdrawal_credentials ^ right.withdrawal_credentials,
+        effective_balance: left.effective_balance ^ right.effective_balance,
+        slashed: left.slashed ^ right.slashed,
+        activation_eligibility_epoch: Epoch::new(
+            left.activation_eligibility_epoch.as_u64()
+                ^ right.activation_eligibility_epoch.as_u64(),
+        ),
+        activation_epoch: Epoch::new(
+            left.activation_epoch.as_u64() ^ right.activation_epoch.as_u64(),
+        ),
+        exit_epoch: Epoch::new(left.exit_epoch.as_u64() ^ right.exit_epoch.as_u64()),
+        withdrawable_epoch: Epoch::new(
+            left.withdrawable_epoch.as_u64() ^ right.withdrawable_epoch.as_u64(),
+        ),
     }
 }
 
@@ -913,7 +854,7 @@ mod tests {
 
     #[test]
     fn compressed_validators_diff() {
-        assert_eq!(<ValidatorDiffEntry as Decode>::ssz_fixed_len(), 129);
+        assert_eq!(<ValidatorDiffEntry as Decode>::ssz_fixed_len(), 145);
 
         let mut rng = rng();
         let config = &StoreConfig::default();
@@ -930,13 +871,71 @@ mod tests {
         assert_eq!(xs_out, ys);
     }
 
+    #[test]
+    fn pq_state_diff_round_trip() {
+        use std::io::Read;
+        use types::{ForkName, MinimalEthSpec, XmssPublicKey};
+
+        let spec = ForkName::Pq.make_genesis_spec(MinimalEthSpec::default_spec());
+        let compressed = include_bytes!(
+            "../../../consensus/types/tests/fixtures/pq/minimal.state-populated.ssz.gz",
+        );
+        let mut bytes = Vec::new();
+        flate2::read::GzDecoder::new(compressed.as_slice())
+            .read_to_end(&mut bytes)
+            .unwrap();
+        let source = BeaconState::<MinimalEthSpec>::from_ssz_bytes(&bytes, &spec).unwrap();
+        let mut target = source.clone();
+
+        // Update one VRF root without changing its key. Reuse another index with a zero key
+        // and zero VRF root. Exercise validator append and a builder update in the same diff.
+        target.validators_mut().get_mut(0).unwrap().vrf_root = Hash256::ZERO;
+        let reused = Validator {
+            pubkey: XmssPublicKey::empty(),
+            vrf_root: Hash256::ZERO,
+            withdrawal_credentials: Hash256::ZERO,
+            activation_eligibility_epoch: Epoch::new(0),
+            activation_epoch: Epoch::new(0),
+            exit_epoch: Epoch::new(0),
+            withdrawable_epoch: Epoch::new(0),
+            effective_balance: 0,
+            slashed: false,
+        };
+        *target.validators_mut().get_mut(1).unwrap() = reused;
+        target
+            .add_validator_to_registry(
+                XmssPublicKey::from([9; 32]),
+                Hash256::repeat_byte(8),
+                Hash256::repeat_byte(7),
+                32_000_000_000,
+                &spec,
+            )
+            .unwrap();
+        target.builders_mut().unwrap().get_mut(0).unwrap().balance = 1;
+        let target_root = target.canonical_root().unwrap();
+
+        let config = StoreConfig::default();
+        let mut source = HDiffBuffer::from_state(source);
+        let diff =
+            HDiff::compute(&source, &HDiffBuffer::from_state(target.clone()), &config).unwrap();
+        HDiff::from_store_bytes(&diff.as_store_bytes())
+            .unwrap()
+            .apply(&mut source, &config)
+            .unwrap();
+        let mut restored = source.as_state::<MinimalEthSpec>(&spec).unwrap();
+
+        assert_eq!(restored.as_ssz_bytes(), target.as_ssz_bytes());
+        assert_eq!(restored.canonical_root().unwrap(), target_root);
+    }
+
     fn rand_validator(mut rng: impl Rng) -> Validator {
-        let mut pubkey = [0u8; 48];
-        rng.fill_bytes(&mut pubkey);
+        let pubkey: [u8; 32] = rng.random();
+        let vrf_root: [u8; 32] = rng.random();
         let withdrawal_credentials: [u8; 32] = rng.random();
 
         Validator {
-            pubkey: PublicKeyBytes::from_ssz_bytes(&pubkey).unwrap(),
+            pubkey: pubkey.into(),
+            vrf_root: vrf_root.into(),
             withdrawal_credentials: withdrawal_credentials.into(),
             slashed: false,
             effective_balance: 32_000_000_000,

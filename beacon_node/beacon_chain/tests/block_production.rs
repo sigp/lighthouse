@@ -5,7 +5,6 @@ use beacon_chain::{
     payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
     test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec},
 };
-use bls::PublicKeyBytes;
 use eth2::types::{BuilderConfig, GraffitiPolicy};
 use ethereum_hashing::hash;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
@@ -61,7 +60,7 @@ async fn gloas_block_production_filters_exits_with_parent_partial_withdrawals() 
         .withdrawals
         .push(WithdrawalRequest {
             source_address: withdrawal_address,
-            validator_pubkey: harness.get_current_state().get_validator(0).unwrap().pubkey,
+            validator_pubkey: harness.validator_keypairs[0].pk.compress(),
             amount: withdrawal_amount,
         })
         .unwrap();
@@ -187,7 +186,7 @@ impl BuilderOnlyProposer {
         credentials[12..].copy_from_slice(&hash(&builder_keypair.pk.as_ssz_bytes())[0..20]);
         genesis_state
             .add_builder_to_registry(
-                PublicKeyBytes::from(builder_keypair.pk.clone()),
+                types::compute_deposit_pubkey(&builder_keypair.pk.compress()),
                 PAYLOAD_BUILDER_VERSION,
                 Hash256::from(credentials),
                 BUILDER_BALANCE,

@@ -1,5 +1,4 @@
-use crate::{Address, BeaconStateError, ChainSpec, Epoch, ForkName, Hash256};
-use bls::PublicKeyBytes;
+use crate::{Address, BeaconStateError, ChainSpec, Epoch, ForkName, Hash256, XmssPublicKey};
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -11,7 +10,7 @@ pub type BuilderIndex = u64;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct Builder {
-    pub pubkey: PublicKeyBytes,
+    pub pubkey: XmssPublicKey,
     #[serde(with = "serde_utils::quoted_u8")]
     pub version: u8,
     pub execution_address: Address,
@@ -25,7 +24,7 @@ impl Builder {
     /// Construct a new registry entry from deposit data, extracting the execution address
     /// from the withdrawal credentials.
     pub fn from_deposit(
-        pubkey: PublicKeyBytes,
+        pubkey: XmssPublicKey,
         version: u8,
         withdrawal_credentials: Hash256,
         amount: u64,

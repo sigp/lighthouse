@@ -1,5 +1,5 @@
 use super::errors::{BlockOperationError, IndexedAttestationInvalid as Invalid};
-use super::signature_sets::{get_pubkey_from_state, indexed_attestation_signature_set};
+use super::signature_sets::{get_bls_pubkey_from_state, indexed_attestation_signature_set};
 use crate::VerifySignatures;
 use itertools::Itertools;
 use typenum::Unsigned;
@@ -54,7 +54,7 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
         verify!(
             indexed_attestation_signature_set(
                 state,
-                |i| get_pubkey_from_state(state, i),
+                |i| get_bls_pubkey_from_state(state, i),
                 indexed_attestation.signature().map_err(|_| {
                     super::signature_sets::Error::PqUnsupported("IndexedAttestation")
                 })?,

@@ -131,8 +131,8 @@ impl GossipVerifiedExecutionProof {
         {
             let pubkey_cache = ctx.validator_pubkey_cache.read();
             let pubkey = pubkey_cache
-                .get(validator_index as usize)
-                .ok_or(Error::UnknownValidatorIndex(validator_index))?;
+                .get_bls(validator_index as usize)
+                .map_err(BeaconChainError::SignatureSetError)?;
             if !proof.signature.verify(pubkey, signing_root) {
                 return Err(Error::InvalidSignature);
             }

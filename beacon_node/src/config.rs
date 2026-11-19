@@ -5,7 +5,6 @@ use beacon_chain::chain_config::{
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
-use bls::PublicKeyBytes;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_optional, parse_required};
@@ -27,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use tracing::{info, warn};
+use types::XmssPublicKey;
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256};
 
@@ -736,7 +736,7 @@ pub fn get_config<E: EthSpec>(
     if let Some(pubkeys) = cli_args.get_one::<String>("validator-monitor-pubkeys") {
         let pubkeys = pubkeys
             .split(',')
-            .map(PublicKeyBytes::from_str)
+            .map(XmssPublicKey::from_str)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --validator-monitor-pubkeys value: {:?}", e))?;
         client_config
@@ -755,7 +755,7 @@ pub fn get_config<E: EthSpec>(
         let pubkeys = string
             .trim_end() // Remove trailing white space
             .split(',')
-            .map(PublicKeyBytes::from_str)
+            .map(XmssPublicKey::from_str)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --validator-monitor-file contents: {:?}", e))?;
         client_config

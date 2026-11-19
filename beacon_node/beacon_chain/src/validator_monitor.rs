@@ -32,6 +32,7 @@ use types::{
     IndexedAttestationRef, ProposerSlashingBase, SignedAggregateAndProof,
     SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
+use types::{XmssPublicKey, compute_deposit_pubkey};
 
 /// Used for Prometheus labels.
 ///
@@ -61,7 +62,7 @@ pub const MISSED_BLOCK_LOOKBACK_EPOCHS: u64 = 1;
 // Initial configuration values for the `ValidatorMonitor`.
 pub struct ValidatorMonitorConfig {
     pub auto_register: bool,
-    pub validators: Vec<PublicKeyBytes>,
+    pub validators: Vec<XmssPublicKey>,
     pub individual_tracking_threshold: usize,
 }
 
@@ -292,7 +293,7 @@ pub struct MonitoredValidator {
 }
 
 impl MonitoredValidator {
-    fn new(pubkey: PublicKeyBytes, index: Option<u64>) -> Self {
+    fn new(pubkey: XmssPublicKey, index: Option<u64>) -> Self {
         Self {
             id: index
                 .map(|i| i.to_string())
@@ -387,9 +388,9 @@ struct MissedBlock {
 /// validators that they are interested in.
 pub struct ValidatorMonitor<E: EthSpec> {
     /// The validators that require additional monitoring.
-    validators: HashMap<PublicKeyBytes, MonitoredValidator>,
+    validators: HashMap<XmssPublicKey, MonitoredValidator>,
     /// A map of validator index (state.validators) to a validator public key.
-    indices: HashMap<u64, PublicKeyBytes>,
+    indices: HashMap<u64, XmssPublicKey>,
     /// If true, allow the automatic registration of validators.
     auto_register: bool,
     /// Once the number of monitored validators goes above this threshold, we
@@ -441,7 +442,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Add some validators to `self` for additional monitoring.
-    pub fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
+    pub fn add_validator_pubkey(&mut self, pubkey: XmssPublicKey) {
         let index_opt = self
             .indices
             .iter()
@@ -982,7 +983,11 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 // is available right after state transition to state.epoch.
                 let current_epoch = epoch - 1;
                 if let Some(sync_committee) = summary.sync_committee() {
-                    if sync_committee.contains(pubkey) {
+                    if sync_committee
+                        .pubkeys
+                        .iter()
+                        .any(|key| compute_deposit_pubkey(key) == *pubkey)
+                    {
                         if self.individual_tracking() {
                             metrics::set_int_gauge(
                                 &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
@@ -1670,7 +1675,10 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         }
 
         for validator_pubkey in participant_pubkeys.iter() {
-            if let Some(validator) = self.validators.get(validator_pubkey) {
+            if let Some(validator) = self
+                .validators
+                .get(&compute_deposit_pubkey(validator_pubkey))
+            {
                 let id = &validator.id;
 
                 self.aggregatable_metric(id, |label| {
@@ -1709,7 +1717,10 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
         for validator_pubkey in participant_pubkeys {
-            if let Some(validator) = self.validators.get(validator_pubkey) {
+            if let Some(validator) = self
+                .validators
+                .get(&compute_deposit_pubkey(validator_pubkey))
+            {
                 let id = &validator.id;
 
                 self.aggregatable_metric(id, |label| {

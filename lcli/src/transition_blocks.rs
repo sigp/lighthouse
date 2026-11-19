@@ -61,9 +61,6 @@
 //!     --exclude-cache-builds \
 //!     --exclude-post-block-thc
 //! ```
-use beacon_chain::{
-    test_utils::EphemeralHarnessType, validator_pubkey_cache::ValidatorPubkeyCache,
-};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
@@ -84,7 +81,6 @@ use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use store::HotColdDB;
 use tracing::{debug, info};
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
@@ -192,18 +188,6 @@ pub fn run<E: EthSpec>(
     let block_root = block.canonical_root();
 
     /*
-     * Create a `BeaconStore` and `ValidatorPubkeyCache` for block signature verification.
-     */
-
-    let store = HotColdDB::open_ephemeral(<_>::default(), spec.clone())
-        .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
-    let store = Arc::new(store);
-
-    debug!("Building pubkey cache (might take some time)");
-    let validator_pubkey_cache = ValidatorPubkeyCache::new(&pre_state, store)
-        .map_err(|e| format!("Failed to create pubkey cache: {:?}", e))?;
-
-    /*
      * If cache builds are excluded from the timings, build them early so they are available for
      * each run.
      */
@@ -244,7 +228,6 @@ pub fn run<E: EthSpec>(
             block,
             state_root_opt,
             &config,
-            &validator_pubkey_cache,
             &mut saved_ctxt,
             &spec,
         )?;
@@ -307,7 +290,6 @@ fn do_transition<E: EthSpec>(
     block: SignedBeaconBlock<E>,
     mut state_root_opt: Option<Hash256>,
     config: &Config,
-    validator_pubkey_cache: &ValidatorPubkeyCache<EphemeralHarnessType<E>>,
     saved_ctxt: &mut Option<ConsensusContext<E>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, String> {
@@ -360,18 +342,9 @@ fn do_transition<E: EthSpec>(
     };
 
     if !config.no_signature_verification {
-        let get_pubkey = move |validator_index| {
-            validator_pubkey_cache
-                .get(validator_index)
-                .map(Cow::Borrowed)
-        };
-
-        let decompressor = move |pk_bytes| {
-            // Map compressed pubkey to validator index.
-            let validator_index = validator_pubkey_cache.get_index(pk_bytes)?;
-            // Map validator index to pubkey (respecting guard on unknown validators).
-            get_pubkey(validator_index)
-        };
+        let get_pubkey =
+            |index| state_processing::signature_sets::get_bls_pubkey_from_state(&pre_state, index);
+        let decompressor = |pubkey: &bls::PublicKeyBytes| pubkey.decompress().ok().map(Cow::Owned);
 
         let t = Instant::now();
         BlockSignatureVerifier::verify_entire_block(

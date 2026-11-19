@@ -2162,7 +2162,7 @@ async fn bid_stream_generic(negative_ptc: bool, direct_bids: bool) {
     let proposer_index = advanced_state
         .get_beacon_proposer_index(prepare_slot, &spec)
         .unwrap();
-    let proposer_pubkey = advanced_state.get_validator(proposer_index).unwrap().pubkey;
+    let proposer_pubkey = harness.validator_keypairs[proposer_index].pk.compress();
 
     let fee_recipient = Address::repeat_byte(42);
     let el = harness.chain.execution_layer.as_ref().unwrap();

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use proto_array::PayloadStatus;
 
-use bls::{PublicKeyBytes, Signature};
+use bls::Signature;
 use execution_layer::{BlockProposalContentsGloas, PayloadAttributes, PayloadParameters};
 use futures::future::OptionFuture;
 use operation_pool::CompactAttestationRef;
@@ -18,6 +18,7 @@ use state_processing::per_block_processing::{
     apply_parent_execution_payload, compute_timestamp_at_slot, get_expected_withdrawals,
     verify_attestation_for_block_inclusion,
 };
+use state_processing::signature_sets;
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
 };
@@ -38,6 +39,7 @@ use types::{
     SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferencesGloas, SignedVoluntaryExit,
     Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
+use types::{XmssPublicKey, compute_deposit_pubkey};
 
 use builder_client::BidRequestContext;
 use eth2::types::BuilderConfig;
@@ -264,9 +266,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // The per-proposal context addressing each `getExecutionPayloadBid`.
-        let proposer_pubkey = state
-            .get_validator(partial_beacon_block.proposer_index as usize)?
-            .pubkey;
+        let proposer_pubkey = signature_sets::get_bls_pubkey_from_state(
+            &state,
+            partial_beacon_block.proposer_index as usize,
+        )
+        .map_err(|error| {
+            BlockProductionError::BeaconChain(Box::new(BeaconChainError::SignatureSetError(error)))
+        })?
+        .compress();
         let ctx = BidRequestContext {
             slot: produce_at_slot,
             executed_ancestor_hash,
@@ -1625,7 +1632,7 @@ where
 fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
     voluntary_exits: &mut Vec<SignedVoluntaryExit>,
     parent_execution_requests: &ExecutionRequestsGloas<E>,
-    pubkey_at_index: impl Fn(u64) -> Option<PublicKeyBytes>,
+    pubkey_at_index: impl Fn(u64) -> Option<XmssPublicKey>,
 ) {
     let mut ineligible_pubkeys = HashSet::with_capacity(
         parent_execution_requests.withdrawals.len()
@@ -1633,11 +1640,11 @@ fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
     );
     for req in &parent_execution_requests.withdrawals {
         // Any withdrawal amount can make a validator ineligible to exit.
-        ineligible_pubkeys.insert(req.validator_pubkey);
+        ineligible_pubkeys.insert(compute_deposit_pubkey(&req.validator_pubkey));
     }
     for req in &parent_execution_requests.consolidations {
         if req.source_pubkey != req.target_pubkey {
-            ineligible_pubkeys.insert(req.source_pubkey);
+            ineligible_pubkeys.insert(compute_deposit_pubkey(&req.source_pubkey));
         }
     }
     if !ineligible_pubkeys.is_empty() {
@@ -1652,6 +1659,7 @@ fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bls::PublicKeyBytes;
     use ssz_types::ProgressiveVariableList;
     use types::{ConsolidationRequest, Epoch, Spec, VoluntaryExit, WithdrawalRequest};
 
@@ -1690,7 +1698,9 @@ mod tests {
         validator_pubkeys: &[PublicKeyBytes],
     ) {
         filter_voluntary_exits_for_parent_execution_requests(exits, requests, |idx| {
-            validator_pubkeys.get(idx as usize).copied()
+            validator_pubkeys
+                .get(idx as usize)
+                .map(compute_deposit_pubkey)
         });
     }
 

@@ -227,7 +227,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
             let validator_data = beacon_node
                 .get_beacon_states_validator_id(
                     StateId::Head,
-                    &ValidatorId::PublicKey(validator_to_exit),
+                    &ValidatorId::BlsPublicKey(validator_to_exit),
                 )
                 .await
                 .map_err(|e| format!("Failed to get validator details: {:?}", e))?

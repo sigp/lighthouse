@@ -13,7 +13,6 @@ use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
-use bls::PublicKeyBytes;
 use bytes::Bytes;
 use context_deserialize::ContextDeserialize;
 use eth2::types::{
@@ -34,7 +33,7 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 use types::{
-    BeaconState, Epoch, EthSpec, ForkName, ProposerPreparationData, SignedAggregateAndProof,
+    Epoch, EthSpec, ForkName, ProposerPreparationData, SignedAggregateAndProof,
     SignedContributionAndProof, SignedInclusionList, SignedProposerPreferencesGloas,
     SignedValidatorRegistrationData, Slot, SyncContributionData, ValidatorSubscription,
 };
@@ -42,26 +41,6 @@ use warp::{Filter, Rejection, Reply, http::response::Builder};
 use warp_utils::reject::convert_rejection;
 
 pub mod execution_payload_envelopes;
-
-/// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
-/// index and then ensures that the validator exists in the given `state`.
-pub fn pubkey_to_validator_index<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    state: &BeaconState<T::EthSpec>,
-    pubkey: &PublicKeyBytes,
-) -> Result<Option<usize>, Box<BeaconChainError>> {
-    chain
-        .validator_index(pubkey)
-        .map_err(Box::new)?
-        .filter(|&index| {
-            state
-                .validators()
-                .get(index)
-                .is_some_and(|v| v.pubkey == *pubkey)
-        })
-        .map(Result::Ok)
-        .transpose()
-}
 
 // GET validator/sync_committee_contribution
 pub fn get_validator_sync_committee_contribution<T: BeaconChainTypes>(
@@ -721,6 +700,11 @@ pub fn post_validator_register_validator<T: BeaconChainTypes>(
                             .now_or_genesis()
                             .ok_or(BeaconChainError::UnableToReadSlot)
                             .map_err(warp_utils::reject::unhandled_error)?;
+                        if chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot) == ForkName::Pq
+                            && !register_val_data.is_empty()
+                        {
+                            return Err(crate::validators::bls_id_unsupported());
+                        }
                         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
                         debug!(
@@ -738,7 +722,9 @@ pub fn post_validator_register_validator<T: BeaconChainTypes>(
                             .into_iter()
                             .filter_map(|register_data| {
                                 chain
-                                    .validator_index(&register_data.message.pubkey)
+                                    .validator_index(&types::compute_deposit_pubkey(
+                                        &register_data.message.pubkey,
+                                    ))
                                     .ok()
                                     .flatten()
                                     .and_then(|validator_index| {

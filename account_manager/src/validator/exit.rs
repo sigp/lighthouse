@@ -314,7 +314,7 @@ async fn get_validator_data(
     Ok(client
         .get_beacon_states_validator_id(
             StateId::Head,
-            &ValidatorId::PublicKey(validator_pubkey.into()),
+            &ValidatorId::BlsPublicKey(validator_pubkey.into()),
         )
         .await
         .map_err(|e| format!("Failed to get validator details: {:?}", e))?

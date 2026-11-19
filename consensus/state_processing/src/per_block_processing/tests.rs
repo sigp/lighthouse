@@ -187,7 +187,7 @@ async fn invalid_randao_reveal_signature() {
 
     let ((signed_block, _), mut state) = harness
         .make_block_with_modifier(state, slot + 1, |block| {
-            *block.body_mut().randao_reveal_mut() = Signature::empty();
+            *block.body_mut().randao_reveal_mut().unwrap() = Signature::empty();
         })
         .await;
 
@@ -595,7 +595,8 @@ async fn invalid_attestation_bad_signature() {
         .attestations_mut()
         .next()
         .unwrap()
-        .into_signature_mut() = AggregateSignature::empty();
+        .into_signature_mut()
+        .unwrap() = AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let parent_slot = state
@@ -764,6 +765,9 @@ async fn invalid_attester_slashing_not_slashable() {
         AttesterSlashing::Gloas(attester_slashing) => {
             attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
         }
+        AttesterSlashing::Pq(attester_slashing) => {
+            attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
+        }
     }
 
     let mut state = harness.get_current_state();
@@ -802,6 +806,10 @@ async fn invalid_attester_slashing_1_invalid() {
                 VariableList::try_from(vec![2, 1]).unwrap();
         }
         AttesterSlashing::Gloas(attester_slashing) => {
+            attester_slashing.attestation_1.attesting_indices =
+                ssz_types::ProgressiveVariableList::new(vec![2, 1]).unwrap();
+        }
+        AttesterSlashing::Pq(attester_slashing) => {
             attester_slashing.attestation_1.attesting_indices =
                 ssz_types::ProgressiveVariableList::new(vec![2, 1]).unwrap();
         }
@@ -846,6 +854,10 @@ async fn invalid_attester_slashing_2_invalid() {
                 VariableList::try_from(vec![2, 1]).unwrap();
         }
         AttesterSlashing::Gloas(attester_slashing) => {
+            attester_slashing.attestation_2.attesting_indices =
+                ssz_types::ProgressiveVariableList::new(vec![2, 1]).unwrap();
+        }
+        AttesterSlashing::Pq(attester_slashing) => {
             attester_slashing.attestation_2.attesting_indices =
                 ssz_types::ProgressiveVariableList::new(vec![2, 1]).unwrap();
         }

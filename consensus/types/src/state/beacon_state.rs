@@ -1,6 +1,6 @@
 use std::{fmt, hash::Hash, mem, sync::Arc};
 
-use bls::{AggregatePublicKey, PublicKeyBytes, Signature};
+use bls::Signature;
 use compare_fields::CompareFields;
 use context_deserialize::ContextDeserialize;
 use educe::Educe;
@@ -24,7 +24,7 @@ use typenum::Unsigned;
 
 use crate::{
     ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
-    ExecutionPayloadBidRefMut, Withdrawal,
+    ExecutionPayloadBidRefMut, Withdrawal, XmssPublicKey,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -33,7 +33,7 @@ use crate::{
     builder::{Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal},
     consolidation::PendingConsolidation,
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot},
-    deposit::PendingDeposit,
+    deposit::{PendingDeposit, encode_deposit_pubkey},
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
@@ -140,6 +140,8 @@ pub enum BeaconStateError {
     },
     ZeroSlotsPerEpoch,
     PubkeyCacheInconsistent,
+    /// The operation requires BLS keys from the XMSS-only validator or builder registry.
+    BlsRegistryKeysUnavailable,
     PubkeyCacheIncomplete {
         cache_len: usize,
         registry_len: usize,
@@ -1163,10 +1165,25 @@ impl<E: EthSpec> BeaconState<E> {
     /// otherwise returns `None`.
     pub fn get_validator_index(
         &mut self,
-        pubkey: &PublicKeyBytes,
+        pubkey: &XmssPublicKey,
     ) -> Result<Option<usize>, BeaconStateError> {
         self.update_pubkey_cache()?;
         Ok(self.pubkey_cache().get(pubkey))
+    }
+
+    /// Resolve an XMSS key in a read-only state, scanning only the uncached suffix.
+    pub fn find_validator_index(
+        &self,
+        pubkey: &XmssPublicKey,
+    ) -> Result<Option<usize>, BeaconStateError> {
+        let cache = self.pubkey_cache();
+        let start_index = cache.len();
+        let mut suffix = self.validators().iter_from(start_index)?;
+        let suffix_index = suffix.position(|validator| validator.pubkey == *pubkey);
+        if let Some(index) = suffix_index {
+            return Ok(Some(start_index.safe_add(index)?));
+        }
+        Ok(cache.get(pubkey))
     }
 
     /// The epoch corresponding to `self.slot()`.
@@ -1816,129 +1833,30 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Get the validator indices of all validators from `sync_committee`.
+    /// Resolve the members of a BLS sync committee against the validator registry.
     pub fn get_sync_committee_indices(
         &mut self,
-        sync_committee: &SyncCommittee<E>,
+        _sync_committee: &SyncCommittee<E>,
     ) -> Result<Vec<usize>, BeaconStateError> {
-        self.update_pubkey_cache()?;
-        sync_committee
-            .pubkeys
-            .iter()
-            .map(|pubkey| {
-                self.pubkey_cache()
-                    .get(pubkey)
-                    .ok_or(BeaconStateError::PubkeyCacheInconsistent)
-            })
-            .collect()
+        Err(BeaconStateError::BlsRegistryKeysUnavailable)
     }
 
-    /// Compute the sync committee indices for the next sync committee.
-    fn get_next_sync_committee_indices(
-        &self,
-        spec: &ChainSpec,
-    ) -> Result<Vec<usize>, BeaconStateError> {
-        let epoch = self.current_epoch().safe_add(1)?;
-
-        let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
-        let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
-
-        if self.fork_name_unchecked().gloas_enabled() {
-            self.compute_balance_weighted_selection(
-                &active_validator_indices,
-                seed.as_slice(),
-                E::SyncCommitteeSize::to_usize(),
-                true,
-                spec,
-            )
-        } else {
-            let active_validator_count = active_validator_indices.len();
-            let max_effective_balance =
-                spec.max_effective_balance_for_fork(self.fork_name_unchecked());
-            let max_random_value = if self.fork_name_unchecked().electra_enabled() {
-                MAX_RANDOM_VALUE
-            } else {
-                MAX_RANDOM_BYTE
-            };
-
-            let mut i = 0;
-            let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
-            while sync_committee_indices.len() < E::SyncCommitteeSize::to_usize() {
-                let shuffled_index = compute_shuffled_index(
-                    i.safe_rem(active_validator_count)?,
-                    active_validator_count,
-                    seed.as_slice(),
-                    spec.shuffle_round_count,
-                )
-                .ok_or(BeaconStateError::UnableToShuffle)?;
-                let candidate_index = *active_validator_indices
-                    .get(shuffled_index)
-                    .ok_or(BeaconStateError::ShuffleIndexOutOfBounds(shuffled_index))?;
-                let random_value = self.shuffling_random_value(i, seed.as_slice())?;
-                let effective_balance = self.get_validator(candidate_index)?.effective_balance;
-                if effective_balance.safe_mul(max_random_value)?
-                    >= max_effective_balance.safe_mul(random_value)?
-                {
-                    sync_committee_indices.push(candidate_index);
-                }
-                i.safe_add_assign(1)?;
-            }
-            Ok(sync_committee_indices)
-        }
-    }
-
-    /// Compute the next sync committee.
+    /// Compute the next BLS sync committee.
     pub fn get_next_sync_committee(
         &self,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Result<SyncCommittee<E>, BeaconStateError> {
-        let sync_committee_indices = self.get_next_sync_committee_indices(spec)?;
-
-        let pubkeys = sync_committee_indices
-            .iter()
-            .map(|&index| {
-                self.validators()
-                    .get(index)
-                    .map(|v| v.pubkey)
-                    .ok_or(BeaconStateError::UnknownValidator(index))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let decompressed_pubkeys = pubkeys
-            .iter()
-            .map(|pk| pk.decompress())
-            .collect::<Result<Vec<_>, _>>()?;
-        let aggregate_pubkey = AggregatePublicKey::aggregate(&decompressed_pubkeys)?;
-
-        Ok(SyncCommittee {
-            pubkeys: FixedVector::new(pubkeys)?,
-            aggregate_pubkey: aggregate_pubkey.to_public_key().compress(),
-        })
+        Err(BeaconStateError::BlsRegistryKeysUnavailable)
     }
 
-    /// Get the sync committee duties for a list of validator indices.
-    ///
-    /// Will return a `SyncCommitteeNotKnown` error if the `epoch` is out of bounds with respect
-    /// to the current or next sync committee periods.
+    /// Get the BLS sync committee duties for a list of validator indices.
     pub fn get_sync_committee_duties(
         &self,
-        epoch: Epoch,
-        validator_indices: &[u64],
-        spec: &ChainSpec,
+        _epoch: Epoch,
+        _validator_indices: &[u64],
+        _spec: &ChainSpec,
     ) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, BeaconStateError> {
-        let sync_committee = self.get_built_sync_committee(epoch, spec)?;
-
-        Ok(validator_indices
-            .iter()
-            .map(|&validator_index| {
-                let pubkey = self.get_validator(validator_index as usize)?.pubkey;
-
-                Ok(SyncDuty::from_sync_committee(
-                    validator_index,
-                    pubkey,
-                    sync_committee,
-                ))
-            })
-            .collect())
+        Err(BeaconStateError::BlsRegistryKeysUnavailable)
     }
 
     /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.
@@ -2257,6 +2175,7 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Used by the database layer for efficient diffing.
     pub fn take_validators<'a>(&'a mut self) -> ValidatorsOwned<E> {
+        self.drop_pubkey_cache();
         map_beacon_state_ref_mut!(&'a _, self.to_mut(), |inner, cons| {
             let _: fn(_) -> BeaconStateRefMut<'a, E> = cons;
             std::mem::take(&mut inner.validators).into()
@@ -2280,6 +2199,7 @@ impl<E: EthSpec> BeaconState<E> {
             Self::Pq(state) => state.validators = ProgressiveList::try_from_iter(iter)?,
             Self::Heze(state) => state.validators = ProgressiveList::try_from_iter(iter)?,
         }
+        self.drop_pubkey_cache();
         Ok(())
     }
 
@@ -2516,7 +2436,8 @@ impl<E: EthSpec> BeaconState<E> {
     /// Add a validator to the registry and return the validator index that was allocated for it.
     pub fn add_validator_to_registry(
         &mut self,
-        pubkey: PublicKeyBytes,
+        pubkey: XmssPublicKey,
+        vrf_root: Hash256,
         withdrawal_credentials: Hash256,
         amount: u64,
         spec: &ChainSpec,
@@ -2525,6 +2446,7 @@ impl<E: EthSpec> BeaconState<E> {
         let fork_name = self.fork_name_unchecked();
         self.validators_mut().push(Validator::from_deposit(
             pubkey,
+            vrf_root,
             withdrawal_credentials,
             amount,
             fork_name,
@@ -2562,7 +2484,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Add a builder to the registry and return the builder index that was allocated for it.
     pub fn add_builder_to_registry(
         &mut self,
-        pubkey: PublicKeyBytes,
+        pubkey: XmssPublicKey,
         version: u8,
         withdrawal_credentials: Hash256,
         amount: u64,
@@ -3373,7 +3295,7 @@ impl<E: EthSpec> BeaconState<E> {
             *balance = spec.min_activation_balance;
             let validator = self.get_validator(validator_index)?.clone();
             self.pending_deposits_mut()?.push(PendingDeposit {
-                pubkey: validator.pubkey,
+                pubkey: encode_deposit_pubkey(validator.pubkey)?,
                 withdrawal_credentials: validator.withdrawal_credentials,
                 amount: excess_balance,
                 signature: Signature::infinity()?.into(),
@@ -3850,7 +3772,7 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<bool, BeaconStateError> {
         // TODO(EIP-7732): Consider grabbing effective balances from the epoch cache here.
         // Note that this function will be used in a loop, so using cached values could be nice for performance.
-        // However, post-gloas, this function will be used in `compute_proposer_indices`, `get_next_sync_committee_indices`, and `get_ptc`, which has ~15 call sites in total
+        // However, post-gloas, this function will be used in `compute_proposer_indices` and `get_ptc`, which has ~15 call sites in total
         // so we will need to check each one to ensure epoch cache is initialized first, if we deem a good idea.
         // Currently, we can't test if making the change would work since the test suite is not ready for gloas.
         let effective_balance = self.get_effective_balance(index)?;

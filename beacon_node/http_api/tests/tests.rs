@@ -919,7 +919,7 @@ impl ApiTester {
                         ValidatorId::PublicKey(
                             validators
                                 .get(i as usize)
-                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
+                                .map_or(types::XmssPublicKey::empty(), |val| val.pubkey),
                         )
                     })
                     .collect::<Vec<ValidatorId>>();
@@ -1040,7 +1040,7 @@ impl ApiTester {
                         ValidatorId::PublicKey(
                             validators
                                 .get(i as usize)
-                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
+                                .map_or(types::XmssPublicKey::empty(), |val| val.pubkey),
                         )
                     })
                     .collect();
@@ -1156,7 +1156,7 @@ impl ApiTester {
                         ValidatorId::PublicKey(
                             validators
                                 .get(i as usize)
-                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
+                                .map_or(types::XmssPublicKey::empty(), |val| val.pubkey),
                         )
                     })
                     .collect::<Vec<ValidatorId>>();
@@ -1236,7 +1236,7 @@ impl ApiTester {
                         ValidatorId::PublicKey(
                             validators
                                 .get(i as usize)
-                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
+                                .map_or(types::XmssPublicKey::empty(), |val| val.pubkey),
                         )
                     })
                     .collect();
@@ -1328,7 +1328,7 @@ impl ApiTester {
                             ValidatorId::PublicKey(
                                 validators
                                     .get(i as usize)
-                                    .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
+                                    .map_or(types::XmssPublicKey::empty(), |val| val.pubkey),
                             )
                         })
                         .collect::<Vec<ValidatorId>>();
@@ -1433,7 +1433,9 @@ impl ApiTester {
 
         let builder =
             |keypair_index: usize, deposit_epoch: Epoch, withdrawable_epoch: Epoch| Builder {
-                pubkey: self.validator_keypairs()[keypair_index].pk.clone().into(),
+                pubkey: types::compute_deposit_pubkey(
+                    &self.validator_keypairs()[keypair_index].pk.compress(),
+                ),
                 version: PAYLOAD_BUILDER_VERSION,
                 execution_address: Address::repeat_byte(keypair_index as u8 + 1),
                 balance: self.chain.spec.min_deposit_amount,
@@ -3152,7 +3154,7 @@ impl ApiTester {
         let fork_name = self
             .single_attestations
             .first()
-            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data.slot))
+            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
 
         self.client
@@ -3279,7 +3281,7 @@ impl ApiTester {
         let mut attestations = Vec::new();
         for attestation in &self.single_attestations {
             let mut invalid_attestation = attestation.clone();
-            invalid_attestation.data.slot += 1;
+            invalid_attestation.data_mut().slot += 1;
 
             // add both to ensure we only fail on invalid attestations
             attestations.push(attestation.clone());
@@ -3564,6 +3566,9 @@ impl ApiTester {
             AttesterSlashing::Gloas(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
+            AttesterSlashing::Pq(slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
         }
 
         self.client
@@ -3589,6 +3594,9 @@ impl ApiTester {
                 slashing.attestation_1.data.slot += 1;
             }
             AttesterSlashing::Gloas(slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+            AttesterSlashing::Pq(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
         }
@@ -4248,7 +4256,10 @@ impl ApiTester {
             };
             // Pq reuses the Gloas inner bid; only the signed container has a Pq variant.
             if fork_name == ForkName::Pq {
-                SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq { message, signature })
+                SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq {
+                    message,
+                    signature: types::XmssSignature::empty(),
+                })
             } else {
                 SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
                     message,
@@ -4851,7 +4862,7 @@ impl ApiTester {
                         .unwrap()
                     {
                         let expected = AttesterData {
-                            pubkey: state.validators().get(i as usize).unwrap().pubkey,
+                            pubkey: self.validator_keypairs()[i as usize].pk.compress(),
                             validator_index: i,
                             committees_at_slot: duty.committees_at_slot,
                             committee_index: duty.index,
@@ -4960,7 +4971,7 @@ impl ApiTester {
                     let index = state
                         .get_beacon_proposer_index(slot, &self.chain.spec)
                         .unwrap();
-                    let pubkey = state.validators().get(index).unwrap().pubkey;
+                    let pubkey = self.validator_keypairs()[index].pk.compress();
 
                     ProposerData {
                         pubkey,
@@ -5047,7 +5058,7 @@ impl ApiTester {
                     let index = state
                         .get_beacon_proposer_index(slot, &self.chain.spec)
                         .unwrap();
-                    let pubkey = state.validators().get(index).unwrap().pubkey;
+                    let pubkey = self.validator_keypairs()[index].pk.compress();
 
                     ProposerData {
                         pubkey,
@@ -5231,12 +5242,12 @@ impl ApiTester {
                 let expected_duties: Vec<PtcDuty> = indices
                     .iter()
                     .filter_map(|&validator_index| {
-                        let validator = state.validators().get(validator_index as usize)?;
+                        let keypair = self.validator_keypairs().get(validator_index as usize)?;
                         let slot = state
                             .get_ptc_assignment(validator_index as usize, epoch, &self.chain.spec)
                             .unwrap()?;
                         Some(PtcDuty {
-                            pubkey: validator.pubkey,
+                            pubkey: keypair.pk.compress(),
                             validator_index,
                             slot,
                         })
@@ -5376,8 +5387,9 @@ impl ApiTester {
                 FullBlockContents::<E>::from_ssz_bytes(&block_bytes, &self.chain.spec)
                     .expect("block contents bytes can be decoded");
 
-            let signed_block_contents =
-                block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_contents = block_contents
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
 
             self.client
                 .post_beacon_blocks_v2_ssz(&signed_block_contents, None, None)
@@ -5499,8 +5511,9 @@ impl ApiTester {
                             .fork_name(&self.chain.spec)
                             .unwrap()
                     );
-                    let signed_block_contents =
-                        block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+                    let signed_block_contents = block_contents
+                        .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                        .unwrap();
 
                     self.client
                         .post_beacon_blocks_v2_ssz(&signed_block_contents, None, None)
@@ -6779,8 +6792,9 @@ impl ApiTester {
                 FullBlockContents::<E>::from_ssz_bytes(&block_contents_bytes, &self.chain.spec)
                     .expect("block contents bytes can be decoded");
 
-            let signed_block_contents =
-                block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_contents = block_contents
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
 
             self.client
                 .post_beacon_blinded_blocks_ssz(
@@ -7380,6 +7394,7 @@ impl ApiTester {
             genesis_validators_root,
             &self.chain.spec,
         )
+        .unwrap()
     }
 
     pub async fn test_get_validator_aggregate_and_proofs_valid_v1(mut self) -> Self {
@@ -7405,6 +7420,9 @@ impl ApiTester {
                 aggregate.message.aggregate.data.slot += 1;
             }
             SignedAggregateAndProof::Gloas(aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+            SignedAggregateAndProof::Pq(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
@@ -7445,6 +7463,9 @@ impl ApiTester {
                 aggregate.message.aggregate.data.slot += 1;
             }
             SignedAggregateAndProof::Gloas(aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+            SignedAggregateAndProof::Pq(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
@@ -7732,7 +7753,7 @@ impl ApiTester {
         let fork_name = self
             .chain
             .spec
-            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data().slot);
 
         // Attest to the current slot
         self.client
@@ -9571,7 +9592,7 @@ impl ApiTester {
         let fork_name = self
             .chain
             .spec
-            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data().slot);
 
         // Attest to the current slot
         self.client
@@ -9667,7 +9688,7 @@ impl ApiTester {
         let fork_name = self
             .chain
             .spec
-            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data().slot);
 
         self.client
             .post_beacon_pool_attestations_v2::<E>(attestations.clone(), fork_name)

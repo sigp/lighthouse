@@ -4,7 +4,7 @@ use crate::payload_bid_verification::{
 };
 use eth2::types::BuilderPubkeys;
 use state_processing::signature_sets::{
-    execution_payload_bid_signature_set, get_builder_pubkey_from_state,
+    execution_payload_bid_signature_set, get_bls_builder_pubkey_from_state,
 };
 use types::{
     BeaconState, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, SignedExecutionPayloadBid,
@@ -101,7 +101,10 @@ pub fn verify_direct_bid<E: EthSpec>(
                 builder_index: bid.builder_index(),
             })?
             .pubkey;
-        if !expected_builder_pubkeys.contains(&actual) {
+        if !expected_builder_pubkeys
+            .iter()
+            .any(|key| types::compute_deposit_pubkey(key) == actual)
+        {
             return Err(PayloadBidError::UnexpectedBuilder {
                 builder_index: bid.builder_index(),
             });
@@ -111,7 +114,7 @@ pub fn verify_direct_bid<E: EthSpec>(
     // Verify the builder's signature.
     execution_payload_bid_signature_set(
         state,
-        |i| get_builder_pubkey_from_state(state, i),
+        |i| get_bls_builder_pubkey_from_state(state, i),
         signed_bid.to_ref(),
         spec,
     )

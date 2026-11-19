@@ -11,7 +11,6 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, BlockProductionError, ChainConfig,
     NotifyExecutionLayer,
 };
-use bls::PublicKeyBytes;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use fork_choice::PayloadVerificationStatus;
 use proto_array::PayloadStatus;
@@ -19,6 +18,7 @@ use slot_clock::SlotClock;
 use state_processing::state_advance::complete_state_advance;
 use std::sync::Arc;
 use std::time::Duration;
+use types::XmssPublicKey;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     BeaconState, BlockImportSource, BuilderIndex, EthSpec, ExecutionBlockHash, Hash256,
@@ -71,7 +71,7 @@ async fn finalize(harness: &Harness) {
     );
 }
 
-fn builder_pubkey(state: &BeaconState<E>, builder_index: BuilderIndex) -> PublicKeyBytes {
+fn builder_pubkey(state: &BeaconState<E>, builder_index: BuilderIndex) -> XmssPublicKey {
     state.get_builder(builder_index).unwrap().pubkey
 }
 

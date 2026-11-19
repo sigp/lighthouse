@@ -1,11 +1,13 @@
 use serde::Deserialize;
 use ssz::{Decode, Encode};
 use std::collections::BTreeMap;
+use std::io::Read;
 use tree_hash::TreeHash;
 use types::*;
 
 #[derive(Deserialize)]
 struct Fixture {
+    #[serde(default)]
     ssz: String,
     root: Hash256,
     #[serde(default)]
@@ -28,7 +30,7 @@ fn check<T: Decode + Encode + TreeHash>(fixtures: &Fixtures, name: &str) {
     }
 }
 
-fn check_fixtures<E: EthSpec>(fixture_data: &str) {
+fn check_fixtures<E: EthSpec>(fixture_data: &str, state_fixtures: [&[u8]; 2]) {
     let fixtures: Fixtures = serde_json::from_str(fixture_data).unwrap();
 
     check::<XmssPublicKey>(&fixtures, "XMSSPubkey");
@@ -77,7 +79,33 @@ fn check_fixtures<E: EthSpec>(fixture_data: &str) {
         assert_eq!(encoded, fixture.execution_requests);
     }
 
+    check::<Validator>(&fixtures, "Validator");
+    check::<Builder>(&fixtures, "Builder");
+
     let spec = ForkName::Pq.make_genesis_spec(E::default_spec());
+    let state_roots = &fixtures["BeaconState"];
+    assert_eq!(state_fixtures.len(), state_roots.len());
+    for (index, (compressed, fixture)) in state_fixtures.into_iter().zip(state_roots).enumerate() {
+        let mut bytes = Vec::new();
+        flate2::read::GzDecoder::new(compressed)
+            .read_to_end(&mut bytes)
+            .unwrap();
+        let mut state = BeaconState::<E>::from_ssz_bytes(&bytes, &spec).unwrap();
+        assert!(matches!(state, BeaconState::Pq(_)));
+        assert_eq!(state.as_ssz_bytes(), bytes, "BeaconState fixture {index}");
+        assert_eq!(
+            state.canonical_root().unwrap(),
+            fixture.root,
+            "BeaconState fixture {index}"
+        );
+        assert_eq!(
+            BeaconState::from_ssz_bytes_by_fork(&bytes, ForkName::Pq).unwrap(),
+            state
+        );
+        assert_eq!(state.validators().len(), index * 2);
+        assert_eq!(state.builders().unwrap().len(), index * 2);
+    }
+
     for fixture in &fixtures["SignedBeaconBlock"] {
         let bytes = hex::decode(&fixture.ssz).unwrap();
         let block = SignedBeaconBlock::<E>::from_ssz_bytes_by_fork(&bytes, ForkName::Pq).unwrap();
@@ -103,12 +131,24 @@ fn check_fixtures<E: EthSpec>(fixture_data: &str) {
 
 #[test]
 fn mainnet_pyspec_fixtures() {
-    check_fixtures::<MainnetEthSpec>(include_str!("fixtures/pq/mainnet.json"));
+    check_fixtures::<MainnetEthSpec>(
+        include_str!("fixtures/pq/mainnet.json"),
+        [
+            include_bytes!("fixtures/pq/mainnet.state-default.ssz.gz"),
+            include_bytes!("fixtures/pq/mainnet.state-populated.ssz.gz"),
+        ],
+    );
 }
 
 #[test]
 fn minimal_pyspec_fixtures() {
-    check_fixtures::<MinimalEthSpec>(include_str!("fixtures/pq/minimal.json"));
+    check_fixtures::<MinimalEthSpec>(
+        include_str!("fixtures/pq/minimal.json"),
+        [
+            include_bytes!("fixtures/pq/minimal.state-default.ssz.gz"),
+            include_bytes!("fixtures/pq/minimal.state-populated.ssz.gz"),
+        ],
+    );
 }
 
 fn hash_pair(left: Hash256, right: Hash256) -> Hash256 {

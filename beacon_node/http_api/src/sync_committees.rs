@@ -299,7 +299,7 @@ pub fn get_subnet_positions_for_sync_committee_message<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<HashMap<SyncSubnetId, Vec<usize>>, SyncVerificationError> {
     let pubkey = chain
-        .validator_pubkey_bytes(sync_message.validator_index as usize)?
+        .validator_bls_pubkey_bytes(sync_message.validator_index as usize)?
         .ok_or(SyncVerificationError::UnknownValidatorIndex(
             sync_message.validator_index as usize,
         ))?;

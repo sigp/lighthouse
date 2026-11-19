@@ -70,7 +70,7 @@ where
 
             signature_sets.push(
                 signed_aggregate_selection_proof_signature_set(
-                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
                     signed_aggregate,
                     &fork,
                     chain.genesis_validators_root,
@@ -80,7 +80,7 @@ where
             );
             signature_sets.push(
                 signed_aggregate_signature_set(
-                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
                     signed_aggregate,
                     &fork,
                     chain.genesis_validators_root,
@@ -90,7 +90,7 @@ where
             );
             signature_sets.push(
                 indexed_attestation_signature_set_from_pubkeys(
-                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
                     indexed_attestation.signature()?,
                     indexed_attestation,
                     &fork,
@@ -175,7 +175,7 @@ where
                 .fork_at_epoch(indexed_attestation.data().target.epoch);
 
             let signature_set = indexed_attestation_signature_set_from_pubkeys(
-                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
                 indexed_attestation.signature()?,
                 indexed_attestation,
                 &fork,

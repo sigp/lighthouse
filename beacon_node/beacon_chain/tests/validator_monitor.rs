@@ -2,9 +2,9 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitorConfig};
-use bls::{Keypair, PublicKeyBytes};
+use bls::Keypair;
 use std::sync::LazyLock;
-use types::{Epoch, EthSpec, Hash256, Slot, Spec};
+use types::{Epoch, EthSpec, Hash256, Slot, Spec, compute_deposit_pubkey};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -27,7 +27,7 @@ fn get_harness(
         .validator_monitor_config(ValidatorMonitorConfig {
             validators: validator_indexes_to_monitor
                 .iter()
-                .map(|i| PublicKeyBytes::from(KEYPAIRS[*i].pk.clone()))
+                .map(|i| compute_deposit_pubkey(&KEYPAIRS[*i].pk.compress()))
                 .collect(),
             ..<_>::default()
         })
@@ -103,7 +103,9 @@ async fn missed_blocks_across_epochs() {
     // Call `process_` once to update validator indices.
     vm_write.process_valid_state(head_state.current_epoch(), &head_state, &harness.chain.spec);
     // Start monitoring the innocent validator.
-    vm_write.add_validator_pubkey(KEYPAIRS[innocent_proposer as usize].pk.compress());
+    vm_write.add_validator_pubkey(compute_deposit_pubkey(
+        &KEYPAIRS[innocent_proposer as usize].pk.compress(),
+    ));
     // Check for missed blocks.
     vm_write.process_valid_state(head_state.current_epoch(), &head_state, &harness.chain.spec);
 
@@ -185,7 +187,9 @@ async fn missed_blocks_basic() {
         // adding the missed blocks to the validator monitor
         let mut validator_monitor = harness1.chain.validator_monitor.write();
 
-        validator_monitor.add_validator_pubkey(KEYPAIRS[missed_block_proposer].pk.compress());
+        validator_monitor.add_validator_pubkey(compute_deposit_pubkey(
+            &KEYPAIRS[missed_block_proposer].pk.compress(),
+        ));
         validator_monitor.process_valid_state(nb_epoch_to_simulate, _state, &harness1.chain.spec);
 
         // We should have one entry in the missed blocks map
@@ -256,7 +260,9 @@ async fn missed_blocks_basic() {
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
         let mut validator_monitor2 = harness2.chain.validator_monitor.write();
-        validator_monitor2.add_validator_pubkey(KEYPAIRS[missed_block_proposer].pk.compress());
+        validator_monitor2.add_validator_pubkey(compute_deposit_pubkey(
+            &KEYPAIRS[missed_block_proposer].pk.compress(),
+        ));
         validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec);
         // We should have one entry in the missed blocks map
         assert_eq!(
@@ -364,7 +370,9 @@ async fn missed_blocks_basic() {
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
         let mut validator_monitor3 = harness3.chain.validator_monitor.write();
-        validator_monitor3.add_validator_pubkey(KEYPAIRS[missed_block_proposer].pk.compress());
+        validator_monitor3.add_validator_pubkey(compute_deposit_pubkey(
+            &KEYPAIRS[missed_block_proposer].pk.compress(),
+        ));
         validator_monitor3.process_valid_state(epoch, _state3, &harness3.chain.spec);
 
         // We shouldn't have one entry in the missed blocks map

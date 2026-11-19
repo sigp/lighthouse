@@ -365,12 +365,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // not reconstructible without historical states); their contents are still bound to the
         // bid via the block hash recompute above.
         for (envelope_block_root, signed_envelope, proposer_index, epoch) in &envelopes_to_verify {
-            let pubkey = pubkey_cache.get(*proposer_index as usize).ok_or(
-                HistoricalBlockError::MissingProposerPubkey {
-                    block_root: *envelope_block_root,
-                    proposer_index: *proposer_index,
-                },
-            )?;
+            let pubkey = pubkey_cache
+                .get_bls(*proposer_index as usize)
+                .map_err(HistoricalBlockError::SignatureSet)?;
             let fork = self.spec.fork_at_epoch(*epoch);
             if !signed_envelope.verify_signature(
                 pubkey,
@@ -401,7 +398,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block.message().proposer_index(),
                     &self.spec.fork_at_epoch(block.message().epoch()),
                     self.genesis_validators_root,
-                    |validator_index| pubkey_cache.get(validator_index).cloned().map(Cow::Owned),
+                    |validator_index| {
+                        pubkey_cache
+                            .get_bls(validator_index)
+                            .cloned()
+                            .map(Cow::Owned)
+                    },
                     &self.spec,
                 )
             })

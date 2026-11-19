@@ -4,7 +4,7 @@ use safe_arith::SafeArith;
 use std::mem;
 use types::{
     BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, Epoch, EpochCache,
-    EthSpec, Fork, PendingDeposit,
+    EthSpec, Fork, PendingDeposit, encode_deposit_pubkey,
 };
 
 /// Transform a `Deneb` state into an `Electra` state.
@@ -65,7 +65,7 @@ pub fn upgrade_to_electra<E: EthSpec>(
             .ok_or(Error::UnknownValidator(index))?;
         validator.effective_balance = 0;
         validator.activation_eligibility_epoch = spec.far_future_epoch;
-        let pubkey = validator.pubkey;
+        let pubkey = encode_deposit_pubkey(validator.pubkey)?;
         let withdrawal_credentials = validator.withdrawal_credentials;
 
         post.pending_deposits_mut()?

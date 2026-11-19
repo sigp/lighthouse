@@ -1382,7 +1382,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
         .fork_at_epoch(indexed_attestation.data().target.epoch);
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
-        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+        |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
         indexed_attestation.signature()?,
         indexed_attestation,
         &fork,
@@ -1483,7 +1483,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
     let signature_sets = [
         signed_aggregate_selection_proof_signature_set(
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+            |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
             signed_aggregate,
             &fork,
             chain.genesis_validators_root,
@@ -1491,7 +1491,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         )
         .map_err(BeaconChainError::SignatureSetError)?,
         signed_aggregate_signature_set(
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+            |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
             signed_aggregate,
             &fork,
             chain.genesis_validators_root,
@@ -1499,7 +1499,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         )
         .map_err(BeaconChainError::SignatureSetError)?,
         indexed_attestation_signature_set_from_pubkeys(
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+            |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
             indexed_attestation.signature()?,
             indexed_attestation,
             &fork,

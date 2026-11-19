@@ -42,8 +42,10 @@ zstd = { workspace = true }
 [dev-dependencies]
 beacon_chain = { workspace = true }
 criterion = { workspace = true }
+flate2 = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
 tempfile = { workspace = true }
+tree_hash = { workspace = true }
 
 [[bench]]
 name = "hdiff"

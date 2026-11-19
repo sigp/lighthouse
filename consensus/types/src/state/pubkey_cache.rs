@@ -1,4 +1,4 @@
-use bls::PublicKeyBytes;
+use crate::XmssPublicKey;
 use rpds::HashTrieMapSync as HashTrieMap;
 
 type ValidatorIndex = usize;
@@ -10,7 +10,7 @@ pub struct PubkeyCache {
     /// HashTrieMap len, as it does not increase when duplicate keys are added. Duplicate keys are
     /// used during testing.
     len: usize,
-    map: HashTrieMap<PublicKeyBytes, ValidatorIndex>,
+    map: HashTrieMap<XmssPublicKey, ValidatorIndex>,
 }
 
 impl PubkeyCache {
@@ -24,21 +24,20 @@ impl PubkeyCache {
     ///
     /// The added index must equal the number of validators already added to the map. This ensures
     /// that an index is never skipped.
-    pub fn insert(&mut self, pubkey: PublicKeyBytes, index: ValidatorIndex) -> bool {
-        if index == self.len {
-            self.map.insert_mut(pubkey, index);
-            self.len = self
-                .len
-                .checked_add(1)
-                .expect("map length cannot exceed usize");
-            true
-        } else {
-            false
+    pub fn insert(&mut self, pubkey: XmssPublicKey, index: ValidatorIndex) -> bool {
+        let Some(next_len) = self.len.checked_add(1) else {
+            return false;
+        };
+        if index != self.len {
+            return false;
         }
+        self.map.insert_mut(pubkey, index);
+        self.len = next_len;
+        true
     }
 
-    /// Looks up a validator index's by their public key.
-    pub fn get(&self, pubkey: &PublicKeyBytes) -> Option<ValidatorIndex> {
+    /// Looks up a validator index by their public key.
+    pub fn get(&self, pubkey: &XmssPublicKey) -> Option<ValidatorIndex> {
         self.map.get(pubkey).copied()
     }
 }

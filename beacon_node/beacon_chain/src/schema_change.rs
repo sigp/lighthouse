@@ -25,6 +25,15 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     match (from, to) {
         // Migrating from the current schema version to itself is always OK, a no-op.
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
+        // Schema 33 changes the registry layouts in snapshots, state diffs, and the
+        // pubkey cache. Reject migrations across this boundary before mutating the database.
+        (_, _) if (from.as_u64() < 33) != (to.as_u64() < 33) => {
+            Err(HotColdDBError::UnsupportedSchemaVersion {
+                target_version: to,
+                current_version: from,
+            }
+            .into())
+        }
         // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);

@@ -100,6 +100,7 @@ pub enum BeaconChainError {
     ValidatorPubkeyCacheError(String),
     ValidatorIndexUnknown(usize),
     ValidatorPubkeyUnknown(PublicKeyBytes),
+    ValidatorXmssPubkeyUnknown(types::XmssPublicKey),
     OpPoolError(OpPoolError),
     NaiveAggregationError(NaiveAggregationError),
     ObservedAttestationsError(ObservedAttestationsError),

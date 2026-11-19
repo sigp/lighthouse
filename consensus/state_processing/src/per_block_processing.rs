@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
 use signature_sets::{
     block_proposal_signature_set, execution_payload_bid_signature_set,
-    get_builder_pubkey_from_state, get_pubkey_from_state, randao_signature_set,
+    get_bls_builder_pubkey_from_state, get_bls_pubkey_from_state, randao_signature_set,
 };
 use std::borrow::Cow;
 use tree_hash::TreeHash;
@@ -133,6 +133,10 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
+    if fork_name == ForkName::Pq {
+        return Err(BeaconStateError::PqUnsupported("per_block_processing").into());
+    }
+
     // Process deferred execution requests from the parent's envelope.
     if fork_name.gloas_enabled() {
         process_parent_execution_payload(state, block, spec)?;
@@ -149,7 +153,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
             block_verify!(
                 BlockSignatureVerifier::verify_entire_block(
                     state,
-                    |i| get_pubkey_from_state(state, i),
+                    |i| get_bls_pubkey_from_state(state, i),
                     |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
                     ctxt,
@@ -310,7 +314,7 @@ pub fn verify_block_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
     verify!(
         block_proposal_signature_set(
             state,
-            |i| get_pubkey_from_state(state, i),
+            |i| get_bls_pubkey_from_state(state, i),
             block,
             block_root,
             proposer_index,
@@ -338,7 +342,7 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
         block_verify!(
             randao_signature_set(
                 state,
-                |i| get_pubkey_from_state(state, i),
+                |i| get_bls_pubkey_from_state(state, i),
                 block,
                 Some(proposer_index),
                 spec
@@ -792,7 +796,7 @@ pub fn process_execution_payload_bid<E: EthSpec>(
                 // return None).
                 execution_payload_bid_signature_set(
                     state,
-                    |i| get_builder_pubkey_from_state(state, i),
+                    |i| get_bls_builder_pubkey_from_state(state, i),
                     signed_bid,
                     spec
                 )?

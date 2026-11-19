@@ -13,7 +13,7 @@ use typenum::Unsigned;
 use types::{
     Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
     BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBidGloas, ExecutionRequestsGloas,
-    Fork, PendingDeposit, ProgressiveKzgCommitments,
+    Fork, PendingDeposit, ProgressiveKzgCommitments, compute_deposit_pubkey,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     is_builder_withdrawal_credential,
 };
@@ -256,8 +256,9 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     let mut builder_pubkey_to_index: HashMap<PublicKeyBytes, u64> = HashMap::new();
 
     for deposit in &current_pending_deposits {
+        let pubkey = compute_deposit_pubkey(&deposit.pubkey);
         // Deposits for existing validators stay in the pending queue.
-        if state.get_validator_index(&deposit.pubkey)?.is_some() {
+        if state.get_validator_index(&pubkey)?.is_some() {
             pending_deposits.push(deposit.clone());
             continue;
         }
@@ -286,7 +287,7 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
 
                 builder_pubkey_to_index.insert(deposit.pubkey, builders.len() as u64);
                 builders.push(Builder::from_deposit(
-                    deposit.pubkey,
+                    pubkey,
                     PAYLOAD_BUILDER_VERSION,
                     deposit.withdrawal_credentials,
                     deposit.amount,
@@ -547,7 +548,10 @@ mod tests {
         // Sanity check the expected onboarding semantics.
         let builders = full_post.builders().unwrap().to_vec();
         assert_eq!(builders.len(), 1);
-        assert_eq!(builders[0].pubkey, fixture.builder_deposit.pubkey);
+        assert_eq!(
+            builders[0].pubkey,
+            compute_deposit_pubkey(&fixture.builder_deposit.pubkey)
+        );
         assert_eq!(
             builders[0].balance,
             fixture.builder_deposit.amount + fixture.builder_topup_deposit.amount

@@ -15,7 +15,7 @@ use eth2::types::{EventKind, ForkVersionedResponse};
 use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
-    execution_payload_bid_signature_set, get_builder_pubkey_from_state,
+    execution_payload_bid_signature_set, get_bls_builder_pubkey_from_state,
 };
 use tracing::debug;
 use types::{
@@ -191,7 +191,8 @@ pub(crate) fn builder_exit_requested<E: EthSpec>(
     execution_requests: &ExecutionRequestsGloas<E>,
 ) -> bool {
     execution_requests.builder_exits.iter().any(|request| {
-        request.pubkey == builder.pubkey && request.source_address == builder.execution_address
+        types::compute_deposit_pubkey(&request.pubkey) == builder.pubkey
+            && request.source_address == builder.execution_address
     })
 }
 
@@ -461,7 +462,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         execution_payload_bid_signature_set(
             head_state,
-            |i| get_builder_pubkey_from_state(head_state, i),
+            |i| get_bls_builder_pubkey_from_state(head_state, i),
             signed_bid.to_ref(),
             ctx.spec,
         )

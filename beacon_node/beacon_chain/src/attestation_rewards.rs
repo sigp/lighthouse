@@ -367,7 +367,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ValidatorId::Index(i) => Ok(i as usize),
                 ValidatorId::PublicKey(pubkey) => state
                     .get_validator_index(&pubkey)?
-                    .ok_or(BeaconChainError::ValidatorPubkeyUnknown(pubkey)),
+                    .ok_or(BeaconChainError::ValidatorXmssPubkeyUnknown(pubkey)),
+                ValidatorId::BlsPublicKey(_) => {
+                    Err(types::BeaconStateError::BlsRegistryKeysUnavailable.into())
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(indices)

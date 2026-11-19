@@ -142,7 +142,7 @@ impl GossipVerifiedInclusionList {
             // [REJECT] The signature is valid.
             let pubkey_cache = ctx.validator_pubkey_cache.read();
             let signature_set = inclusion_list_signature_set::<T::EthSpec, _>(
-                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                |validator_index| pubkey_cache.get_bls(validator_index).map(Cow::Borrowed),
                 &signed_inclusion_list,
                 ctx.genesis_validators_root,
                 ctx.spec,
