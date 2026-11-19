@@ -29,18 +29,31 @@ impl Redb {
         let db_file = path.join(DB_FILE_NAME);
         let db = redb::Database::create(db_file)?;
 
+        // Create all tables in a single transaction so that the allocator state is only written
+        // once (see `begin_write`).
+        let tx = Self::begin_write(&db)?;
         for column in DBColumn::iter() {
-            Self::create_table(&db, column.into())?;
+            let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+                TableDefinition::new(column.into());
+            tx.open_table(table_definition)?;
         }
+        tx.commit()?;
 
         Ok(Self { db: db.into() })
     }
 
-    fn create_table(db: &redb::Database, table_name: &str) -> Result<(), Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(table_name);
-        let tx = db.begin_write()?;
-        tx.open_table(table_definition)?;
-        tx.commit().map_err(Into::into)
+    /// Begin a write transaction with redb's quick-repair enabled.
+    ///
+    /// Quick-repair persists the allocator state with every commit, so that the database can be
+    /// reopened quickly after an unclean shutdown. Without it, redb has to re-read the entire
+    /// database file to rebuild the allocator state, which can take hours for large databases.
+    ///
+    /// Every write transaction must use quick-repair: a durable commit without it deletes the
+    /// saved allocator state.
+    fn begin_write(db: &redb::Database) -> Result<redb::WriteTransaction, Error> {
+        let mut tx = db.begin_write()?;
+        tx.set_quick_repair(true);
+        Ok(tx)
     }
 
     pub fn write_options(&self) -> WriteOptions {
@@ -70,7 +83,7 @@ impl Redb {
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
         let open_db = self.db.read();
-        let mut tx = open_db.begin_write()?;
+        let mut tx = Self::begin_write(&open_db)?;
         tx.set_durability(opts.into());
         let mut table = tx.open_table(table_definition)?;
 
@@ -143,7 +156,7 @@ impl Redb {
     pub fn key_delete(&self, col: DBColumn, key: &[u8]) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
         let open_db = self.db.read();
-        let tx = open_db.begin_write()?;
+        let tx = Self::begin_write(&open_db)?;
         let mut table = tx.open_table(table_definition)?;
         metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col.into()]);
 
@@ -154,7 +167,7 @@ impl Redb {
 
     pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         let open_db = self.db.read();
-        let mut tx = open_db.begin_write()?;
+        let mut tx = Self::begin_write(&open_db)?;
         tx.set_durability(self.write_options().into());
         for op in ops_batch {
             match op {
@@ -196,7 +209,12 @@ impl Redb {
         let _timer = metrics::start_timer(&metrics::DISK_DB_COMPACT_TIMES);
         let mut open_db = self.db.write();
         let mut_db = open_db.borrow_mut();
-        mut_db.compact().map_err(Into::into).map(|_| ())
+        mut_db.compact()?;
+
+        // Compaction commits without quick-repair, which deletes the saved allocator state.
+        // Re-save it so that an unclean shutdown before the next write doesn't need a full repair.
+        Self::begin_write(mut_db)?.commit()?;
+        Ok(())
     }
 
     pub fn iter_column_keys_from<K: Key>(
@@ -274,7 +292,7 @@ impl Redb {
 
     pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {
         let open_db = self.db.read();
-        let mut tx = open_db.begin_write()?;
+        let mut tx = Self::begin_write(&open_db)?;
 
         tx.set_durability(redb::Durability::None);
 
@@ -294,7 +312,7 @@ impl Redb {
         mut f: impl FnMut(&[u8]) -> Result<bool, Error>,
     ) -> Result<(), Error> {
         let open_db = self.db.read();
-        let mut tx = open_db.begin_write()?;
+        let mut tx = Self::begin_write(&open_db)?;
 
         tx.set_durability(redb::Durability::None);
 
@@ -307,5 +325,98 @@ impl Redb {
         drop(table);
         tx.commit()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::{TempDir, tempdir};
+
+    /// Copy the database file as it currently is on disk, which is what a new process would see
+    /// if this one crashed now, and check that the copy opens without a full repair.
+    #[track_caller]
+    fn copy_and_open_without_repair(dir: &Path) -> TempDir {
+        let copy_dir = tempdir().unwrap();
+        std::fs::copy(dir.join(DB_FILE_NAME), copy_dir.path().join(DB_FILE_NAME)).unwrap();
+
+        // redb invokes the repair callback before starting a full repair (which re-reads the whole
+        // file), and aborting it fails the open.
+        redb::Builder::new()
+            .set_repair_callback(|session| session.abort())
+            .create(copy_dir.path().join(DB_FILE_NAME))
+            .expect("full repair should not be required");
+        copy_dir
+    }
+
+    /// Regression test for https://github.com/sigp/lighthouse/issues/10440.
+    ///
+    /// Close the database uncleanly by never running `Drop` for the `redb::Database`, as happens
+    /// after a crash, and check that it can be reopened without a full repair.
+    #[test]
+    fn reopen_after_unclean_shutdown_without_repair() {
+        let col = DBColumn::BeaconBlock;
+        let key = |i: u64| i.to_be_bytes().to_vec();
+        let value = |i: u64| i.to_be_bytes().repeat(128);
+
+        let dir = tempdir().unwrap();
+        let db = Redb::open(dir.path()).unwrap();
+        copy_and_open_without_repair(dir.path());
+
+        // Only the most recent durable commit determines whether a full repair is needed, so check
+        // after every write path.
+        db.do_atomically(
+            (0..1024)
+                .map(|i| KeyValueStoreOp::PutKeyValue(col, key(i), value(i)))
+                .collect(),
+        )
+        .unwrap();
+        copy_and_open_without_repair(dir.path());
+
+        // These deletes are non-durable, so they are persisted by the next durable commit.
+        let (key_0, key_1, value_2) = (key(0), key(1), value(2));
+        db.delete_batch(col, HashSet::from([key_0.as_slice(), key_1.as_slice()]))
+            .unwrap();
+        db.delete_if(col, |val| Ok(val == value_2)).unwrap();
+        copy_and_open_without_repair(dir.path());
+
+        db.key_delete(col, &key(3)).unwrap();
+        copy_and_open_without_repair(dir.path());
+
+        db.do_atomically(vec![KeyValueStoreOp::DeleteKey(col, key(4))])
+            .unwrap();
+        copy_and_open_without_repair(dir.path());
+
+        db.put_bytes(col, &key(5), b"put").unwrap();
+        copy_and_open_without_repair(dir.path());
+
+        db.put_bytes_sync(col, &key(6), b"put_sync").unwrap();
+        copy_and_open_without_repair(dir.path());
+
+        db.compact().unwrap();
+        copy_and_open_without_repair(dir.path());
+
+        // Close uncleanly: `Drop for redb::Database` writes the allocator state, so never run it.
+        // The leaked database keeps redb's exclusive file lock, so reopen a copy of the file.
+        std::mem::forget(db);
+        let reopen_dir = copy_and_open_without_repair(dir.path());
+
+        // All writes made before the unclean shutdown must have been persisted.
+        let db = Redb::open(reopen_dir.path()).unwrap();
+        for i in 0..5 {
+            assert_eq!(db.get_bytes(col, &key(i)).unwrap(), None, "key {i}");
+        }
+        assert_eq!(db.get_bytes(col, &key(5)).unwrap(), Some(b"put".to_vec()));
+        assert_eq!(
+            db.get_bytes(col, &key(6)).unwrap(),
+            Some(b"put_sync".to_vec())
+        );
+        for i in 7..1024 {
+            assert_eq!(
+                db.get_bytes(col, &key(i)).unwrap(),
+                Some(value(i)),
+                "key {i}"
+            );
+        }
     }
 }

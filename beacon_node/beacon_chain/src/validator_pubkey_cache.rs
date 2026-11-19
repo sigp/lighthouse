@@ -7,6 +7,8 @@ use rayon::prelude::*;
 use smallvec::SmallVec;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use state_processing::per_block_processing::signature_sets::get_pubkey_from_state;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
@@ -173,6 +175,25 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// Get the public key for a validator with index `i`.
     pub fn get(&self, i: usize) -> Option<&PublicKey> {
         self.pubkeys.get(i)
+    }
+
+    /// Get the public key for the validator with index `i` in `state`.
+    ///
+    /// Keys for validators in the cache are borrowed from the cache, whilst keys for validators
+    /// beyond the end of the cache are decompressed from `state`.
+    ///
+    /// Returns `None` if `state` does not contain a validator with index `i`.
+    pub fn get_for_state<'a>(
+        &'a self,
+        state: &'a BeaconState<T::EthSpec>,
+        i: usize,
+    ) -> Option<Cow<'a, PublicKey>> {
+        if i >= state.validators().len() {
+            return None;
+        }
+        self.get(i)
+            .map(Cow::Borrowed)
+            .or_else(|| get_pubkey_from_state(state, i))
     }
 
     /// Get the `PublicKey` for a validator with `PublicKeyBytes`.
