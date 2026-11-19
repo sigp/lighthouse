@@ -1619,15 +1619,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
-    /// even if those validators aren't included in the head state. It is important to remember
-    /// that just because a validator exists here, it doesn't necessarily exist in all
-    /// `BeaconStates`.
+    /// On PQ, this lookup uses the current head state. Earlier forks use the cache of
+    /// imported validator keys, so the result may refer to a validator on a different branch.
     ///
     /// ## Errors
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_index(&self, pubkey: &XmssPublicKey) -> Result<Option<usize>, Error> {
+        let head = self.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        if state.fork_name_unchecked() == ForkName::Pq {
+            return Ok(state.find_validator_index(pubkey)?);
+        }
         let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get_index(pubkey))
@@ -1651,15 +1654,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
-    /// even if those validators aren't included in the head state. It is important to remember
-    /// that just because a validator exists here, it doesn't necessarily exist in all
-    /// `BeaconStates`.
+    /// On PQ, this lookup uses the current head state. Earlier forks use the cache of
+    /// imported validator keys, so the result may refer to a validator on a different branch.
     ///
     /// ## Errors
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<XmssPublicKey>, Error> {
+        let head = self.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        if state.fork_name_unchecked() == ForkName::Pq {
+            return Ok(state
+                .validators()
+                .get(validator_index)
+                .map(|validator| validator.pubkey));
+        }
         let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get(validator_index).cloned())
@@ -4475,7 +4484,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // is so we don't have to think about lock ordering with respect to the fork choice lock.
         // There are a bunch of places where we lock both fork choice and the pubkey cache and it
         // would be difficult to check that they all lock fork choice first.
-        let mut ops = {
+        let mut ops = if state.fork_name_unchecked() == ForkName::Pq {
+            // PQ verification and validator queries resolve keys in their own states. A
+            // deposit on another branch can assign a different key to the same index.
+            vec![]
+        } else {
             let _timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_PUBKEY_CACHE_LOCK);
             let pubkey_cache = self.validator_pubkey_cache.upgradable_read();
 

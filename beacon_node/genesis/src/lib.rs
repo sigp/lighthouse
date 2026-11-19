@@ -1,5 +1,6 @@
 mod common;
 mod interop;
+pub mod pq;
 
 pub use interop::{
     DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder, bls_withdrawal_credentials,

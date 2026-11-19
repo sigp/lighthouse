@@ -48,6 +48,55 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         apply_deposit(&mut state, data, Some(proof), true, spec)?;
     }
 
+    complete_genesis_upgrades(state, execution_payload_header, spec)
+}
+
+/// A funded validator whose keys are supplied directly by the PQ genesis builder.
+pub struct PqGenesisValidator {
+    pub pubkey: XmssPublicKey,
+    pub vrf_root: Hash256,
+    pub withdrawal_credentials: Hash256,
+    pub balance: u64,
+}
+
+/// Build PQ genesis with an already-keyed registry and an empty deposit contract.
+pub fn initialize_pq_genesis<E: EthSpec>(
+    eth1_block_hash: Hash256,
+    genesis_time: u64,
+    validators: Vec<PqGenesisValidator>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+    spec: &ChainSpec,
+) -> Result<BeaconState<E>, BlockProcessingError> {
+    if spec.fork_name_at_slot::<E>(spec.genesis_slot) != ForkName::Pq {
+        return Err(BeaconStateError::IncorrectStateVariant.into());
+    }
+    let el_hash = execution_payload_header
+        .as_ref()
+        .map_or(eth1_block_hash, |header| header.block_hash().0);
+    let eth1_data = Eth1Data {
+        deposit_root: DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH).root(),
+        deposit_count: 0,
+        block_hash: el_hash,
+    };
+    let mut state = BeaconState::new(genesis_time, eth1_data, spec);
+    state.fill_randao_mixes_with(el_hash)?;
+    for validator in validators {
+        state.add_validator_to_registry(
+            validator.pubkey,
+            validator.vrf_root,
+            validator.withdrawal_credentials,
+            validator.balance,
+            spec,
+        )?;
+    }
+    complete_genesis_upgrades(state, execution_payload_header, spec)
+}
+
+fn complete_genesis_upgrades<E: EthSpec>(
+    mut state: BeaconState<E>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+    spec: &ChainSpec,
+) -> Result<BeaconState<E>, BlockProcessingError> {
     process_activations(&mut state, spec)?;
 
     // To support testnets with Altair enabled from genesis, perform a possible state upgrade here.
@@ -134,9 +183,11 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // calling `initialize_beacon_state_from_eth1()`. But the sync committees
         // are actually calcuated back in `upgrade_to_altair()`. We need to
         // re-calculate the sync committees here now that the state is `Electra`
-        let sync_committee = Arc::new(state.get_next_sync_committee(spec)?);
-        *state.current_sync_committee_mut()? = sync_committee.clone();
-        *state.next_sync_committee_mut()? = sync_committee;
+        if spec.fork_name_at_slot::<E>(spec.genesis_slot) != ForkName::Pq {
+            let sync_committee = Arc::new(state.get_next_sync_committee(spec)?);
+            *state.current_sync_committee_mut()? = sync_committee.clone();
+            *state.next_sync_committee_mut()? = sync_committee;
+        }
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing
@@ -192,8 +243,13 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     {
         upgrade_to_pq(&mut state, spec)?;
 
-        // Remove intermediate Gloas fork from `state.fork`.
-        state.fork_mut().previous_version = spec.pq_fork_version;
+        // PQ genesis uses the Gloas version as its previous version.
+        let el_genesis_hash = ExecutionBlockHash::from_root(state.eth1_data().block_hash);
+        *state.latest_block_hash_mut()? = el_genesis_hash;
+        let bid = state.latest_execution_payload_bid_gloas_mut()?;
+        bid.parent_block_hash = el_genesis_hash;
+        bid.execution_requests_root = ExecutionRequestsPq::<E>::default().tree_hash_root();
+        *state.deposit_requests_start_index_mut()? = 0;
     }
 
     // Upgrade to heze if configured from genesis.

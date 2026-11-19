@@ -26,11 +26,16 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
     // [New in Gloas:EIP7688] Gloas attesting indices have no type-level bound, so check the
     // spec's maximum here. Pre-Gloas attestation types already enforce an equal or tighter bound
     // in SSZ.
+    let max_indices = if matches!(indexed_attestation, IndexedAttestationRef::Pq(_)) {
+        E::MaxValidatorsPerCommittee::to_usize().saturating_mul(E::max_committees_per_slot_pq())
+    } else {
+        E::MaxValidatorsPerSlot::to_usize()
+    };
     verify!(
-        indices.len() <= E::MaxValidatorsPerSlot::to_usize(),
+        indices.len() <= max_indices,
         Invalid::IndicesExceedMaxLength {
             length: indices.len(),
-            max: E::MaxValidatorsPerSlot::to_usize(),
+            max: max_indices,
         }
     );
 
@@ -50,7 +55,15 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
     };
     check_sorted(&indices)?;
 
-    if verify_signatures.is_true() {
+    if let IndexedAttestationRef::Pq(indexed) = indexed_attestation {
+        if verify_signatures.is_true() {
+            let statement = crate::pq::attestation_statement(state, &indexed.data, &indices, spec)?;
+            verify!(
+                crate::pq::verify_attestation_proof::<E>(&[statement], &indexed.proof),
+                Invalid::BadSignature
+            );
+        }
+    } else if verify_signatures.is_true() {
         verify!(
             indexed_attestation_signature_set(
                 state,

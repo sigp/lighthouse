@@ -3,6 +3,7 @@ use bls::{Keypair, PublicKey, Signature};
 use ethereum_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;
+use state_processing::genesis::{PqGenesisValidator, initialize_pq_genesis};
 use state_processing::initialize_beacon_state_from_eth1;
 use types::{BeaconState, ChainSpec, DepositData, EthSpec, ExecutionPayloadHeader, Hash256};
 
@@ -112,6 +113,22 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
             .map(initial_balance_fn)
             .collect::<Vec<_>>();
 
+        if spec.fork_name_at_slot::<E>(spec.genesis_slot) == types::ForkName::Pq {
+            let pq_keys = keypairs
+                .par_iter()
+                .map(|key| crate::pq::PqGenesisKeys::from_bls(&key.sk))
+                .collect::<Vec<_>>();
+            return build_pq_interop_state(
+                genesis_time,
+                eth1_block_hash,
+                &pq_keys,
+                withdrawal_credentials,
+                initial_balances,
+                self.execution_payload_header,
+                spec,
+            );
+        }
+
         let datas = keypairs
             .into_par_iter()
             .zip(withdrawal_credentials.into_par_iter())
@@ -148,6 +165,72 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
 
         Ok(state)
     }
+
+    /// Build local PQ genesis using keys prepared by a test harness for later signing.
+    pub fn build_pq_genesis_state(
+        self,
+        keypairs: &[Keypair],
+        pq_keys: &[crate::pq::PqGenesisKeys],
+        genesis_time: u64,
+        eth1_block_hash: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<BeaconState<E>, String> {
+        if keypairs.len() != pq_keys.len() {
+            return Err("PQ and BLS interop key counts differ".into());
+        }
+        let withdrawal_credentials = keypairs
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                self.withdrawal_credentials_fn.as_ref().map_or_else(
+                    || bls_withdrawal_credentials(&key.pk, spec),
+                    |credentials| credentials(index, &key.pk, spec),
+                )
+            })
+            .collect();
+        let initial_balances = (0..keypairs.len())
+            .map(|index| {
+                self.initial_balance_fn
+                    .as_ref()
+                    .map_or(spec.max_effective_balance, |balance| balance(index))
+            })
+            .collect();
+        build_pq_interop_state(
+            genesis_time,
+            eth1_block_hash,
+            pq_keys,
+            withdrawal_credentials,
+            initial_balances,
+            self.execution_payload_header,
+            spec,
+        )
+    }
+}
+
+fn build_pq_interop_state<E: EthSpec>(
+    genesis_time: u64,
+    eth1_block_hash: Hash256,
+    pq_keys: &[crate::pq::PqGenesisKeys],
+    withdrawal_credentials: Vec<Hash256>,
+    initial_balances: Vec<u64>,
+    header: Option<ExecutionPayloadHeader<E>>,
+    spec: &ChainSpec,
+) -> Result<BeaconState<E>, String> {
+    let validators = pq_keys
+        .iter()
+        .zip(withdrawal_credentials)
+        .zip(initial_balances)
+        .map(
+            |((keys, withdrawal_credentials), balance)| PqGenesisValidator {
+                pubkey: keys.xmss.public_key(),
+                vrf_root: keys.vrf.root(),
+                withdrawal_credentials,
+                balance,
+            },
+        )
+        .collect();
+    initialize_pq_genesis(eth1_block_hash, genesis_time, validators, header, spec)
+        .map_err(|error| format!("Unable to initialize PQ genesis state: {error:?}"))
 }
 
 pub fn interop_genesis_state<E: EthSpec>(

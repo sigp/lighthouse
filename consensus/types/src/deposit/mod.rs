@@ -20,6 +20,11 @@ const PQ_DEPOSIT_PREFIX: [u8; 16] = [0; 16];
 const LEGACY_XMSS_PUBKEY_DOMAIN: [u8; 1] = [0];
 const LEGACY_VRF_ROOT_DOMAIN: [u8; 1] = [1];
 
+/// A legacy request names a BLS key instead of an XMSS key with its zero prefix.
+pub fn is_legacy_deposit_pubkey(pubkey: &PublicKeyBytes) -> bool {
+    !pubkey.as_serialized().starts_with(&PQ_DEPOSIT_PREFIX)
+}
+
 /// Map a deposit key in the unchanged 48-byte request format to its registry key.
 pub fn compute_deposit_pubkey(pubkey: &PublicKeyBytes) -> XmssPublicKey {
     if let Some((prefix, key)) = pubkey.as_serialized().split_last_chunk::<32>()
@@ -33,7 +38,7 @@ pub fn compute_deposit_pubkey(pubkey: &PublicKeyBytes) -> XmssPublicKey {
 
 /// Read the VRF commitment of a PQ deposit or compute the legacy deposit commitment.
 pub fn compute_deposit_vrf_root(pubkey: &PublicKeyBytes, signature: &SignatureBytes) -> Hash256 {
-    if pubkey.as_serialized().starts_with(&PQ_DEPOSIT_PREFIX)
+    if !is_legacy_deposit_pubkey(pubkey)
         && let Some(root) = signature.serialize().first_chunk::<32>()
     {
         return (*root).into();

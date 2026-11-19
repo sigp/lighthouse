@@ -24,6 +24,7 @@ use types::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
+    is_legacy_deposit_pubkey,
 };
 
 pub struct SinglePassConfig {
@@ -190,9 +191,6 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut next_epoch_cache = PreEpochCache::new_for_next_epoch(state)?;
 
     let pending_deposits_ctxt = if fork_name.electra_enabled() && conf.pending_deposits {
-        if fork_name == ForkName::Pq && !state.pending_deposits()?.is_empty() {
-            return Err(BeaconStateError::PqUnsupported("process_pending_deposits").into());
-        }
         Some(PendingDepositsContext::new(state, spec, &conf)?)
     } else {
         None
@@ -412,7 +410,9 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 state
                     .get_balance_mut(validator_index)?
                     .safe_add_assign(deposit_data.amount)?;
-            } else if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
+            } else if fork_name == ForkName::Pq
+                || is_valid_deposit_signature(&deposit_data, spec).is_ok()
+            {
                 // Apply the new deposit to the state
                 let validator_index = state.add_validator_to_registry(
                     pubkey,
@@ -421,6 +421,12 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                     deposit_data.amount,
                     spec,
                 )?;
+                if fork_name == ForkName::Pq && is_legacy_deposit_pubkey(&deposit_data.pubkey) {
+                    let validator = state.get_validator_mut(validator_index)?;
+                    validator.exit_epoch = current_epoch;
+                    validator.withdrawable_epoch =
+                        current_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
+                }
                 added_validators.push((deposit_data.pubkey, validator_index));
             }
         }
@@ -1108,6 +1114,8 @@ impl PendingDepositsContext {
             .start_slot(E::slots_per_epoch());
 
         let pending_deposits = state.pending_deposits()?;
+        let is_pq = state.fork_name_unchecked() == ForkName::Pq;
+        let mut new_keys = HashMap::new();
 
         for deposit in pending_deposits.iter() {
             // Do not process deposit requests if pre-Fulu and the Eth1 bridge deposits are not yet applied.
@@ -1137,11 +1145,12 @@ impl PendingDepositsContext {
             // take, just whether it is non-default. Nor do we need to know the value of
             // `withdrawable_epoch`, because `next_epoch <= withdrawable_epoch` will evaluate to
             // `true` both for the actual value & the default placeholder value (`FAR_FUTURE_EPOCH`).
-            let mut is_validator_exited = false;
-            let mut is_validator_withdrawn = false;
-            let opt_validator_index = state
-                .pubkey_cache()
-                .get(&compute_deposit_pubkey(&deposit.pubkey));
+            let pubkey = compute_deposit_pubkey(&deposit.pubkey);
+            let legacy_deposit = is_pq && is_legacy_deposit_pubkey(&deposit.pubkey);
+            let mut is_validator_exited = new_keys.get(&pubkey).copied().unwrap_or(false);
+            let mut is_validator_withdrawn =
+                is_validator_exited && spec.min_validator_withdrawability_delay == 0;
+            let opt_validator_index = state.pubkey_cache().get(&pubkey);
             if let Some(validator_index) = opt_validator_index {
                 let validator = state.get_validator(validator_index)?;
                 let already_exited = validator.exit_epoch < spec.far_future_epoch;
@@ -1160,36 +1169,28 @@ impl PendingDepositsContext {
                 is_validator_withdrawn = validator.withdrawable_epoch < next_epoch;
             }
 
-            if is_validator_withdrawn {
-                // Deposited balance will never become active. Queue a balance increase but do not
-                // consume churn. Validator index must be known if the validator is known to be
-                // withdrawn (see calculation of `is_validator_withdrawn` above).
-                let validator_index =
-                    opt_validator_index.ok_or(Error::PendingDepositsLogicError)?;
-                validator_deposits_to_process
-                    .entry(validator_index)
-                    .or_insert(0)
-                    .safe_add_assign(deposit.amount)?;
-            } else if is_validator_exited {
-                // Validator is exiting, postpone the deposit until after withdrawable epoch
+            let bypass_churn = is_validator_withdrawn || legacy_deposit;
+            if !bypass_churn && is_validator_exited {
                 deposits_to_postpone.push(deposit.clone());
             } else {
-                // Check if deposit fits in the churn, otherwise, do no more deposit processing in this epoch.
-                is_churn_limit_reached =
-                    processed_amount.safe_add(deposit.amount)? > available_for_processing;
-                if is_churn_limit_reached {
-                    break;
+                if !bypass_churn {
+                    is_churn_limit_reached =
+                        processed_amount.safe_add(deposit.amount)? > available_for_processing;
+                    if is_churn_limit_reached {
+                        break;
+                    }
+                    processed_amount.safe_add_assign(deposit.amount)?;
                 }
-                processed_amount.safe_add_assign(deposit.amount)?;
 
-                // Deposit fits in the churn, process it. Increase balance and consume churn.
                 if let Some(validator_index) = opt_validator_index {
                     validator_deposits_to_process
                         .entry(validator_index)
                         .or_insert(0)
                         .safe_add_assign(deposit.amount)?;
                 } else {
-                    // The `PendingDeposit` is for a new validator
+                    if is_pq {
+                        new_keys.entry(pubkey).or_insert(legacy_deposit);
+                    }
                     new_validator_deposits.push(deposit.clone());
                 }
             }

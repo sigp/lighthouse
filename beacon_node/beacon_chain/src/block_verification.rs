@@ -720,14 +720,24 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     }
 
     // verify signatures
-    let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
-    for svb in &mut signature_verified_blocks {
-        signature_verifier
-            .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
-    }
-
-    if signature_verifier.verify().is_err() {
-        return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
+    if state.fork_name_unchecked() == ForkName::Pq {
+        for svb in &mut signature_verified_blocks {
+            verify_pq_proposer_signature(
+                &state,
+                svb.block.as_block(),
+                &mut svb.consensus_context,
+                &chain.spec,
+            )?;
+        }
+    } else {
+        let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
+        for svb in &mut signature_verified_blocks {
+            signature_verifier
+                .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
+        }
+        if signature_verifier.verify().is_err() {
+            return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
+        }
     }
 
     if let Some(signature_verified_block) = signature_verified_blocks.first_mut() {
@@ -748,8 +758,10 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     consensus_context: ConsensusContext<T::EthSpec>,
 }
 
-/// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit
-/// signatures) have been verified.
+/// A wrapper around a block whose proposer signature has been verified.
+///
+/// Earlier forks also verify the body signatures here. PQ verifies body proofs and signatures
+/// during the state transition.
 pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     block: MaybeAvailableBlock<T::EthSpec>,
     block_root: Hash256,
@@ -1227,11 +1239,25 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
-
         let mut consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
+        if state.fork_name_unchecked() == ForkName::Pq {
+            // PQ body authentication is performed during the state transition.
+            verify_pq_proposer_signature(
+                &state,
+                block.as_block(),
+                &mut consensus_context,
+                &chain.spec,
+            )?;
+            return Ok(Self {
+                consensus_context,
+                block,
+                block_root,
+                parent: Some(parent),
+            });
+        }
+        let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
         signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
 
         if signature_verifier.verify().is_ok() {
@@ -1729,7 +1755,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         if let Err(err) = per_block_processing(
             &mut state,
             block.as_block(),
-            // Signatures were verified earlier in this function.
+            // The proposer was authenticated upstream. PQ always checks its
+            // body authentication during this transition.
             BlockSignatureStrategy::NoVerification,
             VerifyBlockRoot::True,
             &mut consensus_context,
@@ -2239,6 +2266,38 @@ pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<'_, ValidatorPubkeyCache<T>>, BeaconChainError> {
     Ok(chain.validator_pubkey_cache.read())
+}
+
+fn verify_pq_proposer_signature<E: EthSpec>(
+    state: &BeaconState<E>,
+    signed_block: &SignedBeaconBlock<E>,
+    context: &mut ConsensusContext<E>,
+    spec: &ChainSpec,
+) -> Result<(), BlockError> {
+    let SignedBeaconBlock::Pq(block) = signed_block else {
+        return Err(BeaconStateError::IncorrectStateVariant.into());
+    };
+    let expected = context
+        .get_proposer_index_from_epoch_state(state, spec)
+        .map_err(BlockProcessingError::from)
+        .map_err(BlockError::PerBlockProcessingError)?;
+    if block.message.proposer_index != expected {
+        return Err(BlockError::IncorrectBlockProposer {
+            block: block.message.proposer_index,
+            local_shuffling: expected,
+        });
+    }
+    let object_root = context
+        .get_current_block_root(signed_block)
+        .map_err(BlockProcessingError::from)
+        .map_err(BlockError::PerBlockProcessingError)?;
+    if state_processing::pq::verify_proposer_signature(state, block, object_root, spec)? {
+        Ok(())
+    } else {
+        Err(BlockError::InvalidSignature(
+            InvalidSignature::ProposerSignature,
+        ))
+    }
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.

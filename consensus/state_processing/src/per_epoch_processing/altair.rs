@@ -34,7 +34,12 @@ pub fn process_epoch<E: EthSpec>(
     initialize_epoch_cache(state, spec)?;
     initialize_progressive_balances_cache::<E>(state, spec)?;
 
-    let sync_committee = state.current_sync_committee()?.clone();
+    let is_pq = state.fork_name_unchecked() == types::ForkName::Pq;
+    let sync_committee = if is_pq {
+        None
+    } else {
+        Some(state.current_sync_committee()?.clone())
+    };
 
     // Justification and finalization.
     let justification_and_finalization_state = process_justification_and_finalization(state)?;
@@ -75,7 +80,14 @@ pub fn process_epoch<E: EthSpec>(
     // Rotate current/previous epoch participation
     process_participation_flag_updates(state)?;
 
-    process_sync_committee_updates(state, spec)?;
+    if is_pq {
+        if let Some(cache) = epoch_result.lookahead_committee_cache.as_deref() {
+            crate::pq::process_aggregation_committee_window(state, cache, spec)?;
+        }
+        crate::pq::expire_preregistrations(state)?;
+    } else {
+        process_sync_committee_updates(state, spec)?;
+    }
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches()?;

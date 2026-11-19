@@ -20,28 +20,47 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // The Pq operations (attestations covered by the block's `proof`, no exits, BLS changes or
-    // payload attestations, new execution requests) are not implemented yet.
-    if matches!(block_body, BeaconBlockBodyRef::Pq(_)) {
-        return Err(BeaconStateError::PqUnsupported("process_operations").into());
-    }
-
     // [New in Gloas:EIP7688] Also enforce limits on lists constructed without decoding.
     if state.fork_name_unchecked().gloas_enabled() {
         verify_operation_list_lengths(block_body)?;
     }
 
-    process_proposer_slashings(
-        state,
-        &block_body.proposer_slashings()?.to_cow_slice(),
-        verify_signatures,
-        ctxt,
-        spec,
-    )?;
+    if let BeaconBlockBodyRef::Pq(body) = block_body {
+        block_verify!(
+            body.deposits.is_empty(),
+            BlockProcessingError::DepositCountInvalid {
+                expected: 0,
+                found: body.deposits.len()
+            }
+        );
+        for (index, slashing) in body.proposer_slashings.iter().enumerate() {
+            super::verify_proposer_slashing::verify_proposer_slashing_pq(slashing, state, spec)
+                .map_err(|err| err.into_with_index(index))?;
+            slash_validator(
+                state,
+                slashing.signed_header_1.message.proposer_index as usize,
+                None,
+                ctxt,
+                spec,
+            )?;
+        }
+    } else {
+        process_proposer_slashings(
+            state,
+            &block_body.proposer_slashings()?.to_cow_slice(),
+            verify_signatures,
+            ctxt,
+            spec,
+        )?;
+    }
     process_attester_slashings(
         state,
         block_body.attester_slashings(),
-        verify_signatures,
+        if matches!(block_body, BeaconBlockBodyRef::Pq(_)) {
+            VerifySignatures::True
+        } else {
+            verify_signatures
+        },
         ctxt,
         spec,
     )?;
@@ -53,6 +72,9 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         ctxt,
         spec,
     )?;
+    if let BeaconBlockBodyRef::Pq(body) = block_body {
+        return crate::pq::process_stark(state, body, spec);
+    }
     process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
     process_exits(
         state,
@@ -806,6 +828,11 @@ pub fn process_withdrawal_requests<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in requests {
+        if state.fork_name_unchecked() == ForkName::Pq
+            && is_legacy_deposit_pubkey(&request.validator_pubkey)
+        {
+            continue;
+        }
         let amount = request.amount;
         let is_full_exit_request = amount == spec.full_exit_request_amount;
 
@@ -904,6 +931,31 @@ pub fn process_deposit_requests<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in deposit_requests {
+        if state.fork_name_unchecked() == ForkName::Pq {
+            let pubkey = compute_deposit_pubkey(&request.pubkey);
+            let parent_slot = state.latest_execution_payload_bid()?.slot();
+            let pq_state = state.as_pq_mut()?;
+            if let Some(binding) = pq_state
+                .validator_preregistrations
+                .iter()
+                .find(|record| record.pubkey == pubkey && parent_slot < record.expiry_slot)
+            {
+                if request.withdrawal_credentials != binding.withdrawal_credentials
+                    || request.signature.serialize().first_chunk::<32>()
+                        != Some(&binding.vrf_root.0)
+                {
+                    continue;
+                }
+                pq_state.validator_preregistrations = milhouse::ProgressiveList::new(
+                    pq_state
+                        .validator_preregistrations
+                        .iter()
+                        .filter(|record| record.pubkey != pubkey)
+                        .cloned()
+                        .collect(),
+                )?;
+            }
+        }
         // Set deposit receipt start index if pre-Fulu.
         // Support for the former Eth1 bridge deposit mechanism was removed in Fulu.
         if !state.fork_name_unchecked().fulu_enabled()
@@ -950,6 +1002,28 @@ fn process_builder_deposit_request<E: EthSpec>(
     }
 
     let pubkey = compute_deposit_pubkey(&builder_deposit_request.pubkey);
+    let is_pq = state.fork_name_unchecked() == ForkName::Pq;
+    if is_pq {
+        let parent_slot = state.latest_execution_payload_bid()?.slot();
+        let pq_state = state.as_pq_mut()?;
+        if let Some(binding) = pq_state
+            .builder_preregistrations
+            .iter()
+            .find(|record| record.pubkey == pubkey && parent_slot < record.expiry_slot)
+        {
+            if builder_deposit_request.withdrawal_credentials != binding.withdrawal_credentials {
+                return Ok(());
+            }
+            pq_state.builder_preregistrations = milhouse::ProgressiveList::new(
+                pq_state
+                    .builder_preregistrations
+                    .iter()
+                    .filter(|record| record.pubkey != pubkey)
+                    .cloned()
+                    .collect(),
+            )?;
+        }
+    }
     let builder_index = state
         .builders()?
         .iter()
@@ -957,9 +1031,9 @@ fn process_builder_deposit_request<E: EthSpec>(
 
     match builder_index {
         None => {
-            if builder_deposit_request.is_valid_builder_deposit_signature(spec) {
+            if is_pq || builder_deposit_request.is_valid_builder_deposit_signature(spec) {
                 let slot = state.slot();
-                state.add_builder_to_registry(
+                let index = state.add_builder_to_registry(
                     pubkey,
                     PAYLOAD_BUILDER_VERSION,
                     builder_deposit_request.withdrawal_credentials,
@@ -967,6 +1041,9 @@ fn process_builder_deposit_request<E: EthSpec>(
                     slot,
                     spec,
                 )?;
+                if is_pq && is_legacy_deposit_pubkey(&builder_deposit_request.pubkey) {
+                    initiate_builder_exit(state, index, spec)?;
+                }
             }
         }
         Some(builder_index) => {
@@ -1007,7 +1084,17 @@ fn process_builder_exit_request<E: EthSpec>(
     builder_exit_request: &BuilderExitRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let pubkey = compute_deposit_pubkey(&builder_exit_request.pubkey);
+    let pubkey = if state.fork_name_unchecked() == ForkName::Pq {
+        // The builder exit request names the suffix regardless of its prefix.
+        let (_, key) = builder_exit_request
+            .pubkey
+            .as_serialized()
+            .split_last_chunk::<32>()
+            .ok_or(BeaconStateError::IncorrectStateVariant)?;
+        XmssPublicKey::from(*key)
+    } else {
+        compute_deposit_pubkey(&builder_exit_request.pubkey)
+    };
     let Some(builder_index) = state
         .builders()?
         .iter()
@@ -1106,6 +1193,12 @@ pub fn process_consolidation_request<E: EthSpec>(
     consolidation_request: &ConsolidationRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    if state.fork_name_unchecked() == ForkName::Pq
+        && (is_legacy_deposit_pubkey(&consolidation_request.source_pubkey)
+            || is_legacy_deposit_pubkey(&consolidation_request.target_pubkey))
+    {
+        return Ok(());
+    }
     if is_valid_switch_to_compounding_request(state, consolidation_request, spec)? {
         let Some(source_index) = state.pubkey_cache().get(&compute_deposit_pubkey(
             &consolidation_request.source_pubkey,

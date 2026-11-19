@@ -18,3 +18,4 @@ state_processing = { workspace = true }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
+xmss = { workspace = true }

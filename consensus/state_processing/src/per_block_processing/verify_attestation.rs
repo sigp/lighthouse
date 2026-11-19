@@ -24,11 +24,16 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
 ) -> Result<IndexedAttestationRef<'ctxt, E>> {
     let data = attestation.data();
 
+    let min_inclusion_delay = if matches!(attestation, AttestationRef::Pq(_)) {
+        crate::pq::MIN_ATTESTATION_INCLUSION_DELAY_PQ
+    } else {
+        spec.min_attestation_inclusion_delay
+    };
     verify!(
-        data.slot.safe_add(spec.min_attestation_inclusion_delay)? <= state.slot(),
+        data.slot.safe_add(min_inclusion_delay)? <= state.slot(),
         Invalid::IncludedTooEarly {
             state: state.slot(),
-            delay: spec.min_attestation_inclusion_delay,
+            delay: min_inclusion_delay,
             attestation: data.slot,
         }
     );
@@ -79,14 +84,9 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
                 verify!(data.index == 0, Invalid::BadCommitteeIndex);
             }
         }
-        AttestationRef::Gloas(_) => {
+        AttestationRef::Gloas(_) | AttestationRef::Pq(_) => {
             // [Modified in Gloas:EIP7732] `index < 2` indicates the payload status being attested.
             verify!(data.index < 2, Invalid::BadOverloadedDataIndex);
-        }
-        AttestationRef::Pq(_) => {
-            return Err(BlockOperationError::BeaconStateError(
-                BeaconStateError::PqUnsupported("verify_attestation"),
-            ));
         }
     }
 
@@ -95,7 +95,10 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 
     // Check signature and bitfields
     let indexed_attestation = ctxt.get_indexed_attestation(state, attestation)?;
-    is_valid_indexed_attestation(state, indexed_attestation, verify_signatures, spec)?;
+    // The PQ block carries a single proof for all its attestations.
+    if !matches!(attestation, AttestationRef::Pq(_)) {
+        is_valid_indexed_attestation(state, indexed_attestation, verify_signatures, spec)?;
+    }
 
     Ok(indexed_attestation)
 }

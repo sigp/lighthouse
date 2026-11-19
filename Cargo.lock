@@ -1503,6 +1503,7 @@ dependencies = [
  "oneshot_broadcast",
  "operation_pool",
  "parking_lot",
+ "pq_prover",
  "proof_engine",
  "proto_array",
  "rand 0.9.5",
@@ -4394,6 +4395,7 @@ dependencies = [
  "tracing",
  "tree_hash",
  "types",
+ "xmss",
 ]
 
 [[package]]
@@ -9578,6 +9580,7 @@ dependencies = [
  "metrics",
  "milhouse",
  "parking_lot",
+ "pq_prover",
  "rand 0.9.5",
  "rayon",
  "safe_arith",
@@ -9589,6 +9592,7 @@ dependencies = [
  "tree_hash",
  "typenum",
  "types",
+ "xmss",
 ]
 
 [[package]]

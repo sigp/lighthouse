@@ -188,7 +188,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
 /// The window contains:
 /// - One epoch of empty entries (previous epoch)
 /// - Computed PTC for the current epoch through `1 + MIN_SEED_LOOKAHEAD` epochs
-fn initialize_ptc_window<E: EthSpec>(
+pub(super) fn initialize_ptc_window<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

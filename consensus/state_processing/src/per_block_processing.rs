@@ -1,4 +1,5 @@
 use crate::consensus_context::ConsensusContext;
+use crate::pq;
 use errors::{
     BlockOperationError, BlockProcessingError, ExecutionPayloadBidInvalid, HeaderInvalid,
 };
@@ -133,9 +134,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
-    if fork_name == ForkName::Pq {
-        return Err(BeaconStateError::PqUnsupported("per_block_processing").into());
-    }
+    let previous_block_slot = state.latest_block_header().slot;
 
     // Process deferred execution requests from the parent's envelope.
     if fork_name.gloas_enabled() {
@@ -148,6 +147,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state.build_slashings_cache()?;
 
     let verify_signatures = match block_signature_strategy {
+        BlockSignatureStrategy::VerifyBulk if fork_name == ForkName::Pq => VerifySignatures::True,
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
             block_verify!(
@@ -199,7 +199,11 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         if state.fork_name_unchecked().gloas_enabled() {
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
             let signed_bid = block.body().signed_execution_payload_bid()?;
-            parent_slot = Some(state.latest_execution_payload_bid()?.slot());
+            parent_slot = Some(if fork_name == ForkName::Pq {
+                previous_block_slot
+            } else {
+                state.latest_execution_payload_bid()?.slot()
+            });
             process_execution_payload_bid(state, signed_bid, verify_signatures, spec)?;
         } else {
             if state.fork_name_unchecked().capella_enabled() {
@@ -309,15 +313,29 @@ pub fn verify_block_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
-    let block_root = Some(ctxt.get_current_block_root(block)?);
-    let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
+    let block_root = ctxt.get_current_block_root(block)?;
+    let proposer_index = ctxt.get_proposer_index(state, spec)?;
+    if let SignedBeaconBlock::Pq(block) = block {
+        verify!(
+            block.message.proposer_index == proposer_index,
+            HeaderInvalid::ProposerIndexMismatch {
+                block_proposer_index: block.message.proposer_index,
+                state_proposer_index: proposer_index,
+            }
+        );
+        verify!(
+            pq::verify_proposer_signature(state, block, block_root, spec)?,
+            HeaderInvalid::ProposalSignatureInvalid
+        );
+        return Ok(());
+    }
     verify!(
         block_proposal_signature_set(
             state,
             |i| get_bls_pubkey_from_state(state, i),
             block,
-            block_root,
-            proposer_index,
+            Some(block_root),
+            Some(proposer_index),
             spec
         )?
         .verify(),
@@ -336,6 +354,28 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    if let BeaconBlockBodyRef::Pq(body) = block.body() {
+        let proposer = state.get_validator(ctxt.get_proposer_index(state, spec)? as usize)?;
+        block_verify!(
+            pq::is_valid_vrf_proof(&body.randao_reveal, state.slot(), proposer.vrf_root),
+            BlockProcessingError::RandaoSignatureInvalid
+        );
+        let epoch = state.current_epoch();
+        let leaf = body
+            .randao_reveal
+            .first()
+            .ok_or(BlockProcessingError::RandaoSignatureInvalid)?;
+        let mix = ethereum_hashing::hash(
+            &[
+                state.get_randao_mix(epoch)?.as_slice(),
+                leaf.as_slice(),
+                &spec.get_domain_constant(Domain::Randao).to_le_bytes(),
+            ]
+            .concat(),
+        );
+        state.set_randao_mix(epoch, Hash256::from_slice(&mix))?;
+        return Ok(());
+    }
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
@@ -353,12 +393,7 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     }
 
     // Update the current epoch RANDAO mix.
-    // In Pq the reveal is a `VRFProof` (a leaf of the proposer's VRF tree with its Merkle
-    // branch), which is not processed yet.
-    let randao_reveal = block
-        .body()
-        .randao_reveal()
-        .map_err(|_| BeaconStateError::PqUnsupported("process_randao"))?;
+    let randao_reveal = block.body().randao_reveal()?;
     state.update_randao_mix(state.current_epoch(), randao_reveal)?;
 
     Ok(())
@@ -580,6 +615,25 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
         .message()
         .parent_block_hash();
     let parent_bid = state.latest_execution_payload_bid()?;
+    if let BeaconBlockBodyRef::Pq(body) = block.body() {
+        let requests = &body.parent_execution_requests;
+        if bid_parent_block_hash != parent_bid.block_hash() {
+            block_verify!(
+                *requests == ExecutionRequestsPq::default(),
+                BlockProcessingError::NonEmptyParentExecutionRequests
+            );
+            return Ok(());
+        }
+        let requests_root = requests.tree_hash_root();
+        block_verify!(
+            requests_root == parent_bid.execution_requests_root(),
+            BlockProcessingError::ExecutionRequestsRootMismatch {
+                expected: parent_bid.execution_requests_root(),
+                found: requests_root,
+            }
+        );
+        return apply_parent_execution_payload_pq(state, requests, spec);
+    }
     let requests = block.body().parent_execution_requests()?;
 
     if bid_parent_block_hash != parent_bid.block_hash() {
@@ -615,15 +669,67 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     requests: &ExecutionRequestsGloas<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    verify_execution_request_list_lengths(requests)?;
+    let parent_slot = state.latest_execution_payload_bid()?.slot();
+    settle_parent_payload_payment(state, parent_slot)?;
+
+    process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
+    process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
+    process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
+    process_operations::process_builder_deposit_requests(state, &requests.builder_deposits, spec)?;
+    process_operations::process_builder_exit_requests(state, &requests.builder_exits, spec)?;
+
+    mark_parent_payload_available(state, parent_slot)
+}
+
+/// Apply the PQ parent payload, checking the request types that have no devnet contract.
+pub fn apply_parent_execution_payload_pq<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    requests: &ExecutionRequestsPq<E>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    verify_execution_request_lengths::<E>(
+        requests.withdrawals.len(),
+        requests.consolidations.len(),
+        requests.builder_deposits.len(),
+        requests.builder_exits.len(),
+    )?;
+    for (name, is_empty) in [
+        (
+            "validator_preregistrations",
+            requests.validator_preregistrations.is_empty(),
+        ),
+        (
+            "builder_preregistrations",
+            requests.builder_preregistrations.is_empty(),
+        ),
+        ("voluntary_exits", requests.voluntary_exits.is_empty()),
+    ] {
+        block_verify!(is_empty, BlockProcessingError::NonEmptyPqRequest(name));
+    }
+
+    let parent_slot = state.latest_block_header().slot;
+    settle_parent_payload_payment(state, parent_slot)?;
+    process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
+    if !requests.withdrawals.is_empty() || !requests.consolidations.is_empty() {
+        state.update_pubkey_cache()?;
+    }
+    process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
+    process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
+    process_operations::process_builder_deposit_requests(state, &requests.builder_deposits, spec)?;
+    process_operations::process_builder_exit_requests(state, &requests.builder_exits, spec)?;
+    mark_parent_payload_available(state, parent_slot)
+}
+
+fn settle_parent_payload_payment<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    parent_slot: Slot,
+) -> Result<(), BlockProcessingError> {
     let parent_bid = state.latest_execution_payload_bid()?;
-    let parent_slot = parent_bid.slot();
     let parent_value = parent_bid.value();
     let parent_fee_recipient = parent_bid.fee_recipient();
     let parent_builder_index = parent_bid.builder_index();
-    let parent_block_hash = parent_bid.block_hash();
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
-
-    verify_execution_request_list_lengths(requests)?;
 
     // Settle the builder payment before the requests so a builder exit is rejected while the
     // payment is pending
@@ -649,13 +755,14 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
             .map_err(|e| BlockProcessingError::BeaconStateError(e.into()))?;
     }
 
-    // Process execution requests from the parent's payload
-    process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
-    process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
-    process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
-    process_operations::process_builder_deposit_requests(state, &requests.builder_deposits, spec)?;
-    process_operations::process_builder_exit_requests(state, &requests.builder_exits, spec)?;
+    Ok(())
+}
 
+fn mark_parent_payload_available<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    parent_slot: Slot,
+) -> Result<(), BlockProcessingError> {
+    let parent_block_hash = state.latest_execution_payload_bid()?.block_hash();
     // Update execution payload availability for the parent slot
     let availability_index = parent_slot
         .as_usize()
@@ -676,25 +783,39 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
 pub fn verify_execution_request_list_lengths<E: EthSpec>(
     requests: &ExecutionRequestsGloas<E>,
 ) -> Result<(), BlockProcessingError> {
+    verify_execution_request_lengths::<E>(
+        requests.withdrawals.len(),
+        requests.consolidations.len(),
+        requests.builder_deposits.len(),
+        requests.builder_exits.len(),
+    )
+}
+
+fn verify_execution_request_lengths<E: EthSpec>(
+    withdrawals: usize,
+    consolidations: usize,
+    builder_deposits: usize,
+    builder_exits: usize,
+) -> Result<(), BlockProcessingError> {
     let checks = [
         (
             "withdrawal_requests",
-            requests.withdrawals.len(),
+            withdrawals,
             E::MaxWithdrawalRequestsPerPayload::to_usize(),
         ),
         (
             "consolidation_requests",
-            requests.consolidations.len(),
+            consolidations,
             E::MaxConsolidationRequestsPerPayload::to_usize(),
         ),
         (
             "builder_deposit_requests",
-            requests.builder_deposits.len(),
+            builder_deposits,
             E::MaxBuilderDepositRequestsPerPayload::to_usize(),
         ),
         (
             "builder_exit_requests",
-            requests.builder_exits.len(),
+            builder_exits,
             E::MaxBuilderExitRequestsPerPayload::to_usize(),
         ),
     ];
@@ -741,10 +862,6 @@ pub fn process_execution_payload_bid<E: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let signature = signed_bid
-        .signature()
-        .map_err(|_| BeaconStateError::PqUnsupported("process_execution_payload_bid"))?;
-
     // Verify the bid signature
     let bid = signed_bid.message();
     let amount = bid.value();
@@ -757,7 +874,12 @@ pub fn process_execution_payload_bid<E: EthSpec>(
             ExecutionPayloadBidInvalid::SelfBuildNonZeroAmount.into()
         );
         block_verify!(
-            signature.is_infinity(),
+            match signed_bid {
+                SignedExecutionPayloadBidRef::Pq(bid) => bid.signature == XmssSignature::empty(),
+                _ => signed_bid
+                    .signature()
+                    .is_ok_and(|signature| signature.is_infinity()),
+            },
             ExecutionPayloadBidInvalid::BadSignature.into()
         );
     } else {
@@ -790,7 +912,25 @@ pub fn process_execution_payload_bid<E: EthSpec>(
             .into()
         );
 
-        if verify_signatures.is_true() {
+        if let SignedExecutionPayloadBidRef::Pq(signed) = signed_bid {
+            let domain = spec.get_domain(
+                state.current_epoch(),
+                Domain::BeaconBuilder,
+                &state.fork(),
+                state.genesis_validators_root(),
+            );
+            let leaf = u64::from(signed.signature.leaf_index());
+            block_verify!(
+                pq::is_builder_bid_leaf_index(leaf)
+                    && pq::verify_signature(
+                        &builder.pubkey,
+                        leaf,
+                        bid.signing_root(domain),
+                        &signed.signature
+                    ),
+                ExecutionPayloadBidInvalid::BadSignature.into()
+            );
+        } else if verify_signatures.is_true() {
             block_verify!(
                 // We know this is NOT a self-build, so there MUST be a signature set (func does not
                 // return None).

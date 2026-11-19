@@ -10,8 +10,8 @@ use std::collections::{HashMap, hash_map::Entry};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, AttestationRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
-    Hash256, IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation,
-    PayloadAttestation, SignedBeaconBlock, Slot,
+    Hash256, IndexedAttestation, IndexedAttestationPq, IndexedAttestationRef,
+    IndexedPayloadAttestation, PayloadAttestation, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -190,11 +190,21 @@ impl<E: EthSpec> ConsensusContext<E> {
                     Ok(vacant.insert(indexed_attestation))
                 }
             },
-            // A Pq indexed attestation carries a proof of its signatures. Block attestations
-            // are instead covered by the block's single `proof`, which is not processed yet.
-            AttestationRef::Pq(_) => Err(BlockOperationError::BeaconStateError(
-                BeaconStateError::PqUnsupported("get_indexed_attestation"),
-            )),
+            AttestationRef::Pq(attn) => match self.indexed_attestations.entry(key) {
+                Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+                Entry::Vacant(vacant) => {
+                    let indices =
+                        crate::common::get_attesting_indices_from_state(state, attestation)?;
+                    let indexed_attestation = IndexedAttestation::Pq(IndexedAttestationPq {
+                        attesting_indices: ssz_types::ProgressiveVariableList::new(indices)
+                            .map_err(BeaconStateError::SszTypesError)?,
+                        data: attn.data.clone(),
+                        // Block attestations are collectively authenticated by process_stark.
+                        proof: Default::default(),
+                    });
+                    Ok(vacant.insert(indexed_attestation))
+                }
+            },
         }
         .map(|indexed_attestation| (*indexed_attestation).to_ref())
     }

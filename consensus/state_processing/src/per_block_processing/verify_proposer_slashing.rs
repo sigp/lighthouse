@@ -24,6 +24,61 @@ pub fn verify_proposer_slashing<E: EthSpec>(
     let header_1 = &proposer_slashing.signed_header_1.message;
     let header_2 = &proposer_slashing.signed_header_2.message;
 
+    check_headers(state, header_1, header_2)?;
+    if verify_signatures.is_true() {
+        let (signature_set_1, signature_set_2) = proposer_slashing_signature_set(
+            state,
+            |i| get_bls_pubkey_from_state(state, i),
+            proposer_slashing,
+            spec,
+        )?;
+        verify!(signature_set_1.verify(), Invalid::BadProposal1Signature);
+        verify!(signature_set_2.verify(), Invalid::BadProposal2Signature);
+    }
+    Ok(())
+}
+
+pub fn verify_proposer_slashing_pq<E: EthSpec>(
+    slashing: &ProposerSlashingPq,
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<()> {
+    let header_1 = &slashing.signed_header_1.message;
+    let header_2 = &slashing.signed_header_2.message;
+    let proposer = check_headers(state, header_1, header_2)?;
+    let domain = spec.get_domain(
+        header_1.slot.epoch(E::slots_per_epoch()),
+        Domain::BeaconProposer,
+        &state.fork(),
+        state.genesis_validators_root(),
+    );
+    let leaf = crate::pq::slot_leaf_index(header_1.slot, crate::pq::LEAF_OFFSET_BEACON_PROPOSER)?;
+    verify!(
+        crate::pq::verify_signature(
+            &proposer.pubkey,
+            leaf,
+            header_1.signing_root(domain),
+            &slashing.signed_header_1.signature
+        ),
+        Invalid::BadProposal1Signature
+    );
+    verify!(
+        crate::pq::verify_signature(
+            &proposer.pubkey,
+            leaf,
+            header_2.signing_root(domain),
+            &slashing.signed_header_2.signature
+        ),
+        Invalid::BadProposal2Signature
+    );
+    Ok(())
+}
+
+fn check_headers<'a, E: EthSpec>(
+    state: &'a BeaconState<E>,
+    header_1: &BeaconBlockHeader,
+    header_2: &BeaconBlockHeader,
+) -> Result<&'a Validator> {
     // Verify slots match
     verify!(
         header_1.slot == header_2.slot,
@@ -50,16 +105,5 @@ pub fn verify_proposer_slashing<E: EthSpec>(
         Invalid::ProposerNotSlashable(header_1.proposer_index)
     );
 
-    if verify_signatures.is_true() {
-        let (signature_set_1, signature_set_2) = proposer_slashing_signature_set(
-            state,
-            |i| get_bls_pubkey_from_state(state, i),
-            proposer_slashing,
-            spec,
-        )?;
-        verify!(signature_set_1.verify(), Invalid::BadProposal1Signature);
-        verify!(signature_set_2.verify(), Invalid::BadProposal2Signature);
-    }
-
-    Ok(())
+    Ok(proposer)
 }

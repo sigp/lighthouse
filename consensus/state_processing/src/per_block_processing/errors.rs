@@ -16,6 +16,8 @@ pub enum BlockProcessingError {
     /// Logic error indicating that the wrong state type was provided.
     IncorrectStateType,
     RandaoSignatureInvalid,
+    InvalidAttestationProof,
+    NonEmptyPqRequest(&'static str),
     BulkSignatureVerificationFailed,
     StateRootMismatch,
     DepositCountInvalid {

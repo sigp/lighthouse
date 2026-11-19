@@ -63,6 +63,9 @@ use state_processing::per_block_processing::{
     per_block_processing,
 };
 use state_processing::state_advance::complete_state_advance;
+
+mod pq;
+use pq::{PqGenesisKeys, pq_genesis_keys};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -271,6 +274,7 @@ pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
     spec: Option<Arc<ChainSpec>>,
     validator_keypairs: Option<Vec<Keypair>>,
+    pq_keys: Option<Arc<Vec<PqGenesisKeys>>>,
     withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
@@ -309,24 +313,40 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             InteropGenesisBuilder::default().set_alternating_eth1_withdrawal_credentials()
         });
         let genesis_builders = std::mem::take(&mut self.genesis_builders);
+        self.pq_keys = pq_genesis_keys::<E>(&validator_keypairs, spec);
+        let pq_keys = self.pq_keys.clone();
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
             let spec = builder.get_spec();
             let header = generate_genesis_header::<E>(spec);
-            let mut genesis_state = genesis_state_builder
-                .set_opt_execution_payload_header(header.clone())
-                .build_genesis_state(
+            let builder_with_header =
+                genesis_state_builder.set_opt_execution_payload_header(header.clone());
+            let eth1_block_hash = Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH);
+            let mut genesis_state = if let Some(keys) = &pq_keys {
+                builder_with_header.build_pq_genesis_state(
                     &validator_keypairs,
+                    keys,
                     HARNESS_GENESIS_TIME,
-                    Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                    eth1_block_hash,
                     spec,
                 )
-                .expect("should generate interop state");
+            } else {
+                builder_with_header.build_genesis_state(
+                    &validator_keypairs,
+                    HARNESS_GENESIS_TIME,
+                    eth1_block_hash,
+                    spec,
+                )
+            }
+            .expect("should generate interop state");
             for (validator_index, balance) in genesis_builders {
                 let keypair = &validator_keypairs[validator_index];
                 genesis_state
                     .add_builder_to_registry(
-                        types::compute_deposit_pubkey(&keypair.pk.compress()),
+                        pq_keys.as_ref().map_or_else(
+                            || types::compute_deposit_pubkey(&keypair.pk.compress()),
+                            |keys| keys[validator_index].xmss.public_key(),
+                        ),
                         PAYLOAD_BUILDER_VERSION,
                         builder_withdrawal_credentials(&keypair.pk, spec),
                         balance,
@@ -468,6 +488,7 @@ where
             eth_spec_instance,
             spec: None,
             validator_keypairs: None,
+            pq_keys: None,
             withdrawal_keypairs: vec![],
             chain_config: None,
             store_config: None,
@@ -507,6 +528,7 @@ where
 
     pub fn keypairs(mut self, validator_keypairs: Vec<Keypair>) -> Self {
         self.validator_keypairs = Some(validator_keypairs);
+        self.pq_keys = None;
         self
     }
 
@@ -763,8 +785,12 @@ where
 
         let chain = builder.build().expect("should build");
 
+        let pq_keys = self
+            .pq_keys
+            .or_else(|| pq_genesis_keys::<E>(&validator_keypairs, &chain.spec));
         BeaconChainHarness {
             spec: chain.spec.clone(),
+            pq_keys,
             chain: Arc::new(chain),
             validator_keypairs,
             withdrawal_keypairs: self.withdrawal_keypairs,
@@ -828,6 +854,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
 /// Used for testing.
 pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub validator_keypairs: Vec<Keypair>,
+    pq_keys: Option<Arc<Vec<PqGenesisKeys>>>,
     /// Optional BLS withdrawal keys for each validator.
     ///
     /// If a validator index is missing from this vec or their entry is `None` then either
@@ -1586,6 +1613,10 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
+        if self.spec.fork_name_at_slot::<E>(slot) == ForkName::Pq {
+            let (contents, state) = self.make_pq_block(state, slot, &[]).await;
+            return (contents, None, state);
+        }
         if state.fork_name_unchecked().gloas_enabled()
             || self.spec.fork_name_at_slot::<E>(slot).gloas_enabled()
         {
@@ -3901,6 +3932,14 @@ where
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
+        if self.spec.fork_name_at_slot::<E>(slot) == ForkName::Pq {
+            self.set_current_slot(slot);
+            let (block, post_state) = self.make_pq_block(state, slot, validators).await;
+            let block_hash = self
+                .process_block(slot, block.0.canonical_root(), block)
+                .await?;
+            return Ok((block_hash, post_state));
+        }
         let (block_hash, block, mut new_state) = self.add_block_at_slot(slot, state).await?;
         let new_state_root = new_state.canonical_root().unwrap();
         self.attest_block(&new_state, new_state_root, block_hash, &block.0, validators);
@@ -3976,7 +4015,7 @@ where
         block_root: Hash256,
     ) {
         let fork_name = state.fork_name(&self.spec).unwrap();
-        if !fork_name.altair_enabled() {
+        if !fork_name.altair_enabled() || fork_name == ForkName::Pq {
             return;
         }
 

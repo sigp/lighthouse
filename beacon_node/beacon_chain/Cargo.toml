@@ -53,6 +53,7 @@ once_cell = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
+pq_prover = { workspace = true }
 proof_engine = { workspace = true }
 proto_array = { workspace = true }
 rand = { workspace = true }
@@ -104,4 +105,9 @@ path = "tests/main.rs"
 [[test]]
 name = "beacon_chain_spec_minimal_tests"
 path = "tests/spec_minimal.rs"
+required-features = ["spec-minimal"]
+
+[[test]]
+name = "pq"
+path = "tests/pq.rs"
 required-features = ["spec-minimal"]

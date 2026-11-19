@@ -19,7 +19,7 @@ pub enum EpochProcessingSummary<E: EthSpec> {
         progressive_balances: ProgressiveBalancesCache,
         current_epoch_total_active_balance: u64,
         participation: Box<ParticipationEpochSummary<E>>,
-        sync_committee: Arc<SyncCommittee<E>>,
+        sync_committee: Option<Arc<SyncCommittee<E>>>,
     },
 }
 
@@ -112,7 +112,7 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
     /// Returns the sync committee indices for the current epoch for altair.
     pub fn sync_committee(&self) -> Option<&SyncCommittee<E>> {
         match self {
-            EpochProcessingSummary::Altair { sync_committee, .. } => Some(sync_committee),
+            EpochProcessingSummary::Altair { sync_committee, .. } => sync_committee.as_deref(),
             EpochProcessingSummary::Base { .. } => None,
         }
     }

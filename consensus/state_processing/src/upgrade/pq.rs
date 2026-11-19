@@ -7,10 +7,8 @@ use types::{
 
 /// Transform a `Gloas` state into a `Pq` state.
 ///
-/// This produces a structurally valid `Pq` state, not the spec's `upgrade_to_pq`: the fields
-/// that Pq removes are dropped and the fields it adds are empty. It does not yet re-key
-/// validators and builders with their registered XMSS keys, exit the unregistered ones, or
-/// compute the aggregation committee window.
+/// The caller supplies the PQ registries. Local PQ genesis uses this transition after
+/// constructing its already-keyed validator registry.
 pub fn upgrade_to_pq<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -33,7 +31,7 @@ pub fn upgrade_state_to_pq<E: EthSpec>(
     //
     // Fixed size vectors get cloned because replacing them would require the same size
     // allocation as cloning.
-    let post = BeaconState::Pq(BeaconStatePq {
+    let mut post = BeaconState::Pq(BeaconStatePq {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,
@@ -112,5 +110,16 @@ pub fn upgrade_state_to_pq<E: EthSpec>(
         epoch_cache: mem::take(&mut pre.epoch_cache),
     });
 
+    for epoch in [
+        types::RelativeEpoch::Previous,
+        types::RelativeEpoch::Current,
+        types::RelativeEpoch::Next,
+    ] {
+        post.drop_committee_cache(epoch)?;
+    }
+    if !post.validators().is_empty() {
+        crate::pq::initialize_aggregation_committee_window(&mut post, spec)?;
+        super::gloas::initialize_ptc_window(&mut post, spec)?;
+    }
     Ok(post)
 }

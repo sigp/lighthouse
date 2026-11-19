@@ -1,3 +1,4 @@
+use crate::ForkName;
 use std::{num::NonZeroUsize, ops::Range, sync::Arc};
 
 use educe::Educe;
@@ -138,9 +139,15 @@ impl CommitteeCache {
             return Err(BeaconStateError::InsufficientValidators);
         }
 
-        let committees_per_slot =
-            E::get_committee_count_per_slot(active_validator_indices.len(), spec)
-                .map_err(BeaconStateError::ArithError)? as u64;
+        let committees_per_slot = if state.fork_name_unchecked() == ForkName::Pq {
+            E::get_committee_count_per_slot_with(
+                active_validator_indices.len(),
+                E::max_committees_per_slot_pq(),
+                spec.target_committee_size,
+            )?
+        } else {
+            E::get_committee_count_per_slot(active_validator_indices.len(), spec)?
+        } as u64;
 
         let seed = state.get_seed(epoch, Domain::BeaconAttester, spec)?;
 

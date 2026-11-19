@@ -3294,11 +3294,16 @@ impl<E: EthSpec> BeaconState<E> {
             let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
             *balance = spec.min_activation_balance;
             let validator = self.get_validator(validator_index)?.clone();
+            let signature = if self.fork_name_unchecked() == ForkName::Pq {
+                Signature::empty().into()
+            } else {
+                Signature::infinity()?.into()
+            };
             self.pending_deposits_mut()?.push(PendingDeposit {
                 pubkey: encode_deposit_pubkey(validator.pubkey)?,
                 withdrawal_credentials: validator.withdrawal_credentials,
                 amount: excess_balance,
-                signature: Signature::infinity()?.into(),
+                signature,
                 slot: spec.genesis_slot,
             })?;
         }
@@ -3646,6 +3651,52 @@ impl<E: EthSpec> BeaconState<E> {
         // Convert from FixedVector<u64, PTCSize> to PTC<E> (FixedVector<usize, PTCSize>)
         let indices: Vec<usize> = entry.iter().map(|&v| v as usize).collect();
         Ok(PTC(FixedVector::new(indices)?))
+    }
+
+    /// Sample up to four aggregators without replacement from each committee at the slot.
+    pub fn compute_aggregation_committees(
+        &self,
+        slot: Slot,
+        cache: &CommitteeCache,
+        spec: &ChainSpec,
+    ) -> Result<crate::AggregationCommittees, BeaconStateError> {
+        const AGGREGATORS_PER_COMMITTEE: usize = 4;
+        let seed = self.get_seed(
+            slot.epoch(E::slots_per_epoch()),
+            Domain::SelectionProof,
+            spec,
+        )?;
+        let mut committees = Vec::new();
+        for committee in cache.get_beacon_committees_at_slot(slot)? {
+            let seed = hash(
+                &[
+                    seed.as_slice(),
+                    &slot.as_u64().to_le_bytes(),
+                    &committee.index.to_le_bytes(),
+                ]
+                .concat(),
+            );
+            let mut candidates = committee.committee.to_vec();
+            let mut aggregators = Vec::new();
+            while aggregators.len() < AGGREGATORS_PER_COMMITTEE && !candidates.is_empty() {
+                let candidate_seed =
+                    hash(&[seed.as_slice(), &(aggregators.len() as u64).to_le_bytes()].concat());
+                let selected = self.compute_balance_weighted_selection(
+                    &candidates,
+                    &candidate_seed,
+                    1,
+                    false,
+                    spec,
+                )?;
+                let aggregator = *selected
+                    .first()
+                    .ok_or(BeaconStateError::InvalidIndicesCount)?;
+                aggregators.push(aggregator as u64);
+                candidates.retain(|candidate| *candidate != aggregator);
+            }
+            committees.push(crate::AggregationCommittee::new(aggregators)?);
+        }
+        Ok(crate::AggregationCommittees::new(committees)?)
     }
 
     /// Compute the payload timeliness committee for the given `slot` from scratch.

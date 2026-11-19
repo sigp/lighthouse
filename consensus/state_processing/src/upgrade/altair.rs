@@ -7,7 +7,7 @@ use std::mem;
 use std::sync::Arc;
 use types::{
     BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
-    Fork, ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee,
+    Fork, ForkName, ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee,
 };
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
@@ -50,6 +50,10 @@ pub fn upgrade_to_altair<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    // Local PQ genesis constructs intermediate states with the PQ registry. Its
+    // final state has no sync committees.
+    let pq_genesis = pre_state.slot() == spec.genesis_slot
+        && spec.fork_name_at_slot::<E>(spec.genesis_slot) == ForkName::Pq;
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_base_mut()?;
 
@@ -121,9 +125,11 @@ pub fn upgrade_to_altair<E: EthSpec>(
     // Fill in sync committees
     // Note: A duplicate committee is assigned for the current and next committee at the fork
     // boundary
-    let sync_committee = Arc::new(post.get_next_sync_committee(spec)?);
-    *post.current_sync_committee_mut()? = sync_committee.clone();
-    *post.next_sync_committee_mut()? = sync_committee;
+    if !pq_genesis {
+        let sync_committee = Arc::new(post.get_next_sync_committee(spec)?);
+        *post.current_sync_committee_mut()? = sync_committee.clone();
+        *post.next_sync_committee_mut()? = sync_committee;
+    }
 
     *pre_state = post;
 

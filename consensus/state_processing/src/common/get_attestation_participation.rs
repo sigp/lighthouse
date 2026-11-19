@@ -25,6 +25,7 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
     inclusion_delay: u64,
     spec: &ChainSpec,
 ) -> Result<SmallVec<[usize; NUM_FLAG_INDICES]>, Error> {
+    let is_pq = state.fork_name_unchecked() == types::ForkName::Pq;
     let justified_checkpoint = if data.target.epoch == state.current_epoch() {
         state.current_justified_checkpoint()
     } else {
@@ -48,7 +49,12 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
             true
         } else {
             // For non same-slot attestations, check execution payload availability
-            let slot_index = parent_slot
+            let voted_block_slot = if is_pq {
+                get_latest_block_slot(state, data.slot, parent_slot)?
+            } else {
+                parent_slot
+            };
+            let slot_index = voted_block_slot
                 .as_usize()
                 .safe_rem(E::slots_per_historical_root())?;
             let payload_index = state
@@ -87,8 +93,36 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
         participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
     }
 
-    if is_matching_head && inclusion_delay == spec.min_attestation_inclusion_delay {
+    let head_delay = if is_pq {
+        crate::pq::MIN_ATTESTATION_INCLUSION_DELAY_PQ
+    } else {
+        spec.min_attestation_inclusion_delay
+    };
+    if is_matching_head && inclusion_delay == head_delay {
         participation_flag_indices.push(TIMELY_HEAD_FLAG_INDEX);
     }
     Ok(participation_flag_indices)
+}
+
+/// Find the block at or before the vote's slot, within the historical roots window.
+pub fn get_latest_block_slot<E: EthSpec>(
+    state: &BeaconState<E>,
+    mut slot: Slot,
+    parent_slot: Slot,
+) -> Result<Slot, Error> {
+    if parent_slot <= slot {
+        return Ok(parent_slot);
+    }
+    let root = state.get_block_root(slot)?;
+    let min_slot = state
+        .slot()
+        .saturating_sub(E::slots_per_historical_root() as u64);
+    while slot > min_slot {
+        let previous = slot.safe_sub(1)?;
+        if state.get_block_root(previous)? != root {
+            break;
+        }
+        slot = previous;
+    }
+    Ok(slot)
 }
