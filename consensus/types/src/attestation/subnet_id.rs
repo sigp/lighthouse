@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     attestation::{AttestationRef, CommitteeIndex, SingleAttestation},
-    core::{ChainSpec, EthSpec, Slot},
+    core::{ChainSpec, Epoch, EthSpec, Slot},
 };
 
 const MAX_SUBNET_ID: usize = 64;
@@ -94,9 +94,14 @@ impl SubnetId {
         let committees_since_epoch_start =
             committee_count_at_slot.safe_mul(slots_since_epoch_start)?;
 
+        let subnet_count = if spec.fork_name_at_slot::<E>(slot) == crate::ForkName::Pq {
+            spec.attestation_subnet_count_pq
+        } else {
+            spec.attestation_subnet_count
+        };
         Ok(committees_since_epoch_start
             .safe_add(committee_index)?
-            .safe_rem(spec.attestation_subnet_count)?
+            .safe_rem(subnet_count)?
             .into())
     }
 
@@ -125,6 +130,49 @@ impl SubnetId {
 
         (0..subnets_per_node)
             .map(move |idx| SubnetId::new((node_id_prefix + idx as u64) % attestation_subnet_count))
+    }
+
+    /// Persistent-subnet assignment for the PQ fork. The attnets ENR field
+    /// retains its original SSZ length.
+    pub fn compute_pq_attestation_subnets(
+        raw_node_id: [u8; 32],
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Option<impl Iterator<Item = SubnetId>> {
+        let count = spec.attestation_subnet_count_pq;
+        let prefix_bits = u64::BITS
+            .checked_sub(count.checked_sub(1)?.leading_zeros())?
+            .checked_add(u32::from(spec.attestation_subnet_extra_bits))?;
+        let prefix_size = 1usize.checked_shl(prefix_bits)?;
+        let node_id = U256::from_be_slice(&raw_node_id);
+        let prefix = node_id
+            .wrapping_shr(NODE_ID_BITS.checked_sub(prefix_bits)? as usize)
+            .as_le_slice()
+            .get_u64_le() as usize;
+        let epochs = spec.epochs_per_subnet_subscription;
+        let offset = node_id
+            .checked_rem(U256::from(epochs))?
+            .as_le_slice()
+            .get_u64_le();
+        let seed = ethereum_hashing::hash(
+            &epoch
+                .as_u64()
+                .checked_add(offset)?
+                .checked_div(epochs)?
+                .to_le_bytes(),
+        );
+        let permuted = swap_or_not_shuffle::compute_shuffled_index(
+            prefix,
+            prefix_size,
+            &seed,
+            spec.shuffle_round_count,
+        )? as u64;
+        Some((0..spec.subnets_per_node).filter_map(move |index| {
+            permuted
+                .checked_add(index as u64)?
+                .checked_rem(count)
+                .map(SubnetId::new)
+        }))
     }
 }
 
@@ -171,6 +219,27 @@ mod tests {
     use crate::{MainnetEthSpec, Uint256};
 
     use super::*;
+
+    #[test]
+    fn pq_persistent_subnets_rotate_at_the_spec_subscription_epoch() {
+        let spec = MainnetEthSpec::default_spec();
+        let node = std::array::from_fn(|index| index as u8);
+        // From compute_subscribed_subnet in the pinned PQ Python spec.
+        for (node, epoch, expected) in [
+            ([0; 32], 0, [14, 15]),
+            ([0; 32], 255, [14, 15]),
+            ([0; 32], 256, [2, 3]),
+            (node, 224, [14, 15]),
+            (node, 225, [2, 3]),
+            ([255; 32], 180, [12, 13]),
+        ] {
+            let subnets = SubnetId::compute_pq_attestation_subnets(node, Epoch::new(epoch), &spec)
+                .unwrap()
+                .map(SubnetId::into)
+                .collect::<Vec<u64>>();
+            assert_eq!(subnets, expected);
+        }
+    }
 
     /// A set of tests compared to the python specification
     #[test]

@@ -933,7 +933,8 @@ impl HttpJsonRpc {
             ),
             new_payload_request_gloas.versioned_hashes,
             new_payload_request_gloas.parent_beacon_block_root,
-            types::ExecutionRequestsRef::Gloas(new_payload_request_gloas.execution_requests)
+            new_payload_request_gloas
+                .execution_requests
                 .get_execution_requests_list(),
         ]);
 

@@ -14,8 +14,8 @@ use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set_from_pubkeys;
 use std::borrow::Cow;
 use types::{
-    ChainSpec, EthSpec, Hash256, IndexedPayloadAttestation, PTC, PayloadAttestationMessageGloas,
-    Slot,
+    ChainSpec, Domain, EthSpec, ForkName, Hash256, IndexedPayloadAttestation, PTC,
+    PayloadAttestationMessageGloas, PayloadAttestationMessagePq, SignedRoot, Slot,
 };
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
@@ -183,7 +183,105 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
     }
 }
 
+type PqPayloadVote<E> = (IndexedPayloadAttestation<E>, PTC<E>);
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    pub fn verify_pq_payload_attestation(
+        &self,
+        message: &PayloadAttestationMessagePq,
+    ) -> Result<PqPayloadVote<T::EthSpec>, Error> {
+        let slot = message.data.slot;
+        let validator_index = message.validator_index;
+        if self.spec.fork_name_at_slot::<T::EthSpec>(slot) != ForkName::Pq {
+            return Err(Error::PreGloasSlot { slot });
+        }
+        verify_propagation_slot_range(&self.slot_clock, slot, &self.spec)?;
+        let root = message.data.beacon_block_root;
+        let block = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&root)
+            .ok_or(Error::UnknownHeadBlock {
+                beacon_block_root: root,
+            })?;
+        if block.slot != slot {
+            return Err(Error::BlockNotAtSlot {
+                beacon_block_root: root,
+                block_slot: block.slot,
+                data_slot: slot,
+            });
+        }
+        if self
+            .observed_payload_attesters
+            .read()
+            .validator_has_been_observed(slot, validator_index as usize)
+            .map_err(BeaconChainError::from)?
+        {
+            return Err(Error::PriorPayloadAttestationMessageKnown {
+                validator_index,
+                slot,
+            });
+        }
+        let state = self
+            .store
+            .get_state(&block.state_root, None, true)
+            .map_err(BeaconChainError::from)?
+            .ok_or(BeaconChainError::MissingBeaconState(block.state_root))?;
+        let ptc = state
+            .get_ptc(slot, &self.spec)
+            .map_err(BeaconChainError::from)?;
+        if !ptc.0.contains(&(validator_index as usize)) {
+            return Err(Error::NotInPTC {
+                validator_index,
+                slot,
+            });
+        }
+        let validator = state
+            .get_validator(validator_index as usize)
+            .map_err(|_| Error::UnknownValidatorIndex(validator_index))?;
+        let domain = self.spec.get_domain(
+            slot.epoch(T::EthSpec::slots_per_epoch()),
+            Domain::PTCAttester,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let leaf = state_processing::pq::slot_leaf_index(
+            slot,
+            state_processing::pq::LEAF_OFFSET_PTC_ATTESTER,
+        )
+        .map_err(BeaconChainError::from)?;
+        let _timer = metrics::start_timer(&metrics::PQ_XMSS_VERIFY_SECONDS);
+        if !state_processing::pq::verify_signature(
+            &validator.pubkey,
+            leaf,
+            message.data.signing_root(domain),
+            &message.signature,
+        ) {
+            return Err(Error::InvalidSignature);
+        }
+        if self
+            .observed_payload_attesters
+            .write()
+            .observe_validator(slot, validator_index as usize, ())
+            .map_err(BeaconChainError::from)?
+        {
+            return Err(Error::PriorPayloadAttestationMessageKnown {
+                validator_index,
+                slot,
+            });
+        }
+        Ok((
+            IndexedPayloadAttestation {
+                attesting_indices: vec![validator_index]
+                    .try_into()
+                    .map_err(|_| Error::UnknownValidatorIndex(validator_index))?,
+                data: message.data.clone(),
+                signature: AggregateSignature::empty(),
+            },
+            ptc,
+        ))
+    }
+
     pub fn payload_attestation_gossip_context(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
             slot_clock: &self.slot_clock,

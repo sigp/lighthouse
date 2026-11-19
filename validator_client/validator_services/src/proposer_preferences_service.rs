@@ -176,6 +176,40 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         fork_name: ForkName,
         preferences_to_sign: Vec<(PublicKeyBytes, ProposerPreferences)>,
     ) -> Vec<(u64, Slot)> {
+        if fork_name == ForkName::Pq {
+            let mut signed = Vec::new();
+            for (pubkey, preferences) in preferences_to_sign {
+                match self
+                    .validator_store
+                    .sign_pq_proposer_preferences(pubkey, preferences)
+                    .await
+                {
+                    Ok(preferences) => signed.push(preferences),
+                    Err(error) => debug!(?pubkey, ?error, "Unable to sign PQ proposer preferences"),
+                }
+            }
+            if signed.is_empty() {
+                return Vec::new();
+            }
+            let preferences = &signed;
+            return match self
+                .beacon_nodes
+                .first_success(|node| async move {
+                    node.post_validator_proposer_preferences_pq(preferences)
+                        .await
+                })
+                .await
+            {
+                Ok(()) => signed
+                    .iter()
+                    .map(|entry| (entry.message.validator_index, entry.message.proposal_slot))
+                    .collect(),
+                Err(error) => {
+                    debug!(error = %error, "Unable to publish PQ proposer preferences");
+                    Vec::new()
+                }
+            };
+        }
         debug!(
             %epoch,
             count = preferences_to_sign.len(),

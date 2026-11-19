@@ -109,7 +109,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        if self.duties_service.disable_attesting {
+        if self.duties_service.disable_attesting
+            || spec.fork_name_at_slot::<S::E>(spec.genesis_slot) == types::ForkName::Pq
+        {
             info!("Sync committee service disabled");
             return Ok(());
         }

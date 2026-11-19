@@ -426,6 +426,28 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("pq-prover-backend")
+                .long("pq-prover-backend")
+                .value_parser(["sidecar"])
+                .default_value("sidecar")
+                .help("Proof backend for a PQ network.")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("pq-prover-socket")
+                .long("pq-prover-socket")
+                .value_name("PATH")
+                .help("Unix socket for the leanVM sidecar on a PQ network.")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("pq-aggregate-all")
+                .long("pq-aggregate-all")
+                .help("Prove PQ attestation aggregates for every observed committee.")
+                .action(ArgAction::SetTrue)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("genesis-backfill")
                 .long("genesis-backfill")
                 .help("Attempts to download blocks all the way back to genesis when checkpoint syncing.")

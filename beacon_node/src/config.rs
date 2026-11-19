@@ -816,6 +816,17 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.paranoid_block_proposal = cli_args.get_flag("paranoid-block-proposal");
 
     client_config.chain.ignore_ws_check = cli_args.get_flag("ignore-ws-check");
+    let pq_socket = clap_utils::parse_optional(cli_args, "pq-prover-socket")?;
+    if spec.is_pq_scheduled() && pq_socket.is_none() {
+        return Err("A PQ network requires --pq-prover-socket".into());
+    }
+    client_config.chain.pq_prover =
+        pq_socket.map(beacon_chain::chain_config::PqProverConfig::Sidecar);
+    client_config.chain.pq_aggregate_all = cli_args.get_flag("pq-aggregate-all");
+    if spec.fork_name_at_slot::<E>(spec.genesis_slot) == types::ForkName::Pq {
+        client_config.chain.enable_light_client_server = false;
+        client_config.network.enable_light_client_server = false;
+    }
 
     /*
      * Builder fallback configs.

@@ -18,6 +18,41 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     accept_header: Option<Accept>,
 ) -> Result<Response, warp::reject::Rejection> {
     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+    if fork_name == types::ForkName::Pq {
+        if endpoint_version != V2 {
+            return Err(unsupported_version_rejection(endpoint_version));
+        }
+        let committee = committee_index.ok_or_else(|| {
+            warp_utils::reject::custom_bad_request("missing committee index".into())
+        })?;
+        let entry = chain
+            .pq_aggregate(slot, *attestation_data_root, committee)
+            .ok_or_else(|| {
+                warp_utils::reject::custom_not_found("no matching PQ aggregate found".into())
+            })?;
+        let data = types::PqAggregate {
+            aggregate: entry.attestation.clone(),
+            proof: entry.proof.clone(),
+        };
+        return if accept_header == Some(Accept::Ssz) {
+            Builder::new()
+                .status(200)
+                .body(data.as_ssz_bytes())
+                .map(add_ssz_content_type_header)
+                .map(|res| add_consensus_version_header(res, fork_name))
+                .map_err(|error| warp_utils::reject::custom_server_error(error.to_string()))
+        } else {
+            Ok(add_consensus_version_header(
+                warp::reply::json(&ForkVersionedResponse {
+                    version: fork_name,
+                    metadata: EmptyMetadata {},
+                    data,
+                })
+                .into_response(),
+                fork_name,
+            ))
+        };
+    }
     let aggregate_attestation = if fork_name.electra_enabled() {
         let Some(committee_index) = committee_index else {
             return Err(warp_utils::reject::custom_bad_request(

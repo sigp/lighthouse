@@ -31,7 +31,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, Epoch, EthSpec, Hash256, SelectionProof, Slot};
+use types::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, SelectionProof, Slot};
 use validator_metrics::{ATTESTATION_DUTY, get_int_gauge, set_int_gauge};
 use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 
@@ -232,6 +232,12 @@ async fn make_beacon_committee_selection<S: ValidatorStore, T: SlotClock>(
 }
 
 impl DutyAndProof {
+    pub fn is_aggregator(&self) -> bool {
+        self.duty
+            .is_aggregator
+            .unwrap_or_else(|| self.selection_proof.is_some())
+    }
+
     /// Create a new `DutyAndProof` with the selection proof waiting to be filled in.
     pub fn new_without_selection_proof(duty: AttesterData, current_slot: Slot) -> Self {
         let subscription_slots = SubscriptionSlots::new(duty.slot, current_slot);
@@ -764,7 +770,13 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
     core_duties_service.executor.spawn(
         async move {
             loop {
-                if let Err(e) = poll_sync_committee_duties(&duties_service).await {
+                let pq = duties_service
+                    .slot_clock
+                    .now_or_genesis()
+                    .is_some_and(|slot| {
+                        duties_service.spec.fork_name_at_slot::<S::E>(slot) == ForkName::Pq
+                    });
+                if !pq && let Err(e) = poll_sync_committee_duties(&duties_service).await {
                     error!(
                         error = ?e,
                        "Failed to poll sync committee duties"
@@ -924,6 +936,17 @@ pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
         .validator_store
         .voting_pubkeys(DoppelgangerStatus::ignored);
 
+    let pq = duties_service
+        .slot_clock
+        .now_or_genesis()
+        .is_some_and(|slot| duties_service.spec.fork_name_at_slot::<S::E>(slot) == ForkName::Pq);
+    if pq {
+        duties_service
+            .validator_store
+            .load_pq_public_keys(all_pubkeys.clone())
+            .await;
+    }
+
     for pubkey in all_pubkeys {
         // This is on its own line to avoid some weirdness with locks and if statements.
         let is_known = duties_service
@@ -951,19 +974,28 @@ pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
             }
 
             // Query the remote BN to resolve a pubkey to a validator index.
+            let validator_id = if pq {
+                let Some(xmss_pubkey) = duties_service.validator_store.pq_public_key(&pubkey)
+                else {
+                    continue;
+                };
+                ValidatorId::PublicKey(xmss_pubkey)
+            } else {
+                ValidatorId::BlsPublicKey(pubkey)
+            };
             let download_result = duties_service
                 .beacon_nodes
-                .first_success(|beacon_node| async move {
-                    let _timer = validator_metrics::start_timer_vec(
-                        &validator_metrics::DUTIES_SERVICE_TIMES,
-                        &[validator_metrics::VALIDATOR_ID_HTTP_GET],
-                    );
-                    beacon_node
-                        .get_beacon_states_validator_id(
-                            StateId::Head,
-                            &ValidatorId::BlsPublicKey(pubkey),
-                        )
-                        .await
+                .first_success(|beacon_node| {
+                    let validator_id = validator_id.clone();
+                    async move {
+                        let _timer = validator_metrics::start_timer_vec(
+                            &validator_metrics::DUTIES_SERVICE_TIMES,
+                            &[validator_metrics::VALIDATOR_ID_HTTP_GET],
+                        );
+                        beacon_node
+                            .get_beacon_states_validator_id(StateId::Head, &validator_id)
+                            .await
+                    }
                 })
                 .await;
 
@@ -1145,7 +1177,7 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
             })
             .for_each(|(_, duty_and_proof)| {
                 let duty = &duty_and_proof.duty;
-                let is_aggregator = duty_and_proof.selection_proof.is_some();
+                let is_aggregator = duty_and_proof.is_aggregator();
 
                 subscriptions.push(BeaconCommitteeSubscription {
                     validator_index: duty.validator_index,
@@ -1364,6 +1396,10 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
     }
     drop(attesters);
 
+    if duties_service.spec.fork_name_at_epoch(epoch) == ForkName::Pq {
+        return Ok(());
+    }
+
     // Spawn the background task to compute selection proofs.
     let subservice = duties_service.clone();
     duties_service.executor.spawn(
@@ -1450,7 +1486,7 @@ async fn post_validator_duties_attester<S: ValidatorStore, T: SlotClock + 'stati
     epoch: Epoch,
     validator_indices: &[u64],
 ) -> Result<DutiesResponse<Vec<AttesterData>>, Error<S::Error>> {
-    duties_service
+    let mut response = duties_service
         .beacon_nodes
         .first_success(|beacon_node| async move {
             let _timer = validator_metrics::start_timer_vec(
@@ -1462,7 +1498,41 @@ async fn post_validator_duties_attester<S: ValidatorStore, T: SlotClock + 'stati
                 .await
         })
         .await
-        .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))
+        .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))?;
+    if duties_service.spec.fork_name_at_epoch(epoch) == ForkName::Pq {
+        let keys = local_pq_duty_keys(duties_service);
+        response
+            .data
+            .retain_mut(|duty| restore_local_pq_key(&keys, &mut duty.pubkey));
+    }
+    Ok(response)
+}
+
+fn local_pq_duty_keys<S: ValidatorStore, T: SlotClock + 'static>(
+    duties_service: &DutiesService<S, T>,
+) -> HashMap<PublicKeyBytes, PublicKeyBytes> {
+    let pubkeys: Vec<_> = duties_service
+        .validator_store
+        .voting_pubkeys(DoppelgangerStatus::ignored);
+    pubkeys
+        .into_iter()
+        .filter_map(|pubkey| {
+            let key = duties_service.validator_store.pq_public_key(&pubkey)?;
+            Some((eth2::types::pq_duty_pubkey(key).ok()?, pubkey))
+        })
+        .collect()
+}
+
+fn restore_local_pq_key(
+    keys: &HashMap<PublicKeyBytes, PublicKeyBytes>,
+    pubkey: &mut PublicKeyBytes,
+) -> bool {
+    if let Some(local) = keys.get(pubkey) {
+        *pubkey = *local;
+        true
+    } else {
+        false
+    }
 }
 
 // Create a helper function here to reduce code duplication for normal and distributed mode
@@ -1539,7 +1609,7 @@ async fn post_validator_duties_ptc<S: ValidatorStore, T: SlotClock + 'static>(
     epoch: Epoch,
     validator_indices: &[u64],
 ) -> Result<DutiesResponse<Vec<PtcDuty>>, Error<S::Error>> {
-    duties_service
+    let mut response = duties_service
         .beacon_nodes
         .first_success(|beacon_node| async move {
             let _timer = validator_metrics::start_timer_vec(
@@ -1551,7 +1621,14 @@ async fn post_validator_duties_ptc<S: ValidatorStore, T: SlotClock + 'static>(
                 .await
         })
         .await
-        .map_err(|e| Error::FailedToDownloadPtc(e.to_string()))
+        .map_err(|e| Error::FailedToDownloadPtc(e.to_string()))?;
+    if duties_service.spec.fork_name_at_epoch(epoch) == ForkName::Pq {
+        let keys = local_pq_duty_keys(duties_service);
+        response
+            .data
+            .retain_mut(|duty| restore_local_pq_key(&keys, &mut duty.pubkey));
+    }
+    Ok(response)
 }
 
 async fn post_validator_il_duties<S: ValidatorStore, T: SlotClock + 'static>(
@@ -1948,8 +2025,15 @@ async fn fetch_and_store_proposer_duties<S: ValidatorStore, T: SlotClock + 'stat
         .await;
 
     match download_result {
-        Ok(response) => {
+        Ok(mut response) => {
             let dependent_root = response.dependent_root;
+
+            if duties_service.spec.fork_name_at_epoch(epoch) == ForkName::Pq {
+                let keys = local_pq_duty_keys(duties_service);
+                response
+                    .data
+                    .retain_mut(|duty| restore_local_pq_key(&keys, &mut duty.pubkey));
+            }
 
             let relevant_duties = response
                 .data

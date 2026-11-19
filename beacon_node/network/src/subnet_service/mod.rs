@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::time::Instant;
+use tokio::time::{Instant, Sleep, sleep};
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::HashSetDelay;
@@ -18,8 +18,8 @@ use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, warn};
 use types::{
-    AttestationData, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    ValidatorSubscription,
+    AttestationData, Epoch, EthSpec, ForkName, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, ValidatorSubscription,
 };
 
 #[cfg(test)]
@@ -33,8 +33,8 @@ pub enum SubnetServiceMessage {
     Unsubscribe(Subnet),
     /// Add the `SubnetId` to the ENR bitfield.
     EnrAdd(Subnet),
-    /// Remove a sync committee subnet from the ENR.
-    EnrRemove(SyncSubnetId),
+    /// Remove a subnet from the ENR.
+    EnrRemove(Subnet),
     /// Discover peers for a list of `SubnetDiscovery`.
     DiscoverPeers(Vec<SubnetDiscovery>),
 }
@@ -89,9 +89,11 @@ pub struct SubnetService<T: BeaconChainTypes> {
     /// Subscriptions that need to be executed in the future.
     scheduled_subscriptions: HashSetDelay<ExactSubnet>,
 
-    /// A list of permanent subnets that this node is subscribed to.
-    // TODO: Shift this to a dynamic bitfield
+    /// Attestation subnets assigned to this node independently of validator duties.
     permanent_attestation_subscriptions: HashSet<Subnet>,
+
+    /// PQ rotates its long-lived subscriptions according to the current epoch.
+    pq_subnet_update: Option<(NodeId, Pin<Box<Sleep>>)>,
 
     /// A collection timeouts to track the existence of aggregate validator subscriptions at an
     /// `ExactSubnet`.
@@ -124,11 +126,28 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         // Build the list of known permanent subscriptions, so that we know not to subscribe or
         // discover them.
         let mut permanent_attestation_subscriptions = HashSet::default();
+        let epoch = beacon_chain
+            .slot_clock
+            .now_or_genesis()
+            .unwrap_or_default()
+            .epoch(T::EthSpec::slots_per_epoch());
+        let is_pq = beacon_chain.spec.fork_name_at_epoch(epoch) == ForkName::Pq;
         if config.subscribe_all_subnets {
             // We are subscribed to all subnets, set all the bits to true.
-            for index in 0..beacon_chain.spec.attestation_subnet_count {
+            let count = if is_pq {
+                beacon_chain.spec.attestation_subnet_count_pq
+            } else {
+                beacon_chain.spec.attestation_subnet_count
+            };
+            for index in 0..count {
                 permanent_attestation_subscriptions
                     .insert(Subnet::Attestation(SubnetId::from(index)));
+            }
+        } else if is_pq {
+            if let Some(subnets) =
+                SubnetId::compute_pq_attestation_subnets(node_id.raw(), epoch, &beacon_chain.spec)
+            {
+                permanent_attestation_subscriptions.extend(subnets.map(Subnet::Attestation));
             }
         } else {
             // Not subscribed to all subnets, so just calculate the required subnets from the node
@@ -174,9 +193,14 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             events.push_back(SubnetServiceMessage::EnrAdd(*subnet));
         }
 
+        let pq_subnet_update = (is_pq && !config.subscribe_all_subnets)
+            .then(|| Self::duration_to_next_epoch(&beacon_chain, epoch))
+            .flatten()
+            .map(|wait| (node_id, Box::pin(sleep(wait))));
         SubnetService {
             events,
             beacon_chain,
+            pq_subnet_update,
             subscriptions: HashSetDelay::new(default_sync_committee_duration),
             permanent_attestation_subscriptions,
             scheduled_subscriptions: HashSetDelay::default(),
@@ -372,6 +396,51 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /* Internal private functions */
 
+    fn duration_to_next_epoch(chain: &BeaconChain<T>, epoch: Epoch) -> Option<Duration> {
+        chain.slot_clock.duration_to_slot(
+            epoch
+                .saturating_add(1u64)
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        )
+    }
+
+    fn refresh_pq_attestation_subscriptions(&mut self, node_id: NodeId, epoch: Epoch) {
+        let Some(subnets) =
+            SubnetId::compute_pq_attestation_subnets(node_id.raw(), epoch, &self.beacon_chain.spec)
+        else {
+            return;
+        };
+        let next = subnets.map(Subnet::Attestation).collect::<HashSet<_>>();
+        let previous = std::mem::replace(&mut self.permanent_attestation_subscriptions, next);
+        let mut discovery = Vec::new();
+        for &subnet in self
+            .permanent_attestation_subscriptions
+            .difference(&previous)
+        {
+            if !self.subscriptions.contains_key(&subnet) {
+                self.events
+                    .push_back(SubnetServiceMessage::Subscribe(subnet));
+            }
+            self.events.push_back(SubnetServiceMessage::EnrAdd(subnet));
+            discovery.push(SubnetDiscovery {
+                subnet,
+                min_ttl: None,
+            });
+        }
+        for &subnet in previous.difference(&self.permanent_attestation_subscriptions) {
+            if !self.subscriptions.contains_key(&subnet) {
+                self.events
+                    .push_back(SubnetServiceMessage::Unsubscribe(subnet));
+            }
+            self.events
+                .push_back(SubnetServiceMessage::EnrRemove(subnet));
+        }
+        if !self.discovery_disabled && !discovery.is_empty() {
+            self.events
+                .push_back(SubnetServiceMessage::DiscoverPeers(discovery));
+        }
+    }
+
     /// Adds an event to the event queue and notifies that this service is ready to be polled
     /// again.
     fn queue_event(&mut self, ev: SubnetServiceMessage) {
@@ -436,8 +505,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         &mut self,
         ExactSubnet { subnet, slot }: ExactSubnet,
     ) -> Result<(), &'static str> {
-        // If the subnet is one of our permanent subnets, we do not need to subscribe.
-        if self.subscribe_all_subnets || self.permanent_attestation_subscriptions.contains(&subnet)
+        // Track PQ validator duties on assigned subnets as well, because the
+        // node's assignment may change while the duty subscription is active.
+        if self.subscribe_all_subnets
+            || (self.pq_subnet_update.is_none()
+                && self.permanent_attestation_subscriptions.contains(&subnet))
         {
             return Ok(());
         }
@@ -581,7 +653,9 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                     %end_slot,
                     "Subscribing to subnet"
                 );
-                self.queue_event(SubnetServiceMessage::Subscribe(subnet));
+                if !self.permanent_attestation_subscriptions.contains(&subnet) {
+                    self.queue_event(SubnetServiceMessage::Subscribe(subnet));
+                }
             }
         }
         Ok(())
@@ -589,14 +663,16 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     // Unsubscribes from a subnet that was removed.
     fn handle_removed_subnet(&mut self, subnet: Subnet) {
-        if !self.subscriptions.contains_key(&subnet) {
+        if !self.subscriptions.contains_key(&subnet)
+            && !self.permanent_attestation_subscriptions.contains(&subnet)
+        {
             // Subscription no longer exists as short lived subnet
             debug!(?subnet, "Unsubscribing from subnet");
             self.queue_event(SubnetServiceMessage::Unsubscribe(subnet));
 
             // If this is a sync subnet, we need to remove it from our ENR.
-            if let Subnet::SyncCommittee(sync_subnet_id) = subnet {
-                self.queue_event(SubnetServiceMessage::EnrRemove(sync_subnet_id));
+            if matches!(subnet, Subnet::SyncCommittee(_)) {
+                self.queue_event(SubnetServiceMessage::EnrRemove(subnet));
             }
         }
     }
@@ -613,6 +689,23 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
             }
         } else {
             self.waker = Some(cx.waker().clone());
+        }
+
+        if let Some((node_id, update)) = self.pq_subnet_update.as_mut()
+            && update.as_mut().poll(cx).is_ready()
+        {
+            let node_id = *node_id;
+            let epoch = self
+                .beacon_chain
+                .slot_clock
+                .now_or_genesis()
+                .unwrap_or_default()
+                .epoch(T::EthSpec::slots_per_epoch());
+            self.refresh_pq_attestation_subscriptions(node_id, epoch);
+            let wait = Self::duration_to_next_epoch(&self.beacon_chain, epoch)
+                .unwrap_or_else(|| self.beacon_chain.slot_clock.slot_duration());
+            self.pq_subnet_update = Some((node_id, Box::pin(sleep(wait))));
+            cx.waker().wake_by_ref();
         }
 
         // Send out any generated events.

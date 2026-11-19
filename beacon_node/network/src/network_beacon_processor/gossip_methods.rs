@@ -2118,6 +2118,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_IMPORTED_TOTAL);
     }
 
+    pub fn process_gossip_pq_proposer_slashing(
+        &self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        slashing: types::ProposerSlashingPq,
+    ) {
+        let verdict = match self.chain.verify_and_import_pq_proposer_slashing(slashing) {
+            Ok(true) => {
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL);
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_IMPORTED_TOTAL);
+                MessageAcceptance::Accept
+            }
+            Ok(false) => MessageAcceptance::Ignore,
+            Err(error) => {
+                debug!(?error, %peer_id, "PQ proposer slashing failed gossip validation");
+                match error {
+                    BeaconChainError::ProposerSlashingValidationError(_) => {
+                        MessageAcceptance::Reject
+                    }
+                    _ => MessageAcceptance::Ignore,
+                }
+            }
+        };
+        self.propagate_validation_result(message_id, peer_id, verdict);
+    }
+
     pub fn process_gossip_proposer_slashing(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -3828,6 +3854,125 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             )
             .await;
         }
+    }
+
+    pub async fn process_gossip_execution_payload_pq(
+        self: Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        envelope: Arc<types::SignedExecutionPayloadEnvelopePq<T::EthSpec>>,
+    ) {
+        match self
+            .chain
+            .verify_pq_envelope_for_gossip(envelope.clone())
+            .await
+        {
+            Ok(verified) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                if let Err(error) = self.chain.process_verified_pq_envelope(verified).await {
+                    debug!(?error, "Unable to import PQ execution payload");
+                }
+            }
+            Err(EnvelopeError::BlockRootUnknown { block_root }) => {
+                self.propagate_validation_result(
+                    message_id.clone(),
+                    peer_id,
+                    MessageAcceptance::Ignore,
+                );
+                let slot = envelope.message.payload.slot_number;
+                let processor = Arc::clone(&self);
+                let process_fn = Box::pin(async move {
+                    if let Ok(verified) = processor
+                        .chain
+                        .verify_pq_envelope_for_gossip(envelope)
+                        .await
+                    {
+                        processor.propagate_envelope_if_timely(slot, message_id, peer_id);
+                        if let Err(error) =
+                            processor.chain.process_verified_pq_envelope(verified).await
+                        {
+                            debug!(?error, "Unable to import deferred PQ execution payload");
+                        }
+                    }
+                });
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::UnknownBlockForEnvelope(
+                            QueuedGossipEnvelope {
+                                beacon_block_slot: slot,
+                                beacon_block_root: block_root,
+                                process_fn,
+                            },
+                        )),
+                    })
+                    .is_err()
+                {
+                    debug!(?block_root, "Unable to defer PQ execution payload");
+                }
+            }
+            Err(error) => {
+                let verdict = match error {
+                    EnvelopeError::EnvelopeAlreadySeen { .. }
+                    | EnvelopeError::PriorToFinalization { .. }
+                    | EnvelopeError::BeaconChainError(_) => MessageAcceptance::Ignore,
+                    _ => MessageAcceptance::Reject,
+                };
+                self.propagate_validation_result(message_id, peer_id, verdict);
+                debug!(?error, "PQ execution payload failed gossip validation");
+            }
+        }
+    }
+
+    pub fn process_gossip_payload_attestation_pq(
+        &self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        message: &types::PayloadAttestationMessagePq,
+    ) {
+        let verdict = match self.chain.verify_pq_payload_attestation(message) {
+            Ok((indexed, ptc)) => {
+                if let Err(error) = self
+                    .chain
+                    .apply_payload_attestation_to_fork_choice(&indexed, &ptc)
+                {
+                    debug!(
+                        ?error,
+                        "Unable to apply PQ payload attestation to fork choice"
+                    );
+                }
+                MessageAcceptance::Accept
+            }
+            Err(
+                PayloadAttestationError::InvalidSignature
+                | PayloadAttestationError::NotInPTC { .. }
+                | PayloadAttestationError::UnknownValidatorIndex(_),
+            ) => MessageAcceptance::Reject,
+            Err(_) => MessageAcceptance::Ignore,
+        };
+        self.propagate_validation_result(message_id, peer_id, verdict);
+    }
+
+    pub fn process_gossip_proposer_preferences_pq(
+        &self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        preferences: Arc<types::SignedProposerPreferencesPq>,
+    ) {
+        let verdict = match self
+            .chain
+            .verify_pq_proposer_preferences_for_gossip(preferences)
+        {
+            Ok(()) => MessageAcceptance::Accept,
+            Err(
+                ProposerPreferencesError::BadSignature
+                | ProposerPreferencesError::InvalidProposalSlot { .. }
+                | ProposerPreferencesError::DependentRootTooRecent { .. },
+            ) => MessageAcceptance::Reject,
+            Err(_) => MessageAcceptance::Ignore,
+        };
+        self.propagate_validation_result(message_id, peer_id, verdict);
     }
 
     async fn process_gossip_unverified_execution_payload_envelope(

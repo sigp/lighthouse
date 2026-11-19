@@ -32,10 +32,12 @@ use types::{
     graffiti::GraffitiString,
 };
 use validator_store::{
-    AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
-    Error as ValidatorStoreError, ProposalData, SignedBlock, SyncMessageToSign, UnsignedBlock,
-    ValidatorStore,
+    AggregateAuthorization, AggregateToSign, AttestationToSign, ContributionToSign,
+    DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, SignedBlock, SyncMessageToSign,
+    UnsignedBlock, ValidatorStore,
 };
+
+mod pq;
 
 pub type Error = ValidatorStoreError<SigningError>;
 
@@ -77,6 +79,7 @@ pub struct LighthouseValidatorStore<T, E> {
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
+    pq_keys: pq::Keys,
     _phantom: PhantomData<E>,
 }
 
@@ -109,6 +112,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
+            pq_keys: pq::Keys::default(),
             _phantom: PhantomData,
         }
     }
@@ -489,14 +493,30 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             });
         }
 
-        if block.to_ref().fork_name_unchecked() == types::ForkName::Pq {
-            return Err(Error::Middleware(
-                "Pq block signing is not implemented".into(),
-            ));
-        }
         let signing_epoch = block.epoch();
         let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
         let domain_hash = signing_context.domain_hash(&self.spec);
+
+        if block.to_ref().fork_name_unchecked() == types::ForkName::Pq {
+            let signature = self
+                .sign_pq(
+                    validator_pubkey,
+                    state_processing::pq::slot_leaf_index(
+                        block.slot(),
+                        state_processing::pq::LEAF_OFFSET_BEACON_PROPOSER,
+                    )
+                    .map_err(pq::pq_leaf_error)?,
+                    block.signing_root(domain_hash),
+                    None,
+                )
+                .await?;
+            validator_metrics::inc_counter_vec(
+                &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                &[validator_metrics::SUCCESS],
+            );
+            return SignedBeaconBlock::from_block(block, signature)
+                .map_err(|error| Error::Middleware(format!("{error:?}")));
+        }
 
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
 
@@ -909,6 +929,22 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         self.validators.read().num_enabled()
     }
 
+    async fn load_pq_public_keys(&self, pubkeys: Vec<PublicKeyBytes>) {
+        self.load_pq_keys(pubkeys).await;
+    }
+
+    fn pq_public_key(&self, pubkey: &PublicKeyBytes) -> Option<types::XmssPublicKey> {
+        self.local_pq_public_key(pubkey)
+    }
+
+    async fn randao_vrf_proof(
+        &self,
+        pubkey: PublicKeyBytes,
+        slot: Slot,
+    ) -> Result<types::VrfProof, Error> {
+        self.pq_vrf_proof(pubkey, slot).await
+    }
+
     fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.read().graffiti(validator_pubkey)
     }
@@ -1032,6 +1068,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     ) -> impl Stream<Item = Result<Vec<SingleAttestation>, Error>> + Send {
         let store = self.clone();
         stream::once(async move {
+            // Forks can only change at an epoch boundary. The attestation
+            // service submits a batch for one slot.
+            if attestations.first().is_some_and(|attestation| {
+                store.spec.fork_name_at_epoch(attestation.data.target.epoch) == types::ForkName::Pq
+            }) {
+                return Ok(store.sign_pq_attestations(attestations).await);
+            }
+
             // Sign all attestations concurrently.
             let signing_futures =
                 attestations
@@ -1215,18 +1259,27 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                      pubkey,
                      aggregator_index,
                      aggregate,
-                     selection_proof,
+                     authorization,
                  }| {
                     let store = store.clone();
                     async move {
-                        let result = store
-                            .produce_signed_aggregate_and_proof(
-                                pubkey,
-                                aggregator_index,
-                                aggregate,
-                                selection_proof,
-                            )
-                            .await;
+                        let result = match authorization {
+                            AggregateAuthorization::Bls(selection_proof) => {
+                                store
+                                    .produce_signed_aggregate_and_proof(
+                                        pubkey,
+                                        aggregator_index,
+                                        aggregate,
+                                        selection_proof,
+                                    )
+                                    .await
+                            }
+                            AggregateAuthorization::Pq(proof) => {
+                                store
+                                    .sign_pq_aggregate(pubkey, aggregator_index, aggregate, proof)
+                                    .await
+                            }
+                        };
                         (pubkey, result)
                     }
                 },
@@ -1534,6 +1587,72 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             message: preferences,
             signature,
         })
+    }
+
+    async fn sign_pq_execution_payload_envelope(
+        &self,
+        pubkey: PublicKeyBytes,
+        envelope: types::ExecutionPayloadEnvelopePq<E>,
+    ) -> Result<types::SignedExecutionPayloadEnvelopePq<E>, Error> {
+        use state_processing::pq::{LEAF_OFFSET_PAYLOAD_ENVELOPE, slot_leaf_index};
+        let slot = envelope.payload.slot_number;
+        let domain = self
+            .signing_context(Domain::BeaconBuilder, slot.epoch(E::slots_per_epoch()))
+            .domain_hash(&self.spec);
+        let leaf =
+            slot_leaf_index(slot, LEAF_OFFSET_PAYLOAD_ENVELOPE).map_err(pq::pq_leaf_error)?;
+        let signature = self
+            .sign_pq(pubkey, leaf, envelope.signing_root(domain), None)
+            .await?;
+        Ok(types::SignedExecutionPayloadEnvelopePq {
+            message: envelope,
+            signature,
+        })
+    }
+
+    async fn sign_pq_payload_attestation(
+        &self,
+        pubkey: PublicKeyBytes,
+        data: PayloadAttestationData,
+    ) -> Result<types::PayloadAttestationMessagePq, Error> {
+        use state_processing::pq::{LEAF_OFFSET_PTC_ATTESTER, slot_leaf_index};
+        let validator_index = self
+            .validator_index(&pubkey)
+            .ok_or(Error::UnknownPubkey(pubkey))?;
+        let domain = self
+            .signing_context(Domain::PTCAttester, data.slot.epoch(E::slots_per_epoch()))
+            .domain_hash(&self.spec);
+        let leaf =
+            slot_leaf_index(data.slot, LEAF_OFFSET_PTC_ATTESTER).map_err(pq::pq_leaf_error)?;
+        let signature = self
+            .sign_pq(pubkey, leaf, data.signing_root(domain), None)
+            .await?;
+        Ok(types::PayloadAttestationMessagePq {
+            validator_index,
+            data,
+            signature,
+        })
+    }
+
+    async fn sign_pq_proposer_preferences(
+        &self,
+        pubkey: PublicKeyBytes,
+        message: ProposerPreferences,
+    ) -> Result<types::SignedProposerPreferencesPq, Error> {
+        use state_processing::pq::{LEAF_OFFSET_PROPOSER_PREFERENCES, slot_leaf_index};
+        let slot = message.proposal_slot;
+        let domain = self
+            .signing_context(
+                Domain::ProposerPreferences,
+                slot.epoch(E::slots_per_epoch()),
+            )
+            .domain_hash(&self.spec);
+        let leaf =
+            slot_leaf_index(slot, LEAF_OFFSET_PROPOSER_PREFERENCES).map_err(pq::pq_leaf_error)?;
+        let signature = self
+            .sign_pq(pubkey, leaf, message.signing_root(domain), None)
+            .await?;
+        Ok(types::SignedProposerPreferencesPq { message, signature })
     }
 
     async fn sign_request_auth_v1(

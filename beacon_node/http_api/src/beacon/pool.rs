@@ -28,9 +28,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{
-    Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessageGloas,
-    ProposerSlashingBase, SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation,
-    SyncCommitteeMessage,
+    Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessage,
+    PayloadAttestationMessageGloas, PayloadAttestationMessagePq, ProposerSlashing,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation, SyncCommitteeMessage,
 };
 use warp::filters::BoxedFilter;
 use warp::http::response::Builder;
@@ -266,8 +266,25 @@ pub fn get_beacon_pool_proposer_slashings<T: BeaconChainTypes>(
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    let attestations = chain.op_pool.get_all_proposer_slashings();
-                    Ok(GenericResponse::from(attestations))
+                    let slashings = if chain.spec.fork_name_at_slot::<T::EthSpec>(
+                        chain.canonical_head.cached_head().head_slot(),
+                    ) == ForkName::Pq
+                    {
+                        chain
+                            .op_pool
+                            .get_all_pq_proposer_slashings()
+                            .into_iter()
+                            .map(ProposerSlashing::Pq)
+                            .collect()
+                    } else {
+                        chain
+                            .op_pool
+                            .get_all_proposer_slashings()
+                            .into_iter()
+                            .map(ProposerSlashing::Base)
+                            .collect::<Vec<_>>()
+                    };
+                    Ok(GenericResponse::from(slashings))
                 })
             },
         )
@@ -288,9 +305,28 @@ pub fn post_beacon_pool_proposer_slashings<T: BeaconChainTypes>(
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             slashing: ProposerSlashingBase,
+             slashing: ProposerSlashing,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    let slashing = match slashing {
+                        ProposerSlashing::Base(slashing) => slashing,
+                        ProposerSlashing::Pq(slashing) => {
+                            if chain
+                                .verify_and_import_pq_proposer_slashing(slashing.clone())
+                                .map_err(|e| {
+                                    warp_utils::reject::object_invalid(format!(
+                                        "gossip verification failed: {e:?}"
+                                    ))
+                                })?
+                            {
+                                utils::publish_pubsub_message(
+                                    &network_tx,
+                                    PubsubMessage::ProposerSlashingPq(Box::new(slashing)),
+                                )?;
+                            }
+                            return Ok(());
+                        }
+                    };
                     let outcome = chain
                         .verify_proposer_slashing_for_gossip(slashing.clone())
                         .map_err(|e| {
@@ -633,11 +669,33 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             messages: Vec<PayloadAttestationMessageGloas>,
-             _fork_name: Option<ForkName>,
+             messages: Vec<PayloadAttestationMessage>,
+             fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    publish_payload_attestation_messages(&chain, &network_tx, messages)
+                    if fork_name == Some(ForkName::Pq) {
+                        let messages = messages
+                            .into_iter()
+                            .map(|message| match message {
+                                PayloadAttestationMessage::Pq(message) => Ok(message),
+                                _ => Err(warp_utils::reject::custom_bad_request(
+                                    "expected PQ payload attestation".into(),
+                                )),
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        publish_pq_payload_messages(&chain, &network_tx, messages)
+                    } else {
+                        let messages = messages
+                            .into_iter()
+                            .map(|message| match message {
+                                PayloadAttestationMessage::Gloas(message) => Ok(message),
+                                _ => Err(warp_utils::reject::custom_bad_request(
+                                    "expected BLS payload attestation".into(),
+                                )),
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        publish_payload_attestation_messages(&chain, &network_tx, messages)
+                    }
                 })
             },
         )
@@ -657,15 +715,25 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
         .and(warp::path("payload_attestations"))
         .and(warp::path::end())
         .and(warp::body::bytes())
+        .and(warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER))
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
-            |body_bytes: Bytes,
+            |body_bytes: Bytes, fork_name: Option<ForkName>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if fork_name == Some(ForkName::Pq) {
+                        let item_len = <PayloadAttestationMessagePq as Encode>::ssz_fixed_len();
+                        if !body_bytes.len().is_multiple_of(item_len) {
+                            return Err(warp_utils::reject::custom_bad_request("invalid PQ payload attestation list length".into()));
+                        }
+                        let messages = body_bytes.chunks_exact(item_len).map(PayloadAttestationMessagePq::from_ssz_bytes)
+                            .collect::<Result<Vec<_>, _>>().map_err(|error| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {error:?}")))?;
+                        return publish_pq_payload_messages(&chain, &network_tx, messages);
+                    }
                     let item_len = <PayloadAttestationMessageGloas as Encode>::ssz_fixed_len();
                     if !body_bytes.len().is_multiple_of(item_len) {
                         return Err(warp_utils::reject::custom_bad_request(format!(
@@ -690,6 +758,40 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
             },
         )
         .boxed()
+}
+
+fn publish_pq_payload_messages<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    messages: Vec<PayloadAttestationMessagePq>,
+) -> Result<(), warp::Rejection> {
+    let mut failures = Vec::new();
+    for (index, message) in messages.into_iter().enumerate() {
+        match chain.verify_pq_payload_attestation(&message) {
+            Ok((indexed, ptc)) => {
+                utils::publish_pubsub_message(
+                    network_tx,
+                    PubsubMessage::PayloadAttestationPq(Box::new(message)),
+                )?;
+                if let Err(error) = chain.apply_payload_attestation_to_fork_choice(&indexed, &ptc) {
+                    debug!(
+                        ?error,
+                        "Unable to apply PQ payload attestation to fork choice"
+                    );
+                }
+            }
+            Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. }) => {}
+            Err(error) => failures.push(Failure::new(index, format!("{error:?}"))),
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(warp_utils::reject::indexed_bad_request(
+            "Some PQ payload attestations failed verification".into(),
+            failures,
+        ))
+    }
 }
 
 fn publish_payload_attestation_messages<T: BeaconChainTypes>(

@@ -760,8 +760,7 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
 
 /// A wrapper around a block whose proposer signature has been verified.
 ///
-/// Earlier forks also verify the body signatures here. PQ verifies body proofs and signatures
-/// during the state transition.
+/// PQ authenticates the attestation proof after the parent state has been advanced.
 pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     block: MaybeAvailableBlock<T::EthSpec>,
     block_root: Hash256,
@@ -926,12 +925,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
-        let fork = block
+        block
             .fork_name(&chain.spec)
             .map_err(BlockError::InconsistentFork)?;
-        if fork == ForkName::Pq {
-            return Err(BeaconStateError::PqUnsupported("block gossip verification").into());
-        }
 
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
@@ -960,12 +956,14 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             }
         }
 
-        if let Ok(parent_execution_requests) = block.message().body().parent_execution_requests() {
-            verify_operation_list_lengths(block.message().body())
-                .map_err(BlockError::PerBlockProcessingError)?;
+        let body = block.message().body();
+        if let types::BeaconBlockBodyRef::Pq(body) = body {
+            verify_pq_block_operation_lengths(body)?;
+        } else if let Ok(parent_execution_requests) = body.parent_execution_requests() {
+            verify_operation_list_lengths(body).map_err(BlockError::PerBlockProcessingError)?;
             verify_execution_request_list_lengths(parent_execution_requests)
                 .map_err(BlockError::PerBlockProcessingError)?;
-            let deposits_len = block.message().body().deposits().len();
+            let deposits_len = body.deposits().len();
             if deposits_len > 0 {
                 return Err(BlockError::PerBlockProcessingError(
                     BlockProcessingError::OperationListTooLong {
@@ -1089,7 +1087,27 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let expected_proposer = proposer.index;
         let fork = proposer.fork;
 
-        let signature_is_valid = {
+        let signature_is_valid = if let SignedBeaconBlock::Pq(pq_block) = block.as_ref() {
+            if opt_parent.is_none() {
+                opt_parent = Some(load_parent(block.clone(), chain)?.0);
+            }
+            let parent = opt_parent
+                .as_mut()
+                .ok_or(BeaconStateError::IncorrectStateVariant)?;
+            let state = cheap_state_advance_to_obtain_committees::<_, BlockError>(
+                &mut parent.pre_state,
+                parent.beacon_state_root,
+                block.slot(),
+                chain.builder_onboarding_cache.as_deref(),
+                &chain.spec,
+            )?;
+            state_processing::pq::verify_proposer_signature(
+                &state,
+                pq_block,
+                block_root,
+                &chain.spec,
+            )?
+        } else {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
                 .get_bls(block.message().proposer_index() as usize)
@@ -1325,15 +1343,17 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
-
         // Gossip verification has already checked the proposer index. Use it to check the RANDAO
         // signature.
         let mut consensus_context = from.consensus_context;
-        signature_verifier
-            .include_all_signatures_except_proposal(block.as_ref(), &mut consensus_context)?;
-
-        let result = info_span!("signature_verify").in_scope(|| signature_verifier.verify());
+        let result = if matches!(block.as_ref(), SignedBeaconBlock::Pq(_)) {
+            Ok(())
+        } else {
+            let mut signature_verifier = get_signature_verifier(&state, &chain.spec);
+            signature_verifier
+                .include_all_signatures_except_proposal(block.as_ref(), &mut consensus_context)?;
+            info_span!("signature_verify").in_scope(|| signature_verifier.verify())
+        };
         match result {
             Ok(_) => {
                 // gloas blocks are always available.
@@ -1752,11 +1772,58 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
+        if let SignedBeaconBlock::Pq(block) = block.as_block() {
+            verify_pq_block_operation_lengths(&block.message.body)?;
+            let backend = &chain
+                .pq_provers
+                .as_ref()
+                .ok_or(BeaconChainError::MissingPqProver)?
+                .block;
+            let mut statements = Vec::new();
+            for attestation in &block.message.body.attestations {
+                statements.extend(state_processing::pq::attestation_statements(
+                    &state,
+                    attestation,
+                    &chain.spec,
+                )?);
+            }
+            let timer = metrics::start_timer(&metrics::PQ_BLOCK_VERIFY_SECONDS);
+            metrics::observe(
+                &metrics::PQ_BLOCK_VERIFY_CLAIMS,
+                statements
+                    .iter()
+                    .map(|statement| statement.pubkeys.len())
+                    .sum::<usize>() as f64,
+            );
+            if !backend
+                .verify(
+                    &statements,
+                    &pq_prover::Proof::from_bytes(block.message.body.proof.to_vec()),
+                )
+                .map_err(BeaconChainError::PqProverError)?
+            {
+                return Err(BlockError::InvalidSignature(
+                    InvalidSignature::BlockBodySignatures,
+                ));
+            }
+            drop(timer);
+            for attestation in &block.message.body.attestations {
+                metrics::observe(
+                    &metrics::PQ_ATTESTATION_INCLUSION_DELAY,
+                    block
+                        .message
+                        .slot
+                        .as_u64()
+                        .saturating_sub(attestation.data.slot.as_u64()) as f64,
+                );
+            }
+        }
+
         if let Err(err) = per_block_processing(
             &mut state,
             block.as_block(),
-            // The proposer was authenticated upstream. PQ always checks its
-            // body authentication during this transition.
+            // The configured backend checked the PQ aggregate proof above.
+            // PQ's per-item checks run as part of the transition.
             BlockSignatureStrategy::NoVerification,
             VerifyBlockRoot::True,
             &mut consensus_context,
@@ -2298,6 +2365,26 @@ fn verify_pq_proposer_signature<E: EthSpec>(
             InvalidSignature::ProposerSignature,
         ))
     }
+}
+
+fn verify_pq_block_operation_lengths<E: EthSpec>(
+    body: &types::BeaconBlockBodyPq<E, types::FullPayload<E>>,
+) -> Result<(), BlockError> {
+    verify_operation_list_lengths(types::BeaconBlockBodyRef::Pq(body))
+        .map_err(BlockError::PerBlockProcessingError)?;
+    state_processing::per_block_processing::verify_pq_execution_request_list_lengths(
+        &body.parent_execution_requests,
+    )
+    .map_err(BlockError::PerBlockProcessingError)?;
+    if !body.deposits.is_empty() {
+        return Err(BlockError::PerBlockProcessingError(
+            BlockProcessingError::DepositCountInvalid {
+                expected: 0,
+                found: body.deposits.len(),
+            },
+        ));
+    }
+    Ok(())
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.

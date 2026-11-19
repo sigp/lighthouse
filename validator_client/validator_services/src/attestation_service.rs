@@ -15,7 +15,7 @@ use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use tree_hash::TreeHash;
 use types::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
-use validator_store::{AggregateToSign, AttestationToSign, ValidatorStore};
+use validator_store::{AggregateAuthorization, AggregateToSign, AttestationToSign, ValidatorStore};
 
 /// Builds an `AttestationService`.
 #[derive(Default)]
@@ -643,10 +643,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
-        if !validator_duties
-            .iter()
-            .any(|duty_and_proof| duty_and_proof.selection_proof.is_some())
-        {
+        if !validator_duties.iter().any(DutyAndProof::is_aggregator) {
             // Exit early if no validator is aggregator
             return Ok(());
         }
@@ -655,14 +652,34 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .chain_spec
             .fork_name_at_slot::<S::E>(attestation_data.slot);
 
-        let aggregated_attestation = &self
+        let (aggregated_attestation, pq_proof) = self
             .beacon_nodes
             .first_success(|beacon_node| async move {
                 let _timer = validator_metrics::start_timer_vec(
                     &validator_metrics::ATTESTATION_SERVICE_TIMES,
                     &[validator_metrics::AGGREGATES_HTTP_GET],
                 );
-                if fork_name.electra_enabled() {
+                if fork_name == types::ForkName::Pq {
+                    let result = beacon_node
+                        .get_validator_pq_aggregate(
+                            attestation_data.slot,
+                            attestation_data.tree_hash_root(),
+                            committee_index,
+                        )
+                        .await
+                        .map_err(|error| format!("Failed to fetch PQ aggregate: {error:?}"))?
+                        .ok_or_else(|| {
+                            format!("No PQ aggregate available for {attestation_data:?}")
+                        })?;
+                    let entry = result.data;
+                    if result.version != fork_name
+                        || &entry.aggregate.data != attestation_data
+                        || entry.aggregate.get_committee_indices().as_slice() != [committee_index]
+                    {
+                        return Err("Beacon node returned mismatched PQ aggregate".into());
+                    }
+                    Ok((types::Attestation::Pq(entry.aggregate), Some(entry.proof)))
+                } else if fork_name.electra_enabled() {
                     beacon_node
                         .get_validator_aggregate_attestation_v2(
                             attestation_data.slot,
@@ -674,7 +691,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                             format!("Failed to produce an aggregate attestation: {:?}", e)
                         })?
                         .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
-                        .map(|result| result.into_data())
+                        .map(|result| (result.into_data(), None))
                 } else {
                     beacon_node
                         .get_validator_aggregate_attestation_v1(
@@ -686,7 +703,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                             format!("Failed to produce an aggregate attestation: {:?}", e)
                         })?
                         .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
-                        .map(|result| result.data)
+                        .map(|result| (result.data, None))
                 }
             })
             .instrument(info_span!("fetch_aggregate_attestation"))
@@ -698,7 +715,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .iter()
             .filter_map(|duty_and_proof| {
                 let duty = &duty_and_proof.duty;
-                let selection_proof = duty_and_proof.selection_proof.as_ref()?;
+                if !duty_and_proof.is_aggregator() {
+                    return None;
+                }
+                let authorization = match &pq_proof {
+                    Some(proof) => AggregateAuthorization::Pq(proof.clone()),
+                    None => AggregateAuthorization::Bls(duty_and_proof.selection_proof.clone()?),
+                };
 
                 if !duty.match_attestation_data::<S::E>(attestation_data, &self.chain_spec) {
                     crit!("Inconsistent validator duties during signing");
@@ -709,7 +732,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     pubkey: duty.pubkey,
                     aggregator_index: duty.validator_index,
                     aggregate: aggregated_attestation.clone(),
-                    selection_proof: selection_proof.clone(),
+                    authorization,
                 })
             })
             .collect();

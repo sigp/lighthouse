@@ -55,11 +55,26 @@ pub struct PeerScoreSettings<E: EthSpec> {
 impl<E: EthSpec> PeerScoreSettings<E> {
     pub fn new(chain_spec: &ChainSpec, mesh_n: usize) -> PeerScoreSettings<E> {
         let slot = chain_spec.get_slot_duration();
-        let beacon_attestation_subnet_weight = 1.0 / chain_spec.attestation_subnet_count as f64;
+        let pq = chain_spec.fork_name_at_slot::<E>(chain_spec.genesis_slot) == types::ForkName::Pq;
+        let (attestation_subnet_count, max_committees_per_slot, target_aggregators_per_committee) =
+            if pq {
+                (
+                    chain_spec.attestation_subnet_count_pq,
+                    E::max_committees_per_slot_pq(),
+                    4,
+                )
+            } else {
+                (
+                    chain_spec.attestation_subnet_count,
+                    chain_spec.max_committees_per_slot,
+                    chain_spec.target_aggregators_per_committee as usize,
+                )
+            };
+        let beacon_attestation_subnet_weight = 1.0 / attestation_subnet_count as f64;
         let max_positive_score = (MAX_IN_MESH_SCORE + MAX_FIRST_MESSAGE_DELIVERIES_SCORE)
             * (BEACON_BLOCK_WEIGHT
                 + BEACON_AGGREGATE_PROOF_WEIGHT
-                + beacon_attestation_subnet_weight * chain_spec.attestation_subnet_count as f64
+                + beacon_attestation_subnet_weight * attestation_subnet_count as f64
                 + VOLUNTARY_EXIT_WEIGHT
                 + PROPOSER_SLASHING_WEIGHT
                 + ATTESTER_SLASHING_WEIGHT);
@@ -72,10 +87,10 @@ impl<E: EthSpec> PeerScoreSettings<E> {
             decay_interval: max(Duration::from_secs(1), slot),
             decay_to_zero: 0.01,
             mesh_n,
-            max_committees_per_slot: chain_spec.max_committees_per_slot,
+            max_committees_per_slot,
             target_committee_size: chain_spec.target_committee_size,
-            target_aggregators_per_committee: chain_spec.target_aggregators_per_committee as usize,
-            attestation_subnet_count: chain_spec.attestation_subnet_count,
+            target_aggregators_per_committee,
+            attestation_subnet_count,
             phantom: PhantomData,
         }
     }

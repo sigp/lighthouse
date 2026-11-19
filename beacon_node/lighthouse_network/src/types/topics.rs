@@ -54,18 +54,26 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
     let mut topics = vec![
         GossipKind::BeaconBlock,
         GossipKind::BeaconAggregateAndProof,
-        GossipKind::VoluntaryExit,
         GossipKind::ProposerSlashing,
         GossipKind::AttesterSlashing,
     ];
+    let is_pq = fork_name == ForkName::Pq;
+    if !is_pq {
+        topics.push(GossipKind::VoluntaryExit);
+    }
 
     if opts.subscribe_all_subnets {
-        for i in 0..spec.attestation_subnet_count {
+        let count = if is_pq {
+            spec.attestation_subnet_count_pq
+        } else {
+            spec.attestation_subnet_count
+        };
+        for i in 0..count {
             topics.push(GossipKind::Attestation(i.into()));
         }
     }
 
-    if fork_name.altair_enabled() {
+    if fork_name.altair_enabled() && !is_pq {
         topics.push(GossipKind::SignedContributionAndProof);
 
         if opts.subscribe_all_subnets {
@@ -80,7 +88,7 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
-    if fork_name.capella_enabled() {
+    if fork_name.capella_enabled() && !is_pq {
         topics.push(GossipKind::BlsToExecutionChange);
     }
 
@@ -112,11 +120,12 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
 /// For example: the `Attestation` topic is not subscribed as a core topic if
 /// subscribe_all_subnets = false` but we may subscribe to it outside of a fork
 /// boundary if the node is an aggregator.
-pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool {
+pub fn is_fork_non_core_topic(topic: &GossipTopic, fork_name: ForkName) -> bool {
     match topic.kind() {
         // Node may be aggregator of attestation and sync_committee_message topics for all known
         // forks
-        GossipKind::Attestation(_) | GossipKind::SyncCommitteeMessage(_) => true,
+        GossipKind::Attestation(_) => true,
+        GossipKind::SyncCommitteeMessage(_) => fork_name != ForkName::Pq,
         // All these topics are core-only
         GossipKind::BeaconBlock
         | GossipKind::BeaconAggregateAndProof

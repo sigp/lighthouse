@@ -13,12 +13,14 @@ use types::{
     ForkName, ForkVersionDecode, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
     PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
     PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
-    PayloadAttestationMessageGloas, ProposerSlashingBase, SignedAggregateAndProof,
-    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
-    SignedAggregateAndProofPq, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelopeGloas,
-    SignedInclusionList, SignedProposerPreferencesGloas, SignedVoluntaryExit, SingleAttestation,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProofEnvelope,
+    PayloadAttestationMessageGloas, PayloadAttestationMessagePq, ProposerSlashingBase,
+    ProposerSlashingPq, SignedAggregateAndProof, SignedAggregateAndProofBase,
+    SignedAggregateAndProofElectra, SignedAggregateAndProofGloas, SignedAggregateAndProofPq,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelopeGloas,
+    SignedExecutionPayloadEnvelopePq, SignedInclusionList, SignedProposerPreferencesGloas,
+    SignedProposerPreferencesPq, SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProofEnvelope,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +37,7 @@ pub enum PubsubMessage<E: EthSpec> {
     VoluntaryExit(Box<SignedVoluntaryExit>),
     /// Gossipsub message providing notification of a new proposer slashing.
     ProposerSlashing(Box<ProposerSlashingBase>),
+    ProposerSlashingPq(Box<ProposerSlashingPq>),
     /// Gossipsub message providing notification of a new attester slashing.
     AttesterSlashing(Box<AttesterSlashing<E>>),
     /// Gossipsub message providing notification of partially aggregated sync committee signatures.
@@ -45,12 +48,15 @@ pub enum PubsubMessage<E: EthSpec> {
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     /// Gossipsub message providing notification of a signed execution payload envelope.
     ExecutionPayload(Box<SignedExecutionPayloadEnvelopeGloas<E>>),
+    ExecutionPayloadPq(Box<SignedExecutionPayloadEnvelopePq<E>>),
     /// Gossipsub message providing notification of a payload attestation message.
     PayloadAttestation(Box<PayloadAttestationMessageGloas>),
+    PayloadAttestationPq(Box<PayloadAttestationMessagePq>),
     /// Gossipsub message providing notification of a signed execution payload bid.
     ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
     /// Gossipsub message providing notification of signed proposer preferences.
     ProposerPreferences(Arc<SignedProposerPreferencesGloas>),
+    ProposerPreferencesPq(Arc<SignedProposerPreferencesPq>),
     /// Gossipsub message providing notification of an EIP-8025 execution proof.
     ExecutionProof(Arc<SignedExecutionProofEnvelope>),
     /// Gossipsub message providing notification of a signed inclusion list.
@@ -170,15 +176,23 @@ impl<E: EthSpec> PubsubMessage<E> {
                 GossipKind::Attestation(attestation_data.0)
             }
             PubsubMessage::VoluntaryExit(_) => GossipKind::VoluntaryExit,
-            PubsubMessage::ProposerSlashing(_) => GossipKind::ProposerSlashing,
+            PubsubMessage::ProposerSlashing(_) | PubsubMessage::ProposerSlashingPq(_) => {
+                GossipKind::ProposerSlashing
+            }
             PubsubMessage::AttesterSlashing(_) => GossipKind::AttesterSlashing,
             PubsubMessage::SignedContributionAndProof(_) => GossipKind::SignedContributionAndProof,
             PubsubMessage::SyncCommitteeMessage(data) => GossipKind::SyncCommitteeMessage(data.0),
             PubsubMessage::BlsToExecutionChange(_) => GossipKind::BlsToExecutionChange,
-            PubsubMessage::ExecutionPayload(_) => GossipKind::ExecutionPayload,
-            PubsubMessage::PayloadAttestation(_) => GossipKind::PayloadAttestation,
+            PubsubMessage::ExecutionPayload(_) | PubsubMessage::ExecutionPayloadPq(_) => {
+                GossipKind::ExecutionPayload
+            }
+            PubsubMessage::PayloadAttestation(_) | PubsubMessage::PayloadAttestationPq(_) => {
+                GossipKind::PayloadAttestation
+            }
             PubsubMessage::ExecutionPayloadBid(_) => GossipKind::ExecutionPayloadBid,
-            PubsubMessage::ProposerPreferences(_) => GossipKind::ProposerPreferences,
+            PubsubMessage::ProposerPreferences(_) | PubsubMessage::ProposerPreferencesPq(_) => {
+                GossipKind::ProposerPreferences
+            }
             PubsubMessage::ExecutionProof(_) => GossipKind::ExecutionProof,
             PubsubMessage::InclusionList(_) => GossipKind::InclusionList,
             PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
@@ -343,7 +357,9 @@ impl<E: EthSpec> PubsubMessage<E> {
                         if fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest)
                             == Some(&ForkName::Pq)
                         {
-                            return Err("Pq proposer slashing gossip is not implemented".into());
+                            let slashing = ProposerSlashingPq::from_ssz_bytes(data)
+                                .map_err(|e| format!("{e:?}"))?;
+                            return Ok(PubsubMessage::ProposerSlashingPq(Box::new(slashing)));
                         }
                         let proposer_slashing = ProposerSlashingBase::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
@@ -427,9 +443,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                         if fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest)
                             == Some(&ForkName::Pq)
                         {
-                            return Err(
-                                "Pq execution payload envelope gossip is not implemented".into()
-                            );
+                            return SignedExecutionPayloadEnvelopePq::from_ssz_bytes(data)
+                                .map(|envelope| {
+                                    PubsubMessage::ExecutionPayloadPq(Box::new(envelope))
+                                })
+                                .map_err(|error| format!("{error:?}"));
                         }
                         let execution_payload_envelope =
                             SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(data)
@@ -470,7 +488,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                         if fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest)
                             == Some(&ForkName::Pq)
                         {
-                            return Err("Pq payload attestation gossip is not implemented".into());
+                            return PayloadAttestationMessagePq::from_ssz_bytes(data)
+                                .map(|message| {
+                                    PubsubMessage::PayloadAttestationPq(Box::new(message))
+                                })
+                                .map_err(|error| format!("{error:?}"));
                         }
                         let payload_attestation =
                             PayloadAttestationMessageGloas::from_ssz_bytes(data)
@@ -483,7 +505,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                         if fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest)
                             == Some(&ForkName::Pq)
                         {
-                            return Err("Pq proposer preferences gossip is not implemented".into());
+                            return SignedProposerPreferencesPq::from_ssz_bytes(data)
+                                .map(|preferences| {
+                                    PubsubMessage::ProposerPreferencesPq(Arc::new(preferences))
+                                })
+                                .map_err(|error| format!("{error:?}"));
                         }
                         let proposer_preferences =
                             SignedProposerPreferencesGloas::from_ssz_bytes(data)
@@ -565,15 +591,19 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
+            PubsubMessage::ProposerSlashingPq(data) => data.as_ssz_bytes(),
             PubsubMessage::AttesterSlashing(data) => data.as_ssz_bytes(),
             PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
             PubsubMessage::SignedContributionAndProof(data) => data.as_ssz_bytes(),
             PubsubMessage::SyncCommitteeMessage(data) => data.1.as_ssz_bytes(),
             PubsubMessage::BlsToExecutionChange(data) => data.as_ssz_bytes(),
             PubsubMessage::ExecutionPayload(data) => data.as_ssz_bytes(),
+            PubsubMessage::ExecutionPayloadPq(data) => data.as_ssz_bytes(),
             PubsubMessage::PayloadAttestation(data) => data.as_ssz_bytes(),
+            PubsubMessage::PayloadAttestationPq(data) => data.as_ssz_bytes(),
             PubsubMessage::ExecutionPayloadBid(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerPreferences(data) => data.as_ssz_bytes(),
+            PubsubMessage::ProposerPreferencesPq(data) => data.as_ssz_bytes(),
             PubsubMessage::ExecutionProof(data) => data.as_ssz_bytes(),
             PubsubMessage::InclusionList(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
@@ -687,7 +717,9 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 data.1.attester_index(),
             ),
             PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
-            PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),
+            PubsubMessage::ProposerSlashing(_) | PubsubMessage::ProposerSlashingPq(_) => {
+                write!(f, "Proposer Slashing")
+            }
             PubsubMessage::AttesterSlashing(_data) => write!(f, "Attester Slashing"),
             PubsubMessage::SignedContributionAndProof(_) => {
                 write!(f, "Signed Contribution and Proof")
@@ -710,6 +742,16 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                     data.beacon_block_root()
                 )
             }
+            PubsubMessage::ExecutionPayloadPq(data) => write!(
+                f,
+                "Signed PQ execution payload envelope at slot {} for {:?}",
+                data.message.payload.slot_number, data.message.beacon_block_root
+            ),
+            PubsubMessage::ProposerPreferencesPq(data) => write!(
+                f,
+                "Signed PQ proposer preferences at slot {}",
+                data.message.proposal_slot
+            ),
             PubsubMessage::PayloadAttestation(data) => {
                 write!(
                     f,
@@ -720,6 +762,11 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                     data.data.blob_data_available
                 )
             }
+            PubsubMessage::PayloadAttestationPq(data) => write!(
+                f,
+                "PQ payload attestation at slot {} for {:?}",
+                data.data.slot, data.data.beacon_block_root
+            ),
             PubsubMessage::ExecutionPayloadBid(data) => {
                 write!(
                     f,

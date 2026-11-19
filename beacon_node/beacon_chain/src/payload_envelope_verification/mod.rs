@@ -39,8 +39,10 @@ pub mod gossip_verified_envelope;
 pub mod import;
 pub mod observed_payload_envelopes;
 mod payload_notifier;
+mod pq;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
+pub use pq::VerifiedPqEnvelope;
 
 /// The path through which a payload envelope reached this node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr)]
@@ -53,6 +55,7 @@ pub enum EnvelopeSource {
 #[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
+    pub(crate) pq_auth: Option<PqEnvelopeAuth<E>>,
     pub columns: DataColumnSidecarList<E>,
 }
 
@@ -114,9 +117,14 @@ impl<E: EthSpec> AvailableEnvelope<E> {
             Ok(Self {
                 envelope,
                 columns: filtered_columns,
+                pq_auth: None,
             })
         } else if columns.is_empty() {
-            Ok(Self { envelope, columns })
+            Ok(Self {
+                envelope,
+                columns,
+                pq_auth: None,
+            })
         } else {
             warn!(
                 message = "Custody columns provided for envelope that does not require them",
@@ -125,6 +133,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
             Ok(Self {
                 envelope,
                 columns: vec![],
+                pq_auth: None,
             })
         }
     }
@@ -165,6 +174,7 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 /// fork choice.
 pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
     pub envelope: Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
+    pub(crate) pq_auth: Option<PqEnvelopeAuth<E>>,
     pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
@@ -177,11 +187,14 @@ impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
     ) -> Self {
         Self {
             envelope,
+            pq_auth: None,
             block_root,
             payload_verification_outcome,
         }
     }
 }
+
+pub(crate) type PqEnvelopeAuth<E> = Arc<(types::ExecutionRequestsPq<E>, types::XmssSignature)>;
 
 /// A payload envelope that has completed all payload processing checks including verification
 /// by an EL client **and** has all requisite blob data to be imported into fork choice.
@@ -422,7 +435,9 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
             execution_payload: &envelope.message.payload,
             versioned_hashes,
             parent_beacon_block_root: envelope.message.parent_beacon_block_root,
-            execution_requests: &envelope.message.execution_requests,
+            execution_requests: types::ExecutionRequestsRef::Gloas(
+                &envelope.message.execution_requests,
+            ),
         },
     ))
 }

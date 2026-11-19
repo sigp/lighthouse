@@ -621,6 +621,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             &validator_metrics::BLOCK_SERVICE_TIMES,
             &[validator_metrics::BEACON_BLOCK],
         );
+        if self.chain_spec.fork_name_at_slot::<S::E>(slot) == ForkName::Pq {
+            return self
+                .produce_and_publish_pq_block(slot, validator_pubkey)
+                .await;
+        }
 
         let randao_reveal = match self
             .validator_store
@@ -926,6 +931,95 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             }
         }
 
+        Ok(())
+    }
+
+    async fn produce_and_publish_pq_block(
+        &self,
+        slot: Slot,
+        pubkey: PublicKeyBytes,
+    ) -> Result<(), BlockError> {
+        let reveal = self
+            .validator_store
+            .randao_vrf_proof(pubkey, slot)
+            .await
+            .map_err(|error| {
+                BlockError::Recoverable(format!("Unable to produce PQ VRF proof: {error:?}"))
+            })?;
+        let graffiti = determine_graffiti(
+            &pubkey,
+            self.graffiti_file.clone(),
+            self.validator_store.graffiti(&pubkey),
+            self.graffiti,
+        );
+        let fallback = ProposerFallback {
+            beacon_nodes: self.beacon_nodes.clone(),
+            proposer_nodes: self.proposer_nodes.clone(),
+        };
+        let reveal = &reveal;
+        let contents = self
+            .beacon_nodes
+            .first_success(|node| async move {
+                node.post_validator_blocks_pq::<S::E>(slot, reveal, graffiti.as_ref())
+                    .await
+                    .map_err(|error| {
+                        BlockError::Recoverable(format!("Unable to produce PQ block: {error:?}"))
+                    })
+            })
+            .await
+            .map_err(BlockError::from)?;
+        let eth2::types::PqBlockAndEnvelope {
+            block,
+            execution_payload_envelope,
+            kzg_proofs,
+            blobs,
+        } = contents;
+        let block = types::BeaconBlock::Pq(block);
+        if block.slot() != slot
+            || Some(block.proposer_index()) != self.validator_store.validator_index(&pubkey)
+            || block.canonical_root() != execution_payload_envelope.beacon_block_root
+        {
+            return Err(BlockError::Recoverable(
+                "Beacon node returned a mismatched PQ block or envelope".into(),
+            ));
+        }
+        let payload_root = execution_payload_envelope.payload.tree_hash_root();
+        let block_root = self
+            .sign_and_publish_block(
+                &fallback,
+                slot,
+                graffiti,
+                &pubkey,
+                UnsignedBlock::Full(eth2::types::FullBlockContents::Block(block)),
+                Some(payload_root),
+                None,
+            )
+            .await?;
+        if block_root != Some(execution_payload_envelope.beacon_block_root) {
+            return Ok(());
+        }
+        let signed_execution_payload_envelope = self
+            .validator_store
+            .sign_pq_execution_payload_envelope(pubkey, execution_payload_envelope)
+            .await
+            .map_err(|error| {
+                BlockError::Recoverable(format!("Unable to sign PQ envelope: {error:?}"))
+            })?;
+        let contents = eth2::types::PqSignedEnvelopeContents {
+            signed_execution_payload_envelope,
+            kzg_proofs,
+            blobs,
+        };
+        let contents = &contents;
+        fallback
+            .request_proposers_first(|node| async move {
+                node.post_beacon_execution_payload_envelope_pq(contents)
+                    .await
+                    .map_err(|error| {
+                        BlockError::Recoverable(format!("Unable to publish PQ envelope: {error:?}"))
+                    })
+            })
+            .await?;
         Ok(())
     }
 

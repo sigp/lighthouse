@@ -73,7 +73,14 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         spec,
     )?;
     if let BeaconBlockBodyRef::Pq(body) = block_body {
-        return crate::pq::process_stark(state, body, spec);
+        // The network import pipeline checks the configured PQ proof before
+        // invoking a transition without signature verification. Store replay
+        // and locally produced blocks likewise use that trusted path.
+        return if verify_signatures.is_true() {
+            crate::pq::process_stark(state, body, spec)
+        } else {
+            Ok(())
+        };
     }
     process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
     process_exits(

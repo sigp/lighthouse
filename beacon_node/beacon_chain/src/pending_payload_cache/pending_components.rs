@@ -240,6 +240,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
         let AvailabilityPendingExecutedEnvelope {
             envelope,
+            pq_auth,
             block_root,
             payload_verification_outcome,
         } = envelope;
@@ -278,12 +279,13 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         };
 
-        let available_envelope = AvailableEnvelope::new(
+        let mut available_envelope = AvailableEnvelope::new(
             envelope.clone(),
             columns,
             self.bid.to_ref(),
             custody_context,
         )?;
+        available_envelope.pq_auth.clone_from(pq_auth);
 
         Ok(Some(AvailableExecutedEnvelope {
             envelope: available_envelope,

@@ -6257,6 +6257,7 @@ dependencies = [
  "environment",
  "eth2",
  "futures",
+ "genesis",
  "initialized_validators",
  "logging",
  "parking_lot",
@@ -6264,6 +6265,7 @@ dependencies = [
  "signing_method",
  "slashing_protection",
  "slot_clock",
+ "state_processing",
  "task_executor",
  "tempfile",
  "tokio",
@@ -6271,6 +6273,7 @@ dependencies = [
  "types",
  "validator_metrics",
  "validator_store",
+ "xmss",
 ]
 
 [[package]]
@@ -7262,6 +7265,7 @@ dependencies = [
  "store",
  "superstruct",
  "tokio",
+ "tree_hash",
  "typenum",
  "types",
 ]
@@ -7649,6 +7653,7 @@ version = "0.1.0"
 dependencies = [
  "claims",
  "lean_xmss",
+ "metrics",
  "parking_lot",
  "sidecar",
  "tempfile",
@@ -9334,6 +9339,7 @@ dependencies = [
  "futures",
  "kzg",
  "logging",
+ "metrics",
  "node_test_rig",
  "parking_lot",
  "rayon",

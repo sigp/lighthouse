@@ -48,6 +48,13 @@ pub const WEB3SIGNER: &str = "web3signer";
 
 pub use metrics::*;
 
+pub static PQ_XMSS_SIGN_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "vc_pq_xmss_sign_seconds",
+        "Time spent producing a local XMSS signature",
+    )
+});
+
 pub static GENESIS_DISTANCE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "vc_genesis_distance_seconds",

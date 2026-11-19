@@ -33,11 +33,22 @@ where
     T: BeaconChainTypes,
     I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
 {
+    let aggregates = aggregates.collect::<Vec<_>>();
+    if aggregates
+        .iter()
+        .any(|aggregate| matches!(aggregate, SignedAggregateAndProof::Pq(_)))
+    {
+        return Ok(aggregates
+            .into_iter()
+            .map(|aggregate| VerifiedAggregatedAttestation::verify(aggregate, chain))
+            .collect());
+    }
     let mut num_indexed = 0;
     let mut num_failed = 0;
 
     // Perform indexing of all attestations, collecting the results.
     let indexing_results = aggregates
+        .into_iter()
         .map(|aggregate| {
             let result = IndexedAggregatedAttestation::verify(aggregate, chain);
             if result.is_ok() {
@@ -138,11 +149,24 @@ where
     T: BeaconChainTypes,
     I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
 {
+    let attestations = attestations.collect::<Vec<_>>();
+    if attestations
+        .iter()
+        .any(|(attestation, _)| matches!(attestation, SingleAttestation::Pq(_)))
+    {
+        return Ok(attestations
+            .into_iter()
+            .map(|(attestation, subnet)| {
+                VerifiedUnaggregatedAttestation::verify(attestation, subnet, chain)
+            })
+            .collect());
+    }
     let mut num_partially_verified = 0;
     let mut num_failed = 0;
 
     // Perform partial verification of all attestations, collecting the results.
     let partial_results = attestations
+        .into_iter()
         .map(|(attn, subnet_opt)| {
             let result = IndexedUnaggregatedAttestation::verify(attn, subnet_opt, chain);
             if result.is_ok() {

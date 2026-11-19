@@ -3,8 +3,9 @@ use crate::per_block_processing::compute_timestamp_at_slot;
 use safe_arith::ArithError;
 use tree_hash::TreeHash;
 use types::{
-    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
-    SignedExecutionPayloadEnvelopeGloas, Slot,
+    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Domain, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadGloas, Hash256, SignedExecutionPayloadEnvelopeGloas,
+    SignedExecutionPayloadEnvelopePq, SignedRoot, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 macro_rules! envelope_verify {
@@ -114,8 +115,72 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     }
 
     let envelope = &signed_envelope.message;
-    let payload = &envelope.payload;
+    verify_execution_payload_envelope_fields(
+        state,
+        &envelope.payload,
+        envelope.builder_index,
+        envelope.beacon_block_root,
+        envelope.parent_beacon_block_root,
+        envelope.execution_requests.tree_hash_root(),
+        block_state_root,
+        spec,
+    )
+}
 
+pub fn verify_pq_execution_payload_envelope<E: EthSpec>(
+    state: &BeaconState<E>,
+    signed_envelope: &SignedExecutionPayloadEnvelopePq<E>,
+    block_state_root: Hash256,
+    spec: &ChainSpec,
+) -> Result<(), EnvelopeProcessingError> {
+    let envelope = &signed_envelope.message;
+    let slot = envelope.payload.slot_number;
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let pubkey = if envelope.builder_index == BUILDER_INDEX_SELF_BUILD {
+        state
+            .get_validator(state.latest_block_header().proposer_index as usize)?
+            .pubkey
+    } else {
+        state.get_builder(envelope.builder_index)?.pubkey
+    };
+    let domain = spec.get_domain(
+        epoch,
+        Domain::BeaconBuilder,
+        &state.fork(),
+        state.genesis_validators_root(),
+    );
+    let leaf = crate::pq::slot_leaf_index(slot, crate::pq::LEAF_OFFSET_PAYLOAD_ENVELOPE)?;
+    if !crate::pq::verify_signature(
+        &pubkey,
+        leaf,
+        envelope.signing_root(domain),
+        &signed_envelope.signature,
+    ) {
+        return Err(EnvelopeProcessingError::BadSignature);
+    }
+    verify_execution_payload_envelope_fields(
+        state,
+        &envelope.payload,
+        envelope.builder_index,
+        envelope.beacon_block_root,
+        envelope.parent_beacon_block_root,
+        envelope.execution_requests.tree_hash_root(),
+        block_state_root,
+        spec,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_execution_payload_envelope_fields<E: EthSpec>(
+    state: &BeaconState<E>,
+    payload: &ExecutionPayloadGloas<E>,
+    builder_index: BuilderIndex,
+    beacon_block_root: Hash256,
+    parent_beacon_block_root: Hash256,
+    execution_requests_root: Hash256,
+    block_state_root: Hash256,
+    spec: &ChainSpec,
+) -> Result<(), EnvelopeProcessingError> {
     // Verify consistency with the beacon block.
     // Use a copy of the header with state_root filled in, matching the spec's approach.
     let mut header = state.latest_block_header().clone();
@@ -126,23 +191,23 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     }
     let latest_block_header_root = header.tree_hash_root();
     envelope_verify!(
-        envelope.beacon_block_root == latest_block_header_root,
+        beacon_block_root == latest_block_header_root,
         EnvelopeProcessingError::LatestBlockHeaderMismatch {
-            envelope_root: envelope.beacon_block_root,
+            envelope_root: beacon_block_root,
             block_header_root: latest_block_header_root,
         }
     );
     envelope_verify!(
-        envelope.parent_beacon_block_root == state.latest_block_header().parent_root,
+        parent_beacon_block_root == state.latest_block_header().parent_root,
         EnvelopeProcessingError::ParentBeaconBlockRootMismatch {
-            envelope: envelope.parent_beacon_block_root,
+            envelope: parent_beacon_block_root,
             state: state.latest_block_header().parent_root,
         }
     );
     envelope_verify!(
-        envelope.slot() == state.slot(),
+        payload.slot_number == state.slot(),
         EnvelopeProcessingError::SlotMismatch {
-            envelope_slot: envelope.slot(),
+            envelope_slot: payload.slot_number,
             parent_state_slot: state.slot(),
         }
     );
@@ -150,10 +215,10 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     // Verify consistency with the committed bid
     let committed_bid = state.latest_execution_payload_bid()?;
     envelope_verify!(
-        envelope.builder_index == committed_bid.builder_index(),
+        builder_index == committed_bid.builder_index(),
         EnvelopeProcessingError::BuilderIndexMismatch {
             committed_bid: committed_bid.builder_index(),
-            envelope: envelope.builder_index,
+            envelope: builder_index,
         }
     );
     envelope_verify!(
@@ -219,7 +284,6 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     );
 
     // Verify execution requests root matches committed bid
-    let execution_requests_root = envelope.execution_requests.tree_hash_root();
     envelope_verify!(
         execution_requests_root == committed_bid.execution_requests_root(),
         EnvelopeProcessingError::ExecutionRequestsRootMismatch {

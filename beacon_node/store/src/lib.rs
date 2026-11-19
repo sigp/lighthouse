@@ -315,6 +315,9 @@ pub enum DBColumn {
     /// `SignedExecutionPayloadEnvelopeGloas`.
     #[strum(serialize = "pys")]
     PayloadSummary,
+    /// PQ envelope authentication and exact committed requests.
+    #[strum(serialize = "pqa")]
+    PqPayloadAuth,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -428,7 +431,8 @@ impl DBColumn {
             | Self::CustodyContext
             | Self::OptimisticTransitionBlock
             | Self::PayloadBody
-            | Self::PayloadSummary => 32,
+            | Self::PayloadSummary
+            | Self::PqPayloadAuth => 32,
             Self::BeaconBlockRoots
             | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked

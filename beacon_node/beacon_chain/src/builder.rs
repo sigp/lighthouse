@@ -999,9 +999,18 @@ where
         let circuit_breaker =
             CircuitBreaker::new::<E>(CircuitBreakerConfig::from_chain_config(&self.chain_config));
 
+        let pq_provers = self
+            .chain_config
+            .pq_prover
+            .as_ref()
+            .map(crate::pq::Provers::connect)
+            .transpose()?;
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
+            pq_provers,
+            pq_signatures: <_>::default(),
+            pq_proposer_preferences: <_>::default(),
             store: store.clone(),
             task_executor: self
                 .task_executor

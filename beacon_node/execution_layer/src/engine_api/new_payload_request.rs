@@ -56,7 +56,9 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
         partial_getter(rename = "execution_requests_electra")
     )]
     pub execution_requests: &'block ExecutionRequestsElectra<E>,
-    #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_requests_gloas"))]
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_requests_gloas"))]
+    pub execution_requests: ExecutionRequestsRef<'block, E>,
+    #[superstruct(only(Heze), partial_getter(rename = "execution_requests_heze"))]
     pub execution_requests: &'block ExecutionRequestsGloas<E>,
     #[superstruct(only(Heze))]
     pub inclusion_list_transactions: ProgressiveTransactions,
@@ -110,7 +112,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Bellatrix(_) | Self::Capella(_) | Self::Deneb(_) => None,
             Self::Electra(r) => Some(ExecutionRequestsRef::Electra(r.execution_requests)),
             Self::Fulu(r) => Some(ExecutionRequestsRef::Electra(r.execution_requests)),
-            Self::Gloas(r) => Some(ExecutionRequestsRef::Gloas(r.execution_requests)),
+            Self::Gloas(r) => Some(r.execution_requests),
             Self::Heze(r) => Some(ExecutionRequestsRef::Gloas(r.execution_requests)),
         }
     }

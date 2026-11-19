@@ -405,6 +405,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub spec: Arc<ChainSpec>,
     /// Configuration for `BeaconChain` runtime behaviour.
     pub config: ChainConfig,
+    pub(crate) pq_provers: Option<crate::pq::Provers>,
+    pub(crate) pq_signatures: Mutex<crate::pq::signature_pool::SignaturePool<T::EthSpec>>,
+    pub(crate) pq_proposer_preferences:
+        Mutex<HashMap<(Slot, Hash256), Arc<SignedProposerPreferencesPq>>>,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: BeaconStore<T>,
     /// Used for spawning async and blocking tasks.
@@ -1697,6 +1701,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Err(BeaconStateError::BlsRegistryKeysUnavailable.into())
     }
 
+    pub fn validator_duty_pubkey_bytes_many(
+        &self,
+        epoch: Epoch,
+        validator_indices: &[usize],
+    ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
+        if self.spec.fork_name_at_epoch(epoch) != ForkName::Pq {
+            return self.validator_bls_pubkey_bytes_many(validator_indices);
+        }
+        let head = self.head_snapshot();
+        validator_indices
+            .iter()
+            .filter_map(|&index| {
+                head.beacon_state.validators().get(index).map(|validator| {
+                    eth2::types::pq_duty_pubkey(validator.pubkey)
+                        .map(|pubkey| (index, pubkey))
+                        .map_err(Error::InvalidValidatorPubkeyBytes)
+                })
+            })
+            .collect()
+    }
+
     /// Returns the block canonical root of the current canonical chain at a given slot, starting from the given state.
     ///
     /// Returns `None` if the given slot doesn't exist in the chain.
@@ -1793,8 +1818,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let duties = validator_indices
             .iter()
             .map(|&validator_index| -> Result<Option<PtcDuty>, Error> {
-                let Some(pubkey) = self.validator_bls_pubkey_bytes(validator_index as usize)?
-                else {
+                let pubkey = if self.spec.fork_name_at_epoch(epoch) == ForkName::Pq {
+                    state
+                        .validators()
+                        .get(validator_index as usize)
+                        .map(|validator| eth2::types::pq_duty_pubkey(validator.pubkey))
+                        .transpose()
+                        .map_err(Error::InvalidValidatorPubkeyBytes)?
+                } else {
+                    self.validator_bls_pubkey_bytes(validator_index as usize)?
+                };
+                let Some(pubkey) = pubkey else {
                     return Ok(None);
                 };
                 let slot_opt =
@@ -2602,6 +2636,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
 
         let attestation = unaggregated_attestation.attestation();
+        if matches!(attestation, AttestationRef::Pq(_)) {
+            return Ok(());
+        }
 
         match self.naive_aggregation_pool.write().insert(attestation) {
             Ok(outcome) => trace!(
@@ -2706,6 +2743,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         A: VerifiedAttestation<T>,
     {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
+
+        if let (AttestationRef::Pq(attestation), IndexedAttestation::Pq(indexed)) = (
+            verified_attestation.attestation(),
+            verified_attestation.indexed_attestation(),
+        ) {
+            self.op_pool.insert_pq_attestation(
+                self.epoch()?,
+                Arc::new(operation_pool::CompactIndexedAttestationPq {
+                    attestation: attestation.clone(),
+                    attesting_indices: indexed.attesting_indices.iter().copied().collect(),
+                    proof: indexed.proof.clone(),
+                }),
+            );
+            return Ok(());
+        }
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
@@ -2900,6 +2952,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &wall_clock_state,
             &self.spec,
         )?)
+    }
+
+    pub fn verify_and_import_pq_proposer_slashing(
+        &self,
+        slashing: ProposerSlashingPq,
+    ) -> Result<bool, Error> {
+        let header = &slashing.signed_header_1.message;
+        if self.spec.fork_name_at_slot::<T::EthSpec>(header.slot) != ForkName::Pq {
+            return Err(BeaconStateError::IncorrectStateVariant.into());
+        }
+        if self
+            .op_pool
+            .contains_pq_proposer_slashing(header.proposer_index)
+        {
+            return Ok(false);
+        }
+        let head = self.head_snapshot();
+        state_processing::per_block_processing::verify_proposer_slashing_pq(
+            &slashing,
+            &head.beacon_state,
+            &self.spec,
+        )?;
+        Ok(self.op_pool.insert_pq_proposer_slashing(slashing))
     }
 
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
@@ -5487,8 +5562,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?,
             };
 
-            apply_parent_execution_payload(&mut advanced_state, &execution_requests, &self.spec)
-                .map_err(Error::PrepareProposerFailed)?;
+            if advanced_state.fork_name_unchecked() == ForkName::Pq {
+                state_processing::per_block_processing::apply_parent_execution_payload_pq(
+                    &mut advanced_state,
+                    &(&execution_requests).into(),
+                    &self.spec,
+                )
+            } else {
+                apply_parent_execution_payload(&mut advanced_state, &execution_requests, &self.spec)
+            }
+            .map_err(Error::PrepareProposerFailed)?;
         }
 
         get_expected_withdrawals(&advanced_state, &self.spec)

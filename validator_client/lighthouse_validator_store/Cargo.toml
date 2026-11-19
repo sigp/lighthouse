@@ -17,6 +17,7 @@ either = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
 futures = { workspace = true }
+genesis = { workspace = true }
 initialized_validators = { workspace = true }
 logging = { workspace = true }
 parking_lot = { workspace = true }
@@ -24,12 +25,14 @@ serde = { workspace = true }
 signing_method = { workspace = true }
 slashing_protection = { workspace = true }
 slot_clock = { workspace = true }
+state_processing = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
 validator_store = { workspace = true }
+xmss = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }

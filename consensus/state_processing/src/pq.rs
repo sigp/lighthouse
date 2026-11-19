@@ -8,6 +8,10 @@ use types::*;
 pub const MIN_ATTESTATION_INCLUSION_DELAY_PQ: u64 = 2;
 pub const VRF_TREE_DEPTH: usize = 31;
 pub const LEAF_OFFSET_BEACON_PROPOSER: u64 = 0;
+pub const LEAF_OFFSET_AGGREGATE_AND_PROOF: u64 = 1;
+pub const LEAF_OFFSET_PTC_ATTESTER: u64 = 2;
+pub const LEAF_OFFSET_PROPOSER_PREFERENCES: u64 = 3;
+pub const LEAF_OFFSET_PAYLOAD_ENVELOPE: u64 = 4;
 const XMSS_RESERVED_LEAVES: u64 = 1 << 15;
 const XMSS_ATTESTATION_LEAVES: u64 = 1 << 29;
 const XMSS_BUILDER_BID_LEAVES: u64 = 1 << 30;
@@ -68,6 +72,37 @@ pub fn is_valid_vrf_proof(proof: &VrfProof, slot: Slot, root: Hash256) -> bool {
     proof.split_first().is_some_and(|(leaf, branch)| {
         merkle_proof::verify_merkle_proof(*leaf, branch, VRF_TREE_DEPTH, slot.as_usize(), root)
     })
+}
+
+/// Aggregation committees are computed at epoch processing and stored in the
+/// window for the previous, current and lookahead epochs.
+pub fn is_aggregator<E: EthSpec>(
+    state: &BeaconState<E>,
+    slot: Slot,
+    committee_index: u64,
+    validator_index: u64,
+) -> Result<bool, BeaconStateError> {
+    let window_start = state
+        .current_epoch()
+        .saturating_sub(1u64)
+        .start_slot(E::slots_per_epoch());
+    // The genesis window always starts with the empty previous-epoch entries.
+    let genesis_padding = if state.current_epoch() == Epoch::new(0) {
+        E::slots_per_epoch()
+    } else {
+        0
+    };
+    let position = slot
+        .safe_sub(window_start.as_u64())?
+        .as_u64()
+        .safe_add(genesis_padding)?;
+    Ok(state
+        .as_pq()?
+        .aggregation_committee_window
+        .get(position as usize)
+        .ok_or(BeaconStateError::SlotOutOfBounds)?
+        .get(committee_index as usize)
+        .is_some_and(|committee| committee.contains(&validator_index)))
 }
 
 /// Attesters in each selected committee's shuffle order, with committees in increasing order.

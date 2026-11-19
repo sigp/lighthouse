@@ -206,9 +206,11 @@ impl<E: EthSpec> PersistedOperationPool<E> {
 
         let op_pool = OperationPool {
             attestations,
+            pq_attestations: Default::default(),
             sync_contributions,
             attester_slashings,
             proposer_slashings,
+            pq_proposer_slashings: Default::default(),
             voluntary_exits,
             bls_to_execution_changes: RwLock::new(bls_to_execution_changes),
             payload_attestations: Default::default(),

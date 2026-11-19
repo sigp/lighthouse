@@ -1,5 +1,6 @@
 use crate::custody_context::NodeCustodyType;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 use types::{Checkpoint, Hash256};
@@ -22,7 +23,20 @@ pub static INVALID_HOLESKY_BLOCK_ROOT: LazyLock<Hash256> = LazyLock::new(|| {
 });
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+pub enum PqProverConfig {
+    Sidecar(PathBuf),
+    #[serde(skip)]
+    Reference,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
+    /// PQ prover process. Reference is reserved for in-process consensus tests.
+    #[serde(default)]
+    pub pq_prover: Option<PqProverConfig>,
+    /// Keep raw PQ signatures even without a local VC aggregation subscription.
+    #[serde(default)]
+    pub pq_aggregate_all: bool,
     /// Maximum number of slots to skip when importing an attestation.
     ///
     /// If `None`, there is no limit.
@@ -148,6 +162,8 @@ impl FastConfirmationMode {
 impl Default for ChainConfig {
     fn default() -> Self {
         Self {
+            pq_prover: None,
+            pq_aggregate_all: false,
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
             archive: false,

@@ -377,6 +377,35 @@ where
             &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
             &[validator_metrics::PAYLOAD_ATTESTATIONS],
         );
+        if self.chain_spec.fork_name_at_slot::<S::E>(slot) == types::ForkName::Pq {
+            let results = join_all(duties.into_iter().map(|duty| {
+                self.validator_store
+                    .sign_pq_payload_attestation(duty.pubkey, attestation_data.clone())
+            }))
+            .await;
+            let messages = results
+                .into_iter()
+                .filter_map(|result| match result {
+                    Ok(message) => Some(message),
+                    Err(error) => {
+                        warn!(?slot, ?error, "Unable to sign PQ payload attestation");
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            if messages.is_empty() {
+                return Ok(());
+            }
+            let messages = &messages;
+            return self
+                .beacon_nodes
+                .first_success(|node| async move {
+                    node.post_beacon_pool_payload_attestations_pq(messages)
+                        .await
+                })
+                .await
+                .map_err(|error| error.to_string());
+        }
         let signing_futures = duties.iter().map(|duty| {
             let data = attestation_data.clone();
             async move {

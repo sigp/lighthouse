@@ -537,6 +537,16 @@ fn reconnects_when_the_sidecar_went_away() {
 }
 
 #[test]
+fn busy_verifier_connection_respects_timeout() {
+    let mut config = SidecarConfig::new("unused.sock");
+    config.verify_timeout = Some(Duration::from_millis(10));
+    let backend = SidecarBackend::new(config);
+    let _busy = backend.verify_connection.lock();
+    let result = backend.verify(&[statement(0..1, 1)], &Proof::from_bytes(vec![1]));
+    assert!(matches!(result, Err(Error::SidecarIo(error)) if error.kind() == ErrorKind::TimedOut));
+}
+
+#[test]
 fn timeouts_are_errors_and_are_not_retried() {
     let mock = MockSidecar::good();
     let mut config = mock.config();

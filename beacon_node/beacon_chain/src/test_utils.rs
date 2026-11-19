@@ -737,6 +737,9 @@ where
             // RLP block hash recompute. Tests that want the recompute pass an explicit config.
             ChainConfig {
                 verify_envelope_payload_hash_on_cl: false,
+                pq_prover: spec
+                    .is_pq_scheduled()
+                    .then_some(crate::chain_config::PqProverConfig::Reference),
                 ..ChainConfig::default()
             }
         });
@@ -3562,7 +3565,9 @@ where
             execution_payload: &signed_envelope.message.payload,
             versioned_hashes,
             parent_beacon_block_root: block.message().parent_root(),
-            execution_requests: &signed_envelope.message.execution_requests,
+            execution_requests: types::ExecutionRequestsRef::Gloas(
+                &signed_envelope.message.execution_requests,
+            ),
         });
 
         self.chain

@@ -50,6 +50,18 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore>
         let keys = self.pq_keys.as_ref().expect("PQ harness keys");
         sign_pq_block(block, state, leaf, keys, &self.spec)
     }
+
+    pub fn sign_pq_test_message(
+        &self,
+        validator_index: usize,
+        leaf: u64,
+        message: Hash256,
+    ) -> XmssSignature {
+        self.pq_keys.as_ref().expect("PQ harness keys")[validator_index]
+            .xmss
+            .sign(&message.0, leaf.try_into().expect("XMSS leaf"))
+            .expect("PQ test signature")
+    }
 }
 
 fn make_pq_block<E: EthSpec>(

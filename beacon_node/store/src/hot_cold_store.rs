@@ -699,6 +699,19 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         Ok(Some(summary.into_envelope(payload_body)))
     }
 
+    pub fn get_pq_payload_envelope_auth(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<(ExecutionRequestsPq<E>, XmssSignature)>, Error> {
+        self.hot_db
+            .get_bytes(DBColumn::PqPayloadAuth, block_root.as_slice())?
+            .map(|auth| {
+                <(ExecutionRequestsPq<E>, XmssSignature)>::from_ssz_bytes(&auth)
+                    .map_err(Error::from)
+            })
+            .transpose()
+    }
+
     /// Load the persistent portion of a signed execution payload envelope.
     pub fn get_payload_envelope_summary(
         &self,
@@ -1357,6 +1370,10 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                 StoreOp::DeletePayloadWithSummary(block_root) => {
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         DBColumn::PayloadSummary,
+                        block_root.as_slice().to_vec(),
+                    ));
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        DBColumn::PqPayloadAuth,
                         block_root.as_slice().to_vec(),
                     ));
 

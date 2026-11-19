@@ -170,7 +170,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all)]
-    async fn check_envelope_availability_and_import(
+    pub(super) async fn check_envelope_availability_and_import(
         self: &Arc<Self>,
         envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
         bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
@@ -288,9 +288,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with envelopes in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
+        let pq_auth = signed_envelope.pq_auth.clone();
         let (signed_envelope, columns) = signed_envelope.deconstruct();
 
         let mut ops = vec![];
+        if let Some(auth) = pq_auth {
+            use ssz::Encode;
+            ops.push(StoreOp::KeyValueOp(store::KeyValueStoreOp::PutKeyValue(
+                store::DBColumn::PqPayloadAuth,
+                block_root.as_slice().to_vec(),
+                auth.as_ssz_bytes(),
+            )));
+        }
 
         if let Some(blobs_or_columns_store_op) = self.get_blobs_or_columns_store_op(
             block_root,

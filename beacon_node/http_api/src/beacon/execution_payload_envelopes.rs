@@ -123,6 +123,30 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
                     ensure_gloas_consensus_version(fork_name)?;
+                    if fork_name == ForkName::Pq {
+                        let submission = if blob_data_included {
+                            api_types::PqSignedEnvelopeContents::from_ssz_bytes(&body_bytes)
+                        } else {
+                            types::SignedExecutionPayloadEnvelopePq::from_ssz_bytes(&body_bytes)
+                                .map(|envelope| api_types::PqSignedEnvelopeContents {
+                                    signed_execution_payload_envelope: envelope,
+                                    blobs: Default::default(),
+                                    kzg_proofs: Default::default(),
+                                })
+                        }
+                        .map_err(|error| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "invalid PQ envelope SSZ: {error:?}"
+                            ))
+                        })?;
+                        return publish_pq_envelope(
+                            submission,
+                            validation_level.broadcast_validation,
+                            chain,
+                            &network_tx,
+                        )
+                        .await;
+                    }
                     let submission =
                         SignedEnvelopeSubmission::from_ssz_bytes(blob_data_included, &body_bytes)?;
                     publish_execution_payload_envelope(
@@ -170,6 +194,31 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
                     ensure_gloas_consensus_version(fork_name)?;
+                    if fork_name == ForkName::Pq {
+                        let submission = if blob_data_included {
+                            serde_json::from_slice(&body_bytes)
+                        } else {
+                            serde_json::from_slice(&body_bytes).map(|envelope| {
+                                api_types::PqSignedEnvelopeContents {
+                                    signed_execution_payload_envelope: envelope,
+                                    blobs: Default::default(),
+                                    kzg_proofs: Default::default(),
+                                }
+                            })
+                        }
+                        .map_err(|error| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "invalid PQ envelope JSON: {error:?}"
+                            ))
+                        })?;
+                        return publish_pq_envelope(
+                            submission,
+                            validation_level.broadcast_validation,
+                            chain,
+                            &network_tx,
+                        )
+                        .await;
+                    }
                     let submission =
                         SignedEnvelopeSubmission::from_json(blob_data_included, &body_bytes)?;
                     publish_execution_payload_envelope(
@@ -183,6 +232,95 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
             },
         )
         .boxed()
+}
+
+async fn publish_pq_envelope<T: BeaconChainTypes>(
+    submission: api_types::PqSignedEnvelopeContents<T::EthSpec>,
+    validation_level: BroadcastValidation,
+    chain: Arc<BeaconChain<T>>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+) -> Result<Response, Rejection> {
+    let api_types::PqSignedEnvelopeContents {
+        signed_execution_payload_envelope,
+        kzg_proofs,
+        blobs,
+    } = submission;
+    let envelope = Arc::new(signed_execution_payload_envelope);
+    let slot = envelope.message.payload.slot_number;
+    let root = envelope.message.beacon_block_root;
+    let verified = match chain.verify_pq_envelope_for_gossip(envelope.clone()).await {
+        Ok(verified) => verified,
+        Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => return Ok(warp::reply().into_response()),
+        Err(error) => {
+            return Err(warp_utils::reject::custom_bad_request(format!(
+                "invalid PQ envelope: {error:?}"
+            )));
+        }
+    };
+    if verified.blob_commitment_count() != blobs.len()
+        || kzg_proofs.len() != blobs.len().saturating_mul(T::EthSpec::number_of_columns())
+    {
+        return Err(warp_utils::reject::custom_bad_request(
+            "PQ envelope blob data do not match commitments".into(),
+        ));
+    }
+    if validation_level == BroadcastValidation::ConsensusAndEquivocation {
+        check_slashable(&chain, root, &verified.block)
+            .map_err(|error| warp_utils::reject::custom_bad_request(format!("{error:?}")))?;
+    }
+    let column_build = if blobs.is_empty() {
+        None
+    } else {
+        Some(spawn_build_gloas_data_columns_task(
+            &chain,
+            root,
+            slot,
+            Arc::new(blobs),
+            Some(kzg_proofs),
+        )?)
+    };
+    let publish = || {
+        crate::utils::publish_pubsub_message(
+            network_tx,
+            PubsubMessage::ExecutionPayloadPq(Box::new(envelope.as_ref().clone())),
+        )
+        .map_err(|_| {
+            warp_utils::reject::custom_server_error("unable to publish PQ envelope".into())
+        })
+    };
+    if validation_level == BroadcastValidation::Gossip {
+        publish()?;
+    }
+    let status = chain
+        .process_verified_pq_envelope(verified)
+        .await
+        .map_err(|error| {
+            if validation_level == BroadcastValidation::Gossip {
+                warp_utils::reject::broadcast_without_import(format!(
+                    "PQ envelope import failed: {error:?}"
+                ))
+            } else {
+                warp_utils::reject::custom_bad_request(format!(
+                    "PQ envelope import failed: {error:?}"
+                ))
+            }
+        })?;
+    if validation_level != BroadcastValidation::Gossip {
+        publish()?;
+    }
+    let mut imported = matches!(status, AvailabilityProcessingStatus::Imported(_, _));
+    if let Some(column_build) = column_build {
+        imported |=
+            publish_and_import_columns(&chain, network_tx, slot, column_build.await?).await?;
+    }
+    if imported {
+        chain.recompute_head_at_current_slot().await;
+        Ok(warp::reply().into_response())
+    } else {
+        Err(warp_utils::reject::broadcast_without_import(format!(
+            "PQ envelope for slot {slot} is awaiting data columns"
+        )))
+    }
 }
 
 /// Publishes a signed execution payload envelope to the network. Implements
@@ -642,6 +780,58 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
                     };
 
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(envelope.slot());
+                    if fork_name == ForkName::Pq {
+                        let store = chain.store.clone();
+                        let (requests, signature) = chain
+                            .task_executor
+                            .spawn_blocking_handle(
+                                move || store.get_pq_payload_envelope_auth(&root),
+                                "pq_envelope_auth",
+                            )
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error("runtime shutdown".into())
+                            })?
+                            .await
+                            .map_err(|error| {
+                                warp_utils::reject::custom_server_error(error.to_string())
+                            })?
+                            .map_err(warp_utils::reject::unhandled_error)?
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_not_found(
+                                    "PQ envelope authentication is unavailable".into(),
+                                )
+                            })?;
+                        let message = &envelope.message;
+                        let signed = types::SignedExecutionPayloadEnvelopePq {
+                            message: types::ExecutionPayloadEnvelopePq {
+                                payload: message.payload.clone(),
+                                execution_requests: requests,
+                                builder_index: message.builder_index,
+                                beacon_block_root: message.beacon_block_root,
+                                parent_beacon_block_root: message.parent_beacon_block_root,
+                            },
+                            signature,
+                        };
+                        let response = match accept_header {
+                            Some(api_types::Accept::Ssz) => Builder::new()
+                                .status(200)
+                                .body(signed.as_ssz_bytes())
+                                .map(add_ssz_content_type_header)
+                                .map_err(|error| {
+                                    warp_utils::reject::custom_server_error(error.to_string())
+                                })?,
+                            _ => {
+                                let response = execution_optimistic_finalized_beacon_response(
+                                    ResponseIncludesVersion::Yes(fork_name),
+                                    execution_optimistic,
+                                    finalized,
+                                    &signed,
+                                )?;
+                                warp::reply::json(&response).into_response()
+                            }
+                        };
+                        return Ok(add_consensus_version_header(response, fork_name));
+                    }
 
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Builder::new()

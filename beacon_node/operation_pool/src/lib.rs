@@ -10,7 +10,9 @@ mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::{AttMaxCover, PROPOSER_REWARD_DENOMINATOR, earliest_attestation_validators};
-pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
+pub use attestation_storage::{
+    CompactAttestationRef, CompactIndexedAttestationPq, SplitAttestation,
+};
 pub use max_cover::MaxCover;
 pub use persistence::{
     PersistedOperationPool, PersistedOperationPoolV15, PersistedOperationPoolV20,
@@ -19,7 +21,7 @@ pub use reward_cache::RewardCache;
 use state_processing::epoch_cache::is_epoch_cache_initialized;
 use types::EpochCacheError;
 
-use crate::attestation_storage::{AttestationMap, CheckpointKey};
+use crate::attestation_storage::{AttestationMap, CheckpointKey, PqAttestationMap};
 use crate::bls_to_execution_changes::BlsToExecutionChanges;
 use crate::sync_aggregate_id::SyncAggregateId;
 use attester_slashing::AttesterSlashingMaxCover;
@@ -37,13 +39,14 @@ use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::marker::PhantomData;
 use std::ptr;
+use std::sync::Arc;
 use typenum::Unsigned;
 use types::{
     AbstractExecPayload, Attestation, AttestationData, AttesterSlashing, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PTC, PayloadAttestation,
     PayloadAttestationData, PayloadAttestationMessageGloas, ProposerSlashingBase,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate,
-    SyncAggregateError, SyncCommitteeContribution, Validator,
+    ProposerSlashingPq, SignedBeaconBlock, SignedBlsToExecutionChange, SignedVoluntaryExit, Slot,
+    SyncAggregate, SyncAggregateError, SyncCommitteeContribution, Validator,
 };
 
 type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
@@ -52,12 +55,14 @@ type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeCon
 pub struct OperationPool<E: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     pub attestations: RwLock<AttestationMap<E>>,
+    pq_attestations: RwLock<PqAttestationMap<E>>,
     /// Map from sync aggregate ID to the best `SyncCommitteeContribution`s seen for that ID.
     sync_contributions: SyncContributions<E>,
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<SigVerifiedOp<AttesterSlashing<E>, E>>>,
     /// Map from proposer index to slashing.
     proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashingBase, E>>>,
+    pq_proposer_slashings: RwLock<HashMap<u64, ProposerSlashingPq>>,
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, E>>>,
     /// Map from credential changing validator to their position in the queue.
@@ -105,6 +110,25 @@ impl From<SyncAggregateError> for OpPoolError {
 }
 
 impl<E: EthSpec> OperationPool<E> {
+    pub fn insert_pq_attestation(
+        &self,
+        current_epoch: Epoch,
+        entry: Arc<CompactIndexedAttestationPq<E>>,
+    ) {
+        let mut pool = self.pq_attestations.write();
+        pool.prune(current_epoch);
+        if entry.attestation.data.target.epoch.saturating_add(1u64) >= current_epoch {
+            pool.insert(entry);
+        }
+    }
+
+    pub fn pq_attestation_candidates(
+        &self,
+        latest_slot: Slot,
+    ) -> Vec<Arc<CompactIndexedAttestationPq<E>>> {
+        self.pq_attestations.read().candidates(latest_slot)
+    }
+
     /// Create a new operation pool.
     pub fn new() -> Self {
         Self::default()
@@ -479,6 +503,41 @@ impl<E: EthSpec> OperationPool<E> {
         );
     }
 
+    pub fn insert_pq_proposer_slashing(&self, slashing: ProposerSlashingPq) -> bool {
+        let index = slashing.signed_header_1.message.proposer_index;
+        match self.pq_proposer_slashings.write().entry(index) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(slashing);
+                true
+            }
+        }
+    }
+
+    pub fn get_pq_proposer_slashings(
+        &self,
+        state: &BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Vec<ProposerSlashingPq> {
+        let mut slashings = self
+            .pq_proposer_slashings
+            .read()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        slashings.sort_by_key(|slashing| slashing.signed_header_1.message.proposer_index);
+        slashings
+            .into_iter()
+            .filter(|slashing| {
+                state_processing::per_block_processing::verify_proposer_slashing_pq(
+                    slashing, state, spec,
+                )
+                .is_ok()
+            })
+            .take(E::MaxProposerSlashings::to_usize())
+            .collect()
+    }
+
     /// Insert an attester slashing into the pool.
     pub fn insert_attester_slashing(
         &self,
@@ -579,6 +638,12 @@ impl<E: EthSpec> OperationPool<E> {
             },
             finalized_state,
         );
+        self.pq_proposer_slashings.write().retain(|&index, _| {
+            finalized_state
+                .validators()
+                .get(index as usize)
+                .is_none_or(|validator| validator.is_slashable_at(finalized_state.current_epoch()))
+        });
     }
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
@@ -816,6 +881,20 @@ impl<E: EthSpec> OperationPool<E> {
             .values()
             .map(|slashing| slashing.as_inner().clone())
             .collect()
+    }
+
+    pub fn get_all_pq_proposer_slashings(&self) -> Vec<ProposerSlashingPq> {
+        self.pq_proposer_slashings
+            .read()
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    pub fn contains_pq_proposer_slashing(&self, validator_index: u64) -> bool {
+        self.pq_proposer_slashings
+            .read()
+            .contains_key(&validator_index)
     }
 
     /// Returns all known `SignedVoluntaryExit` objects.

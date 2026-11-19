@@ -46,7 +46,13 @@ pub fn attester_duties<T: BeaconChainTypes>(
         || request_epoch == current_epoch + 1
         || request_epoch == tolerant_current_epoch + 1
     {
-        cached_attestation_duties(request_epoch, request_indices, chain)
+        if chain.spec.fork_name_at_epoch(request_epoch) == types::ForkName::Pq {
+            // The committee shuffling cache does not include the aggregation
+            // committee window, which may need an epoch transition.
+            compute_attester_duties_from_state(request_epoch, request_indices, chain)
+        } else {
+            cached_attestation_duties(request_epoch, request_indices, chain)
+        }
     } else if request_epoch > current_epoch + 1 {
         Err(warp_utils::reject::custom_bad_request(format!(
             "request epoch {} is more than one epoch past the current epoch {}",
@@ -54,7 +60,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
         )))
     } else {
         // request_epoch < current_epoch, in fact we only allow `request_epoch == current_epoch-1` in this case
-        compute_historic_attester_duties(request_epoch, request_indices, chain)
+        compute_attester_duties_from_state(request_epoch, request_indices, chain)
     }
 }
 
@@ -70,17 +76,19 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::unhandled_error)?;
 
     convert_to_api_response(
+        request_epoch,
         duties,
         request_indices,
         dependent_root,
         execution_status.is_optimistic_or_invalid(),
+        None,
         chain,
     )
 }
 
 /// Compute some attester duties by reading a `BeaconState` from disk, completely ignoring the
 /// shuffling cache.
-fn compute_historic_attester_duties<T: BeaconChainTypes>(
+fn compute_attester_duties_from_state<T: BeaconChainTypes>(
     request_epoch: Epoch,
     request_indices: &[u64],
     chain: &BeaconChain<T>,
@@ -161,10 +169,12 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::unhandled_error)?;
 
     convert_to_api_response(
+        request_epoch,
         duties,
         request_indices,
         dependent_root,
         execution_optimistic,
+        Some(&state),
         chain,
     )
 }
@@ -208,10 +218,12 @@ fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
 /// Convert the internal representation of attester duties into the format returned to the HTTP
 /// client.
 fn convert_to_api_response<T: BeaconChainTypes>(
+    epoch: Epoch,
     duties: Vec<Option<AttestationDuty>>,
     indices: &[u64],
     dependent_root: Hash256,
     execution_optimistic: bool,
+    state: Option<&BeaconState<T::EthSpec>>,
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     // Protect against an inconsistent slot clock.
@@ -225,25 +237,42 @@ fn convert_to_api_response<T: BeaconChainTypes>(
 
     let usize_indices = indices.iter().map(|i| *i as usize).collect::<Vec<_>>();
     let index_to_pubkey_map = chain
-        .validator_bls_pubkey_bytes_many(&usize_indices)
+        .validator_duty_pubkey_bytes_many(epoch, &usize_indices)
         .map_err(warp_utils::reject::unhandled_error)?;
 
+    let pq_state = state.filter(|state| state.fork_name_unchecked() == types::ForkName::Pq);
     let data = duties
         .into_iter()
         .zip(indices)
         .filter_map(|(duty_opt, &validator_index)| {
             let duty = duty_opt?;
-            Some(api_types::AttesterData {
-                pubkey: *index_to_pubkey_map.get(&(validator_index as usize))?,
-                validator_index,
-                committees_at_slot: duty.committees_at_slot,
-                committee_index: duty.index,
-                committee_length: duty.committee_len as u64,
-                validator_committee_index: duty.committee_position as u64,
-                slot: duty.slot,
-            })
+            let pubkey = *index_to_pubkey_map.get(&(validator_index as usize))?;
+            Some((|| {
+                let is_aggregator = pq_state
+                    .map(|state| {
+                        state_processing::pq::is_aggregator(
+                            state,
+                            duty.slot,
+                            duty.index,
+                            validator_index,
+                        )
+                    })
+                    .transpose()
+                    .map_err(BeaconChainError::from)
+                    .map_err(warp_utils::reject::unhandled_error)?;
+                Ok(api_types::AttesterData {
+                    pubkey,
+                    validator_index,
+                    committees_at_slot: duty.committees_at_slot,
+                    committee_index: duty.index,
+                    committee_length: duty.committee_len as u64,
+                    validator_committee_index: duty.committee_position as u64,
+                    slot: duty.slot,
+                    is_aggregator,
+                })
+            })())
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, warp::reject::Rejection>>()?;
 
     Ok(api_types::DutiesResponse {
         dependent_root,

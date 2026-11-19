@@ -42,6 +42,7 @@ pub type BuilderExitRequests<E> =
 /// builder request lists are new in Gloas (EIP-8282).
 #[superstruct(
     variants(Electra, Gloas, Pq),
+    ref_attributes(derive(Debug, PartialEq)),
     variant_attributes(
         derive(
             Default,
@@ -282,6 +283,18 @@ impl<E: EthSpec> ExecutionRequestsGloas<E> {
 }
 
 impl<E: EthSpec> ExecutionRequestsPq<E> {
+    /// Project the common requests for shared execution-payload metadata. The
+    /// three PQ-only request lists must be carried separately on the wire.
+    pub fn common_requests(&self) -> ExecutionRequestsGloas<E> {
+        ExecutionRequestsGloas {
+            deposits: self.deposits.clone(),
+            withdrawals: self.withdrawals.clone(),
+            consolidations: self.consolidations.clone(),
+            builder_deposits: self.builder_deposits.clone(),
+            builder_exits: self.builder_exits.clone(),
+        }
+    }
+
     /// EIP-7685 requests list to send to the EL over the engine API.
     pub fn get_execution_requests_list(&self) -> Vec<Bytes> {
         build_execution_requests_list(vec![
@@ -328,6 +341,19 @@ impl<E: EthSpec> ExecutionRequestsPq<E> {
                 self.voluntary_exits.as_ssz_bytes(),
             ),
         ])
+    }
+}
+
+impl<E: EthSpec> From<&ExecutionRequestsGloas<E>> for ExecutionRequestsPq<E> {
+    fn from(requests: &ExecutionRequestsGloas<E>) -> Self {
+        Self {
+            deposits: requests.deposits.clone(),
+            withdrawals: requests.withdrawals.clone(),
+            consolidations: requests.consolidations.clone(),
+            builder_deposits: requests.builder_deposits.clone(),
+            builder_exits: requests.builder_exits.clone(),
+            ..Self::default()
+        }
     }
 }
 

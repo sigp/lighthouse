@@ -312,7 +312,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
     indices: Vec<usize>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let index_to_pubkey_map = chain
-        .validator_bls_pubkey_bytes_many(&indices)
+        .validator_duty_pubkey_bytes_many(epoch, &indices)
         .map_err(warp_utils::reject::unhandled_error)?;
 
     // Map our internal data structure into the API structure.

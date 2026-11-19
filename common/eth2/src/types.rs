@@ -868,6 +868,7 @@ pub struct ValidatorIndexDataRef<'a>(
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
+    #[serde(with = "duty_pubkey")]
     pub pubkey: PublicKeyBytes,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
@@ -880,6 +881,8 @@ pub struct AttesterData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_committee_index: u64,
     pub slot: Slot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_aggregator: Option<bool>,
 }
 
 impl AttesterData {
@@ -899,6 +902,7 @@ impl AttesterData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposerData {
+    #[serde(with = "duty_pubkey")]
     pub pubkey: PublicKeyBytes,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
@@ -914,10 +918,71 @@ pub enum GraffitiPolicy {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PtcDuty {
+    #[serde(with = "duty_pubkey")]
     pub pubkey: PublicKeyBytes,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub slot: Slot,
+}
+
+/// Pack a PQ duty key into the shared in-memory duty representation. Only the
+/// 32-byte XMSS key is written to the Beacon API.
+pub fn pq_duty_pubkey(key: XmssPublicKey) -> Result<PublicKeyBytes, bls::Error> {
+    let mut bytes = [0; 48];
+    bytes[16..].copy_from_slice(key.as_bytes());
+    PublicKeyBytes::deserialize(&bytes)
+}
+
+mod duty_pubkey {
+    use super::{PublicKeyBytes, XmssPublicKey, pq_duty_pubkey};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        key: &PublicKeyBytes,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let bytes = key.as_serialized();
+        if let Some(raw) = bytes.strip_prefix(&[0; 16])
+            && let Ok(key) = XmssPublicKey::from_bytes(raw)
+        {
+            return Serialize::serialize(&key, serializer);
+        }
+        Serialize::serialize(key, serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<PublicKeyBytes, D::Error> {
+        let key = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
+        if let Ok(key) = key.parse::<XmssPublicKey>() {
+            return pq_duty_pubkey(key)
+                .map_err(|error| serde::de::Error::custom(format!("{error:?}")));
+        }
+        key.parse()
+            .map_err(|error| serde::de::Error::custom(format!("{error:?}")))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+pub struct PqAggregate<E: EthSpec> {
+    pub aggregate: AttestationPq<E>,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub proof: AttestationProof<E>,
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PqAggregate<E> {
+    fn context_deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+        fork: ForkName,
+    ) -> Result<Self, D::Error> {
+        if fork != ForkName::Pq {
+            return Err(serde::de::Error::custom(
+                "PQ aggregate response must specify the PQ fork",
+            ));
+        }
+        Self::deserialize(deserializer)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -936,6 +1001,48 @@ pub struct ValidatorBlocksQuery {
     pub include_payload: Option<bool>,
     pub builder_boost_factor: Option<u64>,
     pub graffiti_policy: Option<GraffitiPolicy>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct ValidatorBlocksV4Query {
+    pub randao_reveal: String,
+    pub graffiti: Option<Graffiti>,
+    pub skip_randao_verification: SkipRandaoVerification,
+    pub include_payload: Option<bool>,
+    pub graffiti_policy: Option<GraffitiPolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+pub struct PqBlockAndEnvelope<E: EthSpec> {
+    pub block: BeaconBlockPq<E>,
+    pub execution_payload_envelope: ExecutionPayloadEnvelopePq<E>,
+    pub kzg_proofs: KzgProofs<E>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: BlobsList<E>,
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PqBlockAndEnvelope<E> {
+    fn context_deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+        fork: ForkName,
+    ) -> Result<Self, D::Error> {
+        if fork != ForkName::Pq {
+            return Err(serde::de::Error::custom(
+                "PQ block response must specify the PQ fork",
+            ));
+        }
+        Self::deserialize(deserializer)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+pub struct PqSignedEnvelopeContents<E: EthSpec> {
+    pub signed_execution_payload_envelope: SignedExecutionPayloadEnvelopePq<E>,
+    pub kzg_proofs: KzgProofs<E>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: BlobsList<E>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -2801,6 +2908,33 @@ mod test {
     use arbitrary::Arbitrary;
 
     use super::*;
+
+    #[test]
+    fn pq_aggregate_json_and_ssz_round_trip() {
+        let mut committee_bits = types::CommitteeBitsPq::<types::MinimalEthSpec>::default();
+        committee_bits.set(3, true).unwrap();
+        let mut aggregation_bits = ssz::ProgressiveBitList::with_capacity(2);
+        aggregation_bits.set(1, true).unwrap();
+        let aggregate = PqAggregate::<types::MinimalEthSpec> {
+            aggregate: AttestationPq {
+                data: types::AttestationData::default(),
+                aggregation_bits,
+                committee_bits,
+            },
+            proof: vec![0x12, 0x34].try_into().unwrap(),
+        };
+
+        let json = serde_json::to_value(&aggregate).unwrap();
+        assert_eq!(json["proof"], "0x1234");
+        assert_eq!(
+            serde_json::from_value::<PqAggregate<_>>(json).unwrap(),
+            aggregate
+        );
+        assert_eq!(
+            PqAggregate::from_ssz_bytes(&aggregate.as_ssz_bytes()).unwrap(),
+            aggregate
+        );
+    }
 
     #[test]
     fn sse_block_json_fields() {

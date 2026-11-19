@@ -37,6 +37,7 @@ pub enum NotSafe {
     DisabledValidator(PublicKeyBytes),
     InvalidBlock(InvalidBlock),
     InvalidAttestation(InvalidAttestation),
+    ConflictingXmssLeaf(u32),
     PermissionsError,
     IOError(ErrorKind),
     SQLError(String),

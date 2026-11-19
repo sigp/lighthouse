@@ -59,6 +59,7 @@ pub mod persisted_beacon_chain;
 pub mod persisted_custody;
 mod persisted_fast_confirmation;
 mod persisted_fork_choice;
+mod pq;
 mod pre_finalization_cache;
 pub mod proposer_preferences_verification;
 pub mod proposer_prep_service;
@@ -81,7 +82,7 @@ pub use self::beacon_chain::{
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
 pub use self::beacon_snapshot::{BeaconSnapshot, ChainDumpSnapshot};
-pub use self::block_production::PayloadEnvelopeContents;
+pub use self::block_production::{PayloadEnvelopeContents, PqBlockContents};
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;

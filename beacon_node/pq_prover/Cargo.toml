@@ -11,6 +11,7 @@ fake_crypto = ["xmss/fake_crypto"]
 [dependencies]
 lean_xmss = { workspace = true }
 leanvm_claims = { workspace = true }
+metrics = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 xmss = { workspace = true }

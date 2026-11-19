@@ -2486,3 +2486,75 @@ fn set_gauge_by_usize(gauge: &Result<IntGauge>, value: usize) {
 fn set_gauge_by_u64(gauge: &Result<IntGauge>, value: u64) {
     set_gauge(gauge, value as i64);
 }
+pub static PQ_BLOCK_VERIFY_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_block_verify_seconds",
+        "Time verifying the PQ block aggregate proof",
+    )
+});
+pub static PQ_BLOCK_VERIFY_CLAIMS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_block_verify_claims",
+        "Signer claims in PQ block aggregate proofs",
+    )
+});
+pub static PQ_ATTESTATION_INCLUSION_DELAY: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_attestation_inclusion_delay_slots",
+        "Delay of included PQ attestations in slots",
+    )
+});
+pub static PQ_XMSS_VERIFY_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_xmss_verify_seconds",
+        "Time verifying an individual XMSS signature",
+    )
+});
+pub static PQ_AGGREGATE_VERIFY_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_aggregate_verify_seconds",
+        "Time verifying a PQ gossip aggregate proof",
+    )
+});
+pub static PQ_PROVE_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_prove_seconds",
+        "Time proving a PQ committee aggregate",
+    )
+});
+pub static PQ_PROVE_SIGNERS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_prove_signers",
+        "XMSS signers in a PQ committee proving job",
+    )
+});
+pub static PQ_PROOF_BYTES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_proof_bytes",
+        "Bytes in PQ committee aggregate proofs",
+    )
+});
+pub static PQ_PROOF_DEADLINE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_pq_proof_deadline_misses_total",
+        "PQ proving jobs that exceeded the slot deadline",
+    )
+});
+pub static PQ_MERGE_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_merge_seconds",
+        "Time merging committee proofs into a PQ block proof",
+    )
+});
+pub static PQ_MERGE_CHILDREN: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_merge_children",
+        "Number of committee proofs merged for PQ block proposals",
+    )
+});
+pub static PQ_MERGE_ROUNDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_pq_merge_rounds",
+        "Number of recursive proof folding rounds for PQ block proposals",
+    )
+});

@@ -7,13 +7,15 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Attestation, AttestationData, BlindedBeaconBlock, Epoch, EthSpec,
-    ExecutionPayloadEnvelopeGloas, Graffiti, Hash256, PayloadAttestationData,
-    PayloadAttestationMessageGloas, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
-    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelopeGloas,
-    SignedProposerPreferencesGloas, SignedValidatorRegistrationData, SingleAttestation, Slot,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData,
+    Address, Attestation, AttestationData, AttestationProof, BlindedBeaconBlock, Epoch, EthSpec,
+    ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopePq, Graffiti, Hash256,
+    PayloadAttestationData, PayloadAttestationMessageGloas, PayloadAttestationMessagePq,
+    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelopeGloas,
+    SignedExecutionPayloadEnvelopePq, SignedProposerPreferencesGloas, SignedProposerPreferencesPq,
+    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VrfProof,
+    XmssPublicKey,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -48,7 +50,12 @@ pub struct AggregateToSign<E: EthSpec> {
     pub pubkey: PublicKeyBytes,
     pub aggregator_index: u64,
     pub aggregate: Attestation<E>,
-    pub selection_proof: SelectionProof,
+    pub authorization: AggregateAuthorization<E>,
+}
+
+pub enum AggregateAuthorization<E: EthSpec> {
+    Bls(SelectionProof),
+    Pq(AttestationProof<E>),
 }
 
 /// Input for batch sync committee message signing
@@ -106,6 +113,26 @@ pub trait ValidatorStore: Send + Sync {
     fn doppelganger_protection_allows_signing(&self, validator_pubkey: PublicKeyBytes) -> bool;
 
     fn num_voting_validators(&self) -> usize;
+
+    /// Derive the PQ identities of local keystores before requesting validator indices.
+    fn load_pq_public_keys(
+        &self,
+        _pubkeys: Vec<PublicKeyBytes>,
+    ) -> impl Future<Output = ()> + Send {
+        std::future::ready(())
+    }
+
+    fn pq_public_key(&self, _pubkey: &PublicKeyBytes) -> Option<XmssPublicKey> {
+        None
+    }
+
+    fn randao_vrf_proof(
+        &self,
+        _validator_pubkey: PublicKeyBytes,
+        _slot: Slot,
+    ) -> impl Future<Output = Result<VrfProof, Error<Self::Error>>> + Send {
+        std::future::ready(Err(Error::Middleware("PQ VRF signer unavailable".into())))
+    }
     fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti>;
 
     /// Returns the fee recipient for the given public key. The priority order for fetching
@@ -209,6 +236,17 @@ pub trait ValidatorStore: Send + Sync {
         Output = Result<SignedExecutionPayloadEnvelopeGloas<Self::E>, Error<Self::Error>>,
     > + Send;
 
+    fn sign_pq_execution_payload_envelope(
+        &self,
+        _validator_pubkey: PublicKeyBytes,
+        _envelope: ExecutionPayloadEnvelopePq<Self::E>,
+    ) -> impl Future<Output = Result<SignedExecutionPayloadEnvelopePq<Self::E>, Error<Self::Error>>> + Send
+    {
+        std::future::ready(Err(Error::Middleware(
+            "PQ envelope signer unavailable".into(),
+        )))
+    }
+
     /// Sign a `PayloadAttestationData` for the PTC.
     fn sign_payload_attestation(
         &self,
@@ -216,12 +254,30 @@ pub trait ValidatorStore: Send + Sync {
         data: PayloadAttestationData,
     ) -> impl Future<Output = Result<PayloadAttestationMessageGloas, Error<Self::Error>>> + Send;
 
+    fn sign_pq_payload_attestation(
+        &self,
+        _validator_pubkey: PublicKeyBytes,
+        _data: PayloadAttestationData,
+    ) -> impl Future<Output = Result<PayloadAttestationMessagePq, Error<Self::Error>>> + Send {
+        std::future::ready(Err(Error::Middleware("PQ PTC signer unavailable".into())))
+    }
+
     /// Sign a `ProposerPreferences` message.
     fn sign_proposer_preferences(
         &self,
         validator_pubkey: PublicKeyBytes,
         preferences: ProposerPreferences,
     ) -> impl Future<Output = Result<SignedProposerPreferencesGloas, Error<Self::Error>>> + Send;
+
+    fn sign_pq_proposer_preferences(
+        &self,
+        _validator_pubkey: PublicKeyBytes,
+        _preferences: ProposerPreferences,
+    ) -> impl Future<Output = Result<SignedProposerPreferencesPq, Error<Self::Error>>> + Send {
+        std::future::ready(Err(Error::Middleware(
+            "PQ proposer preferences signer unavailable".into(),
+        )))
+    }
 
     fn sign_request_auth_v1(
         &self,

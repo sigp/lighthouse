@@ -9,6 +9,57 @@ use rayon::prelude::*;
 use tempfile::tempdir;
 
 #[test]
+fn xmss_leaf_reservations_survive_races_and_restarts() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("slashing_protection.sqlite");
+    let db = SlashingDatabase::create(&path).unwrap();
+    let pubkey = pubkey(0);
+    let leaf = 1 << 15;
+    db.register_validator(pubkey).unwrap();
+
+    let roots = [Hash256::ZERO, Hash256::with_last_byte(1)];
+    let barrier = std::sync::Barrier::new(roots.len());
+    let winner = std::thread::scope(|scope| {
+        let (db, barrier) = (&db, &barrier);
+        let workers = roots.map(|root| {
+            scope.spawn(move || {
+                barrier.wait();
+                (
+                    root,
+                    db.with_transaction(|txn| db.reserve_xmss_leaf(txn, &pubkey, leaf, root)),
+                )
+            })
+        });
+        let mut winner = None;
+        for worker in workers {
+            let (root, result) = worker.join().unwrap();
+            match result {
+                Ok(Safe::Valid) => assert!(winner.replace(root).is_none()),
+                result => assert_eq!(result, Err(NotSafe::ConflictingXmssLeaf(leaf))),
+            }
+        }
+        winner.unwrap()
+    });
+
+    drop(db);
+    let db = SlashingDatabase::open(&path).unwrap();
+    assert!(matches!(
+        db.export_all_interchange_info(Hash256::ZERO),
+        Err(InterchangeError::XmssLeavesNotRepresentable(key)) if key == pubkey
+    ));
+    for root in roots {
+        assert_eq!(
+            db.with_transaction(|txn| db.reserve_xmss_leaf(txn, &pubkey, leaf, root)),
+            if root == winner {
+                Ok(Safe::SameData)
+            } else {
+                Err(NotSafe::ConflictingXmssLeaf(leaf))
+            }
+        );
+    }
+}
+
+#[test]
 fn block_same_slot() {
     let dir = tempdir().unwrap();
     let slashing_db_file = dir.path().join("slashing_protection.sqlite");

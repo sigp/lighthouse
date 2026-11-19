@@ -795,6 +795,7 @@ mod data_availability_checker_tests {
     /// `beacon_block_root` and the verification outcome, never the signature or payload.
     fn executed_envelope(block_root: Hash256) -> AvailabilityPendingExecutedEnvelope<E> {
         AvailabilityPendingExecutedEnvelope {
+            pq_auth: None,
             envelope: Arc::new(SignedExecutionPayloadEnvelopeGloas {
                 message: ExecutionPayloadEnvelopeGloas {
                     payload: ExecutionPayloadGloas::default(),

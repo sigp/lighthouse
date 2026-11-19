@@ -3,13 +3,78 @@ use bls::AggregateSignature;
 use itertools::Itertools;
 use ssz::{BitList, BitVector, ProgressiveBitList};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 use superstruct::superstruct;
+use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    Attestation, AttestationData, AttestationError, BeaconState, Checkpoint, Epoch, EthSpec,
-    Hash256, Slot,
+    Attestation, AttestationData, AttestationError, AttestationPq, AttestationProof, BeaconState,
+    Checkpoint, Epoch, EthSpec, Hash256, Slot,
     attestation::{AttestationBase, AttestationElectra, AttestationGloas},
 };
+
+/// A verified network aggregate covers exactly one committee.
+#[derive(Debug)]
+pub struct CompactIndexedAttestationPq<E: EthSpec> {
+    pub attestation: AttestationPq<E>,
+    pub attesting_indices: Vec<u64>,
+    pub proof: AttestationProof<E>,
+}
+
+type PqCommittees<E> = BTreeMap<(Hash256, u64), Arc<CompactIndexedAttestationPq<E>>>;
+
+#[derive(Debug, Default)]
+pub(crate) struct PqAttestationMap<E: EthSpec> {
+    slots: BTreeMap<Slot, PqCommittees<E>>,
+}
+
+impl<E: EthSpec> PqAttestationMap<E> {
+    pub(crate) fn insert(&mut self, entry: Arc<CompactIndexedAttestationPq<E>>) {
+        let Some(committee) = entry.attestation.committee_index() else {
+            return;
+        };
+        let slot_entries = self.slots.entry(entry.attestation.data.slot).or_default();
+        let key = (entry.attestation.data.tree_hash_root(), committee);
+        if let Some(current) = slot_entries.get_mut(&key) {
+            if entry.attesting_indices.len() > current.attesting_indices.len() {
+                *current = entry;
+            }
+            return;
+        }
+        // The wire allows several forks per committee. Cap proof memory even
+        // when validators distribute their votes over many different forks.
+        let max_entries = E::max_committees_per_slot_pq().saturating_mul(4);
+        if slot_entries.len() >= max_entries {
+            let Some((weakest_key, weakest)) = slot_entries
+                .iter()
+                .min_by_key(|(_, aggregate)| aggregate.attesting_indices.len())
+            else {
+                return;
+            };
+            if weakest.attesting_indices.len() >= entry.attesting_indices.len() {
+                return;
+            }
+            let weakest_key = *weakest_key;
+            slot_entries.remove(&weakest_key);
+        }
+        slot_entries.insert(key, entry);
+    }
+
+    pub(crate) fn prune(&mut self, current_epoch: Epoch) {
+        let earliest_slot = current_epoch
+            .saturating_sub(1u64)
+            .start_slot(E::slots_per_epoch());
+        self.slots.retain(|slot, _| *slot >= earliest_slot);
+    }
+
+    pub(crate) fn candidates(&self, latest_slot: Slot) -> Vec<Arc<CompactIndexedAttestationPq<E>>> {
+        self.slots
+            .range(..=latest_slot)
+            .rev()
+            .flat_map(|(_, committees)| committees.values().cloned())
+            .collect()
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct CheckpointKey {
@@ -686,5 +751,70 @@ impl<E: EthSpec> AttestationDataMap<E> {
                 std::cmp::max(stats.max_aggregates_per_data, aggregates.len());
         }
         stats
+    }
+}
+
+#[cfg(test)]
+mod pq_tests {
+    use super::*;
+    use types::MinimalEthSpec;
+
+    fn aggregate(
+        root_suffix: u8,
+        committee: usize,
+        count: u64,
+    ) -> Arc<CompactIndexedAttestationPq<MinimalEthSpec>> {
+        let mut committee_bits = types::CommitteeBitsPq::<MinimalEthSpec>::default();
+        committee_bits.set(committee, true).unwrap();
+        let mut aggregation_bits = ProgressiveBitList::with_capacity(count as usize);
+        for index in 0..count as usize {
+            aggregation_bits.set(index, true).unwrap();
+        }
+        Arc::new(CompactIndexedAttestationPq {
+            attestation: AttestationPq {
+                aggregation_bits,
+                committee_bits,
+                data: AttestationData {
+                    beacon_block_root: Hash256::with_last_byte(root_suffix),
+                    ..AttestationData::default()
+                },
+            },
+            attesting_indices: (0..count).collect(),
+            proof: Default::default(),
+        })
+    }
+
+    #[test]
+    fn pq_pool_keeps_the_best_proof_and_bounds_forks_per_slot() {
+        let mut pool = PqAttestationMap::default();
+        let slot = Slot::new(0);
+        let weaker = aggregate(0, 0, 1);
+        let stronger = aggregate(0, 0, 2);
+        let other_committee = aggregate(0, 1, 1);
+        pool.insert(Arc::clone(&weaker));
+        pool.insert(Arc::clone(&stronger));
+        pool.insert(weaker);
+        pool.insert(Arc::clone(&other_committee));
+        let candidates = pool.candidates(slot);
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().any(|proof| Arc::ptr_eq(proof, &stronger)));
+        assert!(
+            candidates
+                .iter()
+                .any(|proof| Arc::ptr_eq(proof, &other_committee))
+        );
+
+        let capacity = MinimalEthSpec::max_committees_per_slot_pq() * 4;
+        for root in 1..=capacity {
+            pool.insert(aggregate(root as u8, 0, 1));
+        }
+        let best = aggregate((capacity + 1) as u8, 0, 3);
+        pool.insert(Arc::clone(&best));
+        let candidates = pool.candidates(slot);
+        assert_eq!(candidates.len(), capacity);
+        assert!(candidates.iter().any(|proof| Arc::ptr_eq(proof, &best)));
+
+        pool.prune(Epoch::new(2));
+        assert!(pool.candidates(slot).is_empty());
     }
 }

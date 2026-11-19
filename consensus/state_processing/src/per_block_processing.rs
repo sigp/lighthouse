@@ -20,7 +20,7 @@ use types::{
 pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
 };
-pub use self::verify_proposer_slashing::verify_proposer_slashing;
+pub use self::verify_proposer_slashing::{verify_proposer_slashing, verify_proposer_slashing_pq};
 pub use altair::sync_committee::process_sync_aggregate;
 pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
@@ -688,12 +688,7 @@ pub fn apply_parent_execution_payload_pq<E: EthSpec>(
     requests: &ExecutionRequestsPq<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    verify_execution_request_lengths::<E>(
-        requests.withdrawals.len(),
-        requests.consolidations.len(),
-        requests.builder_deposits.len(),
-        requests.builder_exits.len(),
-    )?;
+    verify_pq_execution_request_list_lengths(requests)?;
     for (name, is_empty) in [
         (
             "validator_preregistrations",
@@ -789,6 +784,41 @@ pub fn verify_execution_request_list_lengths<E: EthSpec>(
         requests.builder_deposits.len(),
         requests.builder_exits.len(),
     )
+}
+
+pub fn verify_pq_execution_request_list_lengths<E: EthSpec>(
+    requests: &ExecutionRequestsPq<E>,
+) -> Result<(), BlockProcessingError> {
+    verify_execution_request_lengths::<E>(
+        requests.withdrawals.len(),
+        requests.consolidations.len(),
+        requests.builder_deposits.len(),
+        requests.builder_exits.len(),
+    )?;
+    let checks = [
+        (
+            "validator_preregistrations",
+            requests.validator_preregistrations.len(),
+            E::max_validator_preregistration_requests_per_payload(),
+        ),
+        (
+            "builder_preregistrations",
+            requests.builder_preregistrations.len(),
+            E::max_builder_preregistration_requests_per_payload(),
+        ),
+        (
+            "voluntary_exits",
+            requests.voluntary_exits.len(),
+            E::max_voluntary_exit_requests_per_payload(),
+        ),
+    ];
+    for (kind, length, max) in checks {
+        block_verify!(
+            length <= max,
+            BlockProcessingError::OperationListTooLong { kind, length, max }
+        );
+    }
+    Ok(())
 }
 
 fn verify_execution_request_lengths<E: EthSpec>(

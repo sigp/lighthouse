@@ -15,11 +15,27 @@ use leanvm_sidecar::{Client, Rejection, SidecarError};
 use parking_lot::Mutex;
 use std::io::ErrorKind;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 use xmss::XmssSignature;
 
 /// The most children one aggregate request takes.
 pub const MAX_CHILDREN_PER_AGGREGATE: usize = 16;
+
+static QUEUE_SECONDS: LazyLock<metrics::Result<metrics::HistogramVec>> = LazyLock::new(|| {
+    metrics::try_create_histogram_vec(
+        "beacon_pq_sidecar_client_queue_seconds",
+        "Time waiting for a PQ sidecar connection",
+        &["operation"],
+    )
+});
+static RPC_SECONDS: LazyLock<metrics::Result<metrics::HistogramVec>> = LazyLock::new(|| {
+    metrics::try_create_histogram_vec(
+        "beacon_pq_sidecar_rpc_seconds",
+        "Elapsed time in a PQ sidecar RPC including server queue time",
+        &["operation"],
+    )
+});
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidecarConfig {
@@ -103,6 +119,7 @@ impl SidecarBackend {
             &self.config,
             &self.verify_connection,
             self.config.verify_timeout,
+            "hello",
             |client| Ok(client.prover().to_string()),
         )
     }
@@ -119,6 +136,7 @@ impl SidecarBackend {
             &self.config,
             &self.prove_connection,
             self.config.prove_timeout,
+            "aggregate",
             |client| {
                 client.aggregate(
                     children,
@@ -234,6 +252,7 @@ impl ProverBackend for SidecarBackend {
             &self.config,
             &self.verify_connection,
             self.config.verify_timeout,
+            "verify",
             |client| client.verify(&claims, proof.as_bytes()),
         )
     }
@@ -288,15 +307,33 @@ fn with_connection<T>(
     config: &SidecarConfig,
     slot: &Mutex<Option<Client>>,
     timeout: Option<Duration>,
+    operation: &'static str,
     mut call: impl FnMut(&mut Client) -> Result<T, SidecarError>,
 ) -> Result<T, Error> {
-    let mut slot = slot.lock();
+    let started = Instant::now();
+    let timer = metrics::start_timer_vec(&QUEUE_SECONDS, &[operation]);
+    let mut slot = if let Some(timeout) = timeout {
+        slot.try_lock_for(timeout).ok_or_else(queue_timeout)?
+    } else {
+        slot.lock()
+    };
+    drop(timer);
+    let _timer = metrics::start_timer_vec(&RPC_SECONDS, &[operation]);
     let mut reused = slot.is_some();
     loop {
+        let remaining = timeout
+            .map(|timeout| {
+                timeout
+                    .checked_sub(started.elapsed())
+                    .filter(|timeout| !timeout.is_zero())
+                    .ok_or_else(queue_timeout)
+            })
+            .transpose()?;
         let client = match slot.as_mut() {
             Some(client) => client,
-            None => slot.insert(open(config, timeout)?),
+            None => slot.insert(open(config, remaining)?),
         };
+        client.set_timeout(remaining).map_err(Error::SidecarIo)?;
         match call(client) {
             Ok(value) => return Ok(value),
             Err(SidecarError::Rejected(rejection, message)) => {
@@ -312,6 +349,13 @@ fn with_connection<T>(
             }
         }
     }
+}
+
+fn queue_timeout() -> Error {
+    Error::SidecarIo(std::io::Error::new(
+        ErrorKind::TimedOut,
+        "PQ sidecar connection deadline",
+    ))
 }
 
 fn is_timeout(error: &std::io::Error) -> bool {

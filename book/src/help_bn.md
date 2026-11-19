@@ -322,6 +322,13 @@ Options:
           The TCP/UDP ports to listen on over IPv6 when listening over both IPv4
           and IPv6. Defaults to --port. The Quic UDP port will be set to this
           value + 1.
+      --pq-aggregate-all
+          Prove PQ attestation aggregates for every observed committee.
+      --pq-prover-backend <pq-prover-backend>
+          Proof backend for a PQ network. [default: sidecar] [possible values:
+          sidecar]
+      --pq-prover-socket <PATH>
+          Unix socket for the leanVM sidecar on a PQ network.
       --prepare-payload-lookahead <MILLISECONDS>
           The time before the start of a proposal slot at which payload
           attributes should be sent. Low values are useful for execution nodes

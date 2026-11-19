@@ -16,7 +16,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, warn};
 use types::{
-    ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId,
+    ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, SubnetId,
+    SyncSubnetId,
 };
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
@@ -264,12 +265,13 @@ pub fn load_or_build_metadata<E: EthSpec>(
 /// Creates a whitelist topic filter that covers all possible topics using the given set of
 /// possible fork digests.
 pub(crate) fn create_whitelist_filter(
-    possible_fork_digests: Vec<[u8; 4]>,
+    fork_context: &ForkContext,
     spec: &ChainSpec,
     sync_committee_subnet_count: u64,
 ) -> gossipsub::WhitelistSubscriptionFilter {
     let mut possible_hashes = HashSet::new();
-    for fork_digest in possible_fork_digests {
+    for fork_digest in fork_context.all_fork_digests() {
+        let pq = fork_context.get_fork_from_context_bytes(fork_digest) == Some(&ForkName::Pq);
         let mut add = |kind| {
             let topic: gossipsub::IdentTopic =
                 GossipTopic::new(kind, GossipEncoding::SSZSnappy, fork_digest).into();
@@ -279,24 +281,33 @@ pub(crate) fn create_whitelist_filter(
         use GossipKind::*;
         add(BeaconBlock);
         add(BeaconAggregateAndProof);
-        add(VoluntaryExit);
         add(ProposerSlashing);
         add(AttesterSlashing);
-        add(SignedContributionAndProof);
-        add(BlsToExecutionChange);
         add(ExecutionPayload);
         add(ExecutionPayloadBid);
         add(PayloadAttestation);
         add(ProposerPreferences);
         add(ExecutionProof);
         add(InclusionList);
-        add(LightClientFinalityUpdate);
-        add(LightClientOptimisticUpdate);
-        for id in 0..spec.attestation_subnet_count {
+        if !pq {
+            add(VoluntaryExit);
+            add(SignedContributionAndProof);
+            add(BlsToExecutionChange);
+            add(LightClientFinalityUpdate);
+            add(LightClientOptimisticUpdate);
+        }
+        let subnet_count = if pq {
+            spec.attestation_subnet_count_pq
+        } else {
+            spec.attestation_subnet_count
+        };
+        for id in 0..subnet_count {
             add(Attestation(SubnetId::new(id)));
         }
-        for id in 0..sync_committee_subnet_count {
-            add(SyncCommitteeMessage(SyncSubnetId::new(id)));
+        if !pq {
+            for id in 0..sync_committee_subnet_count {
+                add(SyncCommitteeMessage(SyncSubnetId::new(id)));
+            }
         }
         for id in 0..spec.data_column_sidecar_subnet_count {
             add(DataColumnSidecar(DataColumnSubnetId::new(id)));

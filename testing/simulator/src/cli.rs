@@ -16,6 +16,12 @@ pub fn cli_app() -> Command {
                     exit immediately.",
                 )
                 .arg(
+                    Arg::new("pq-prover-socket")
+                        .long("pq-prover-socket")
+                        .value_name("PATH")
+                        .help("Run the PQ-from-genesis checks with a leanVM sidecar."),
+                )
+                .arg(
                     Arg::new("nodes")
                         .short('n')
                         .long("nodes")

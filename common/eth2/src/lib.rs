@@ -2240,6 +2240,25 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    pub async fn post_beacon_pool_payload_attestations_pq(
+        &self,
+        messages: &[PayloadAttestationMessagePq],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("payload_attestations");
+        let bytes: Vec<u8> = messages
+            .iter()
+            .flat_map(|message| message.as_ssz_bytes())
+            .collect();
+        self.post_generic_with_consensus_version_and_ssz_body(path, bytes, None, ForkName::Pq)
+            .await?;
+        Ok(())
+    }
+
     /// `GET beacon/pool/payload_attestations?slot`
     pub async fn get_beacon_pool_payload_attestations<E: EthSpec>(
         &self,
@@ -2391,6 +2410,26 @@ impl BeaconNodeHttpClient {
         self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
             .await?;
 
+        Ok(())
+    }
+
+    /// `POST beacon/rewards/sync_committee`
+    pub async fn post_validator_proposer_preferences_pq(
+        &self,
+        preferences: &Vec<SignedProposerPreferencesPq>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("proposer_preferences");
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            preferences.as_ssz_bytes(),
+            None,
+            ForkName::Pq,
+        )
+        .await?;
         Ok(())
     }
 
@@ -3189,6 +3228,47 @@ impl BeaconNodeHttpClient {
         .await
     }
 
+    pub async fn post_validator_blocks_pq<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &VrfProof,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<PqBlockAndEnvelope<E>, Error> {
+        let mut path = self.eth_path(V4)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("blocks")
+            .push(&slot.to_string());
+        path.query_pairs_mut()
+            .append_pair(
+                "randao_reveal",
+                &serde_utils::hex::encode(randao_reveal.as_ssz_bytes()),
+            )
+            .append_pair("include_payload", "true");
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
+        }
+        let result = self
+            .post_response_with_response_headers(
+                path,
+                Accept::Json,
+                ForkName::Pq,
+                self.timeouts.get_validator_block,
+                |request| request.json(&BuilderConfig::empty()),
+                |response, _| async move {
+                    let response: ForkVersionedResponse<
+                        PqBlockAndEnvelope<E>,
+                        ProduceBlockV4Metadata,
+                    > = response.json().await?;
+                    Ok(response.data)
+                },
+            )
+            .await?;
+        result.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
+    }
+
     /// `POST v4/validator/blocks/{slot}`
     ///
     /// `fork_name` is sent as the required `Eth-Consensus-Version` request header (beacon-APIs
@@ -3507,6 +3587,25 @@ impl BeaconNodeHttpClient {
         )
         .await?;
 
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_bids`
+    pub async fn post_beacon_execution_payload_envelope_pq<E: EthSpec>(
+        &self,
+        contents: &PqSignedEnvelopeContents<E>,
+    ) -> Result<(), Error> {
+        let path = self
+            .post_beacon_execution_payload_envelopes_path(Some(BroadcastValidation::Consensus))?;
+        self.post_generic_with_envelope_headers_and_ssz_body(
+            path,
+            contents.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            ForkName::Pq,
+            Some(true),
+            None,
+        )
+        .await?;
         Ok(())
     }
 
@@ -3968,6 +4067,29 @@ impl BeaconNodeHttpClient {
         self.get_opt_with_timeout(path, self.timeouts.attestation)
             .await
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// Fetch the PQ aggregate and its proof from the v2 endpoint.
+    pub async fn get_validator_pq_aggregate<E: EthSpec>(
+        &self,
+        slot: Slot,
+        attestation_data_root: Hash256,
+        committee_index: CommitteeIndex,
+    ) -> Result<Option<ForkVersionedResponse<types::PqAggregate<E>>>, Error> {
+        let mut path = self.eth_path(V2)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("aggregate_attestation");
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string())
+            .append_pair(
+                "attestation_data_root",
+                &format!("{attestation_data_root:?}"),
+            )
+            .append_pair("committee_index", &committee_index.to_string());
+        self.get_opt_with_timeout(path, self.timeouts.attestation)
+            .await
     }
 
     /// `GET v2/validator/aggregate_attestation?slot,attestation_data_root,committee_index` in SSZ format

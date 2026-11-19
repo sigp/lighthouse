@@ -152,6 +152,16 @@ impl SlashingDatabase {
             )?;
         }
 
+        txn.execute(
+            "CREATE TABLE IF NOT EXISTS signed_leaves (
+                validator_id INTEGER NOT NULL REFERENCES validators(id),
+                leaf_index INTEGER NOT NULL,
+                signing_root BLOB NOT NULL CHECK(length(signing_root) = 32),
+                PRIMARY KEY (validator_id, leaf_index)
+            )",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -334,6 +344,40 @@ impl SlashingDatabase {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?)
+    }
+
+    /// Reserve an XMSS leaf before releasing any signature. The caller must commit the
+    /// transaction before signing. Leaf records are deliberately excluded from pruning.
+    /// The BLS identity is the local keystore from which this XMSS key is derived.
+    pub fn reserve_xmss_leaf(
+        &self,
+        txn: &Transaction,
+        validator_pubkey: &PublicKeyBytes,
+        leaf_index: u32,
+        signing_root: Hash256,
+    ) -> Result<Safe, NotSafe> {
+        let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
+        let signing_root = signing_root.as_slice();
+        let inserted = txn.execute(
+            "INSERT INTO signed_leaves (validator_id, leaf_index, signing_root)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT (validator_id, leaf_index) DO NOTHING",
+            params![validator_id, leaf_index, signing_root],
+        )?;
+        if inserted == 1 {
+            return Ok(Safe::Valid);
+        }
+
+        let existing_root = txn.query_row(
+            "SELECT signing_root FROM signed_leaves WHERE validator_id = ?1 AND leaf_index = ?2",
+            params![validator_id, leaf_index],
+            |row| row.get::<_, Vec<u8>>(0),
+        )?;
+        if existing_root == signing_root {
+            Ok(Safe::SameData)
+        } else {
+            Err(NotSafe::ConflictingXmssLeaf(leaf_index))
+        }
     }
 
     /// Check a block proposal from `validator_pubkey` for slash safety.
@@ -961,6 +1005,14 @@ impl SlashingDatabase {
         let data = to_export
             .into_iter()
             .map(|(validator_id, pubkey)| {
+                let has_xmss_leaves: bool = txn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM signed_leaves WHERE validator_id = ?1)",
+                    params![validator_id],
+                    |row| row.get(0),
+                )?;
+                if has_xmss_leaves {
+                    return Err(InterchangeError::XmssLeavesNotRepresentable(pubkey));
+                }
                 let signed_blocks =
                     self.export_interchange_blocks_for_validator(validator_id, txn)?;
                 let signed_attestations =
@@ -1268,6 +1320,7 @@ impl InterchangeImportOutcome {
 #[derive(Debug)]
 pub enum InterchangeError {
     UnsupportedVersion(u64),
+    XmssLeavesNotRepresentable(PublicKeyBytes),
     GenesisValidatorsMismatch {
         interchange_file: Hash256,
         client: Hash256,

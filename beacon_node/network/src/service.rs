@@ -872,9 +872,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             SubnetServiceMessage::EnrAdd(subnet) => {
                 self.libp2p.update_enr_subnet(subnet, true);
             }
-            SubnetServiceMessage::EnrRemove(sync_subnet_id) => {
-                self.libp2p
-                    .update_enr_subnet(Subnet::SyncCommittee(sync_subnet_id), false);
+            SubnetServiceMessage::EnrRemove(subnet) => {
+                self.libp2p.update_enr_subnet(subnet, false);
             }
             SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
                 self.libp2p.discover_subnet_peers(subnets_to_discover);
@@ -1490,6 +1489,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     ),
                 )
             }
+            PubsubMessage::ProposerSlashingPq(slashing) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_pq_proposer_slashing(message_id, peer_id, slashing),
+                ),
             PubsubMessage::AttesterSlashing(attester_slashing) => {
                 debug!(
                     %peer_id,
@@ -1583,6 +1587,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     ),
                 )
             }
+            PubsubMessage::ExecutionPayloadPq(envelope) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_execution_payload_pq(message_id, peer_id, envelope),
+                ),
             PubsubMessage::ExecutionProof(execution_proof) => {
                 trace!(%peer_id, "Received an execution proof");
                 self.handle_beacon_processor_send_result(
@@ -1604,6 +1613,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         ),
                 )
             }
+            PubsubMessage::PayloadAttestationPq(message) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_payload_attestation_pq(message_id, peer_id, message),
+                ),
             PubsubMessage::ExecutionPayloadBid(execution_payload_bid) => {
                 trace!(%peer_id, "Received a signed execution payload bid");
                 self.handle_beacon_processor_send_result(
@@ -1626,6 +1640,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         ),
                 )
             }
+            PubsubMessage::ProposerPreferencesPq(preferences) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_proposer_preferences_pq(message_id, peer_id, preferences),
+                ),
             PubsubMessage::InclusionList(inclusion_list) => {
                 trace!(%peer_id, "Received a signed inclusion list");
                 self.handle_beacon_processor_send_result(

@@ -328,10 +328,9 @@ impl<E: EthSpec> Network<E> {
                 .max()
                 .expect("each fork has at least 5 hardcoded core topics");
 
-            let possible_fork_digests = ctx.fork_context.all_fork_digests();
             let filter = gossipsub::MaxCountSubscriptionFilter {
                 filter: utils::create_whitelist_filter(
-                    possible_fork_digests,
+                    &ctx.fork_context,
                     &ctx.chain_spec,
                     SYNC_COMMITTEE_SUBNET_COUNT,
                 ),

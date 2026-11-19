@@ -95,6 +95,8 @@ pub enum BeaconChainError {
     ValidatorPubkeyCacheIncomplete(usize),
     SignatureSetError(SignatureSetError),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
+    MissingPqProver,
+    PqProverError(pq_prover::Error),
     BlockReplayError(BlockReplayError),
     DuplicateValidatorPublicKey,
     ValidatorPubkeyCacheError(String),

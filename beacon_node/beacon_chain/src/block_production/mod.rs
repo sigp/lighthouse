@@ -13,8 +13,10 @@ use crate::{
 
 mod bid_selection;
 mod gloas;
+mod pq;
 
 pub use gloas::PayloadEnvelopeContents;
+pub use pq::PqBlockContents;
 
 /// State loaded from the database for block production.
 pub(crate) struct BlockProductionState<E: EthSpec> {

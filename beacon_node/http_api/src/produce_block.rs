@@ -18,7 +18,7 @@ use eth2::{
     types::{BlockAndEnvelope, ProduceBlockV4Metadata},
 };
 use sensitive_url::SensitiveUrl;
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use types::{execution::BlockProductionVersion, *};
@@ -58,7 +58,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
     accept_header: Option<api_types::Accept>,
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
-    query: api_types::ValidatorBlocksQuery,
+    query: api_types::ValidatorBlocksV4Query,
     builder_config: api_types::BuilderConfig,
 ) -> Result<Response, warp::Rejection> {
     // `produceBlockV4` is the Gloas block-production endpoint.
@@ -74,6 +74,74 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
             "include_payload query parameter is required".to_string(),
         )
     })?;
+    if fork_name == ForkName::Pq {
+        let proof = query
+            .randao_reveal
+            .strip_prefix("0x")
+            .and_then(|encoded| hex::decode(encoded).ok())
+            .and_then(|bytes| VrfProof::from_ssz_bytes(&bytes).ok())
+            .ok_or_else(|| {
+                warp_utils::reject::custom_bad_request("invalid PQ RANDAO proof".into())
+            })?;
+        if query.skip_randao_verification == SkipRandaoVerification::Yes {
+            return Err(warp_utils::reject::custom_bad_request(
+                "PQ verifies every RANDAO proof".into(),
+            ));
+        }
+        let graffiti = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
+        let contents = chain
+            .produce_block_pq(slot, proof, graffiti)
+            .await
+            .map_err(|error| {
+                warp_utils::reject::custom_bad_request(format!(
+                    "failed to produce PQ block: {error:?}"
+                ))
+            })?;
+        let beacon_chain::PqBlockContents {
+            block,
+            envelope,
+            kzg_proofs,
+            blobs,
+            payload_value,
+        } = contents;
+        let BeaconBlock::Pq(block) = block else {
+            return Err(warp_utils::reject::custom_server_error(
+                "unexpected block fork".into(),
+            ));
+        };
+        let metadata = ProduceBlockV4Metadata {
+            consensus_version: fork_name,
+            consensus_block_value: Uint256::ZERO,
+            execution_payload_value: payload_value,
+            execution_payload_included: include_payload,
+            builder_url: None,
+        };
+        let response = if include_payload {
+            pq_block_reply(
+                api_types::PqBlockAndEnvelope {
+                    block,
+                    execution_payload_envelope: envelope,
+                    kzg_proofs,
+                    blobs,
+                },
+                metadata,
+                accept_header,
+            )?
+        } else {
+            pq_block_reply(block, metadata, accept_header)?
+        };
+        return Ok(response);
+    }
+    let query = api_types::ValidatorBlocksQuery {
+        randao_reveal: query.randao_reveal.parse().map_err(|error| {
+            warp_utils::reject::custom_bad_request(format!("invalid RANDAO signature: {error:?}"))
+        })?,
+        graffiti: query.graffiti,
+        skip_randao_verification: query.skip_randao_verification,
+        include_payload: query.include_payload,
+        builder_boost_factor: None,
+        graffiti_policy: query.graffiti_policy,
+    };
 
     // The resolved builder config is threaded into block production, where it drives direct-builder
     // bid requests and the gossip/direct bid policy (see `produce_block_on_state_gloas`).
@@ -127,6 +195,33 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
         accept_header,
         &chain.spec,
     )
+}
+
+fn pq_block_reply(
+    data: impl serde::Serialize + Encode,
+    metadata: ProduceBlockV4Metadata,
+    accept: Option<api_types::Accept>,
+) -> Result<Response, warp::Rejection> {
+    let included = metadata.execution_payload_included;
+    let payload_value = metadata.execution_payload_value;
+    let response = if accept == Some(api_types::Accept::Ssz) {
+        Builder::new()
+            .status(200)
+            .body(data.as_ssz_bytes())
+            .map(add_ssz_content_type_header)
+            .map_err(|error| warp_utils::reject::custom_server_error(error.to_string()))?
+    } else {
+        warp::reply::json(&ForkVersionedResponse {
+            version: ForkName::Pq,
+            metadata,
+            data,
+        })
+        .into_response()
+    };
+    let response = add_consensus_version_header(response, ForkName::Pq);
+    let response = add_consensus_block_value_header(response, Uint256::ZERO);
+    let response = add_execution_payload_value_header(response, payload_value);
+    Ok(add_execution_payload_included_header(response, included))
 }
 
 #[instrument(

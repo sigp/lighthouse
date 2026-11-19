@@ -351,6 +351,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    pub fn send_gossip_pq_proposer_slashing(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        slashing: Box<ProposerSlashingPq>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = Arc::clone(self);
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipProposerSlashing(Box::new(move || {
+                processor.process_gossip_pq_proposer_slashing(message_id, peer_id, *slashing);
+            })),
+        })
+    }
+
     /// Create a new `Work` event for some light client finality update.
     pub fn send_gossip_light_client_finality_update(
         self: &Arc<Self>,
@@ -466,6 +481,38 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    pub fn send_gossip_execution_payload_pq(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        envelope: Box<types::SignedExecutionPayloadEnvelopePq<T::EthSpec>>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = Arc::clone(self);
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipExecutionPayload(Box::pin(async move {
+                processor
+                    .process_gossip_execution_payload_pq(message_id, peer_id, Arc::from(envelope))
+                    .await;
+            })),
+        })
+    }
+
+    pub fn send_gossip_payload_attestation_pq(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        message: Box<types::PayloadAttestationMessagePq>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = Arc::clone(self);
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipPayloadAttestation(Box::new(move || {
+                processor.process_gossip_payload_attestation_pq(message_id, peer_id, &message);
+            })),
+        })
+    }
+
     /// Create a new `Work` event for some execution proof.
     pub fn send_gossip_execution_proof(
         self: &Arc<Self>,
@@ -546,6 +593,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipProposerPreferences(Box::new(process_fn)),
+        })
+    }
+
+    pub fn send_gossip_proposer_preferences_pq(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        preferences: Arc<types::SignedProposerPreferencesPq>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = Arc::clone(self);
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipProposerPreferences(Box::new(move || {
+                processor.process_gossip_proposer_preferences_pq(message_id, peer_id, preferences);
+            })),
         })
     }
 

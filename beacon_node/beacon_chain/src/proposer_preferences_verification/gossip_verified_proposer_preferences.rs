@@ -14,7 +14,8 @@ use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use tracing::debug;
 use types::{
-    ChainSpec, EthSpec, Hash256, ProposerPreferences, SignedProposerPreferencesGloas, Slot,
+    ChainSpec, Domain, EthSpec, ForkName, Hash256, ProposerPreferences,
+    SignedProposerPreferencesGloas, SignedProposerPreferencesPq, SignedRoot, Slot,
 };
 
 /// Verify that proposer preferences are consistent with the current chain state
@@ -208,6 +209,89 @@ impl GossipVerifiedProposerPreferences {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    pub fn verify_pq_proposer_preferences_for_gossip(
+        &self,
+        signed: Arc<SignedProposerPreferencesPq>,
+    ) -> Result<(), ProposerPreferencesError> {
+        let message = &signed.message;
+        let slot = message.proposal_slot;
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        let index = message.validator_index;
+        let key = (slot, message.dependent_root);
+        let current_slot = self.slot()?;
+        if self.spec.fork_name_at_epoch(epoch) != ForkName::Pq {
+            return Err(ProposerPreferencesError::InvalidProposalEpoch {
+                proposal_epoch: epoch,
+            });
+        }
+        verify_preferences_consistency::<T::EthSpec>(message, current_slot, &self.spec)?;
+        if self.pq_proposer_preferences.lock().contains_key(&key) {
+            return Err(ProposerPreferencesError::AlreadySeen {
+                validator_index: index,
+                proposal_slot: slot,
+            });
+        }
+        let head = self.head_snapshot();
+        let head_state = &head.beacon_state;
+        let dependent_root = head_state.proposer_shuffling_decision_root_at_epoch(
+            epoch,
+            head.beacon_block_root,
+            &self.spec,
+        )?;
+        if dependent_root != message.dependent_root {
+            return Err(ProposerPreferencesError::InvalidDependentRoot {
+                dependent_root: message.dependent_root,
+            });
+        }
+        let proposer = self.with_proposer_cache(
+            dependent_root,
+            epoch,
+            |proposers| proposers.get_slot::<T::EthSpec>(slot),
+            || Ok::<_, ProposerPreferencesError>((head.beacon_state_root(), head_state.clone())),
+        )?;
+        if proposer.index as u64 != index {
+            return Err(ProposerPreferencesError::InvalidProposalSlot {
+                validator_index: index,
+                proposal_slot: slot,
+            });
+        }
+        let pubkey = head_state.get_validator(index as usize)?.pubkey;
+        let domain = self.spec.get_domain(
+            epoch,
+            Domain::ProposerPreferences,
+            &proposer.fork,
+            self.genesis_validators_root,
+        );
+        let leaf = state_processing::pq::slot_leaf_index(
+            slot,
+            state_processing::pq::LEAF_OFFSET_PROPOSER_PREFERENCES,
+        )
+        .map_err(BeaconChainError::from)?;
+        let _timer = crate::metrics::start_timer(&crate::metrics::PQ_XMSS_VERIFY_SECONDS);
+        if !state_processing::pq::verify_signature(
+            &pubkey,
+            leaf,
+            message.signing_root(domain),
+            &signed.signature,
+        ) {
+            return Err(ProposerPreferencesError::BadSignature);
+        }
+        let mut preferences = self.pq_proposer_preferences.lock();
+        preferences.retain(|(proposal_slot, _), _| *proposal_slot >= current_slot);
+        match preferences.entry(key) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(signed);
+                Ok(())
+            }
+            std::collections::hash_map::Entry::Occupied(_) => {
+                Err(ProposerPreferencesError::AlreadySeen {
+                    validator_index: index,
+                    proposal_slot: slot,
+                })
+            }
+        }
+    }
+
     pub fn proposer_preferences_gossip_verification_context(
         &self,
     ) -> GossipVerificationContext<'_, T> {

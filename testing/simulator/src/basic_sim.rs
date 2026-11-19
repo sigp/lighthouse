@@ -72,6 +72,9 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .get_one::<String>("log-dir")
         .map(PathBuf::from);
     let disable_stdout_logging = subcommand_matches.get_flag("disable-stdout-logging");
+    let pq_socket = subcommand_matches
+        .get_one::<String>("pq-prover-socket")
+        .map(PathBuf::from);
 
     println!("Basic Simulator:");
     println!(" nodes: {}", node_count);
@@ -168,7 +171,11 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let mut spec = (*env.eth2_config.spec).clone();
 
     let total_validator_count = validators_per_node * node_count;
-    let genesis_delay = GENESIS_DELAY;
+    let genesis_delay = if pq_socket.is_some() {
+        90
+    } else {
+        GENESIS_DELAY
+    };
 
     // Convenience variables. Update these values when adding a newer fork.
     let latest_fork_version = spec.gloas_fork_version;
@@ -189,6 +196,13 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
     spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
     spec.gloas_fork_epoch = Some(Epoch::new(GLOAS_FORK_EPOCH));
+    if pq_socket.is_some() {
+        spec = types::ForkName::Pq.make_genesis_spec(spec);
+        // Several committees per slot exercise recursive proof folding even
+        // with a small validator registry.
+        spec.target_committee_size = 1;
+        spec = spec.set_slot_duration_ms::<MinimalEthSpec>(12_000);
+    }
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
@@ -203,7 +217,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
          * Create a new `LocalNetwork` with one beacon node.
          */
         let max_retries = 3;
-        let (network, beacon_config, mock_execution_config) = with_retry(max_retries, || {
+        let (network, mut beacon_config, mock_execution_config) = with_retry(max_retries, || {
             Box::pin(LocalNetwork::create_local_network(
                 None,
                 None,
@@ -218,6 +232,17 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             ))
         })
         .await?;
+        if let Some(socket) = &pq_socket {
+            beacon_config.chain.pq_prover = Some(
+                beacon_chain::chain_config::PqProverConfig::Sidecar(socket.clone()),
+            );
+            beacon_config.network.subscribe_all_subnets = true;
+            beacon_config.network.import_all_attestations = true;
+            beacon_config.network.enable_light_client_server = false;
+            beacon_config.chain.enable_light_client_server = false;
+            // mock-el creates synthetic execution block hashes.
+            beacon_config.chain.verify_envelope_payload_hash_on_cl = false;
+        }
 
         // Add nodes to the network.
         for _ in 0..node_count {
@@ -280,6 +305,15 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
+
+        if pq_socket.is_some() {
+            let result =
+                verify_pq_simulation(&network, &spec, slot_duration, total_validator_count).await;
+            if continue_after_checks && result.is_ok() {
+                future::pending::<()>().await;
+            }
+            return result;
+        }
 
         /*
          * Start the checks that ensure the network performs as expected.
@@ -414,10 +448,88 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    env.runtime().block_on(main_future).unwrap();
+    let result = env.runtime().block_on(main_future);
 
     env.fire_signal();
     env.shutdown_on_idle();
 
+    result
+}
+
+async fn verify_pq_simulation(
+    network: &LocalNetwork<MinimalEthSpec>,
+    spec: &types::ChainSpec,
+    slot_duration: std::time::Duration,
+    validators: usize,
+) -> Result<(), String> {
+    use node_test_rig::eth2::types::{BlockId, StateId};
+    use types::{AttestationRef, SignedBeaconBlock, Slot};
+
+    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+    checks::epoch_delay(Epoch::new(5), slot_duration, slots_per_epoch).await;
+    let nodes = network.remote_nodes()?;
+    let first = nodes.first().ok_or("PQ simulator needs a beacon node")?;
+    let mut finalized_root = None;
+    for node in &nodes {
+        let finality = node
+            .get_beacon_states_finality_checkpoints(StateId::Head)
+            .await
+            .map_err(|error| format!("Unable to read PQ finality: {error:?}"))?
+            .ok_or("Missing PQ head finality")?
+            .data;
+        if finality.finalized.epoch < Epoch::new(2)
+            || finalized_root.is_some_and(|root| root != finality.finalized.root)
+        {
+            return Err(format!(
+                "PQ finality did not converge: {:?}",
+                finality.finalized
+            ));
+        }
+        finalized_root = Some(finality.finalized.root);
+        println!(
+            "PQ finalized epoch {} at {:?}",
+            finality.finalized.epoch, finality.finalized.root
+        );
+    }
+    let mut timely_attesters = 0;
+    // Exclude the two startup epochs and sample two full epochs after duties
+    // and P2P subscriptions have settled.
+    for vote_slot in (2 * slots_per_epoch)..(4 * slots_per_epoch) {
+        let inclusion_slot = Slot::new(vote_slot + 2);
+        let block = first
+            .get_beacon_blocks_ssz::<MinimalEthSpec>(BlockId::Slot(inclusion_slot), spec)
+            .await
+            .map_err(|error| format!("Unable to read PQ block: {error:?}"))?;
+        if let Some(SignedBeaconBlock::Pq(block)) = block {
+            for attestation in block
+                .message
+                .body
+                .attestations
+                .iter()
+                .filter(|attestation| attestation.data.slot == Slot::new(vote_slot))
+            {
+                timely_attesters += AttestationRef::Pq(attestation).num_set_aggregation_bits();
+            }
+        }
+    }
+    let expected = validators.saturating_mul(2);
+    println!("PQ delay-two inclusion {timely_attesters}/{expected}");
+    for metric in metrics::gather().into_iter().filter(|metric| {
+        metric.get_name().contains("_pq_")
+            && metric.get_field_type() == metrics::MetricType::HISTOGRAM
+    }) {
+        for value in metric.get_metric() {
+            let histogram = value.get_histogram();
+            println!(
+                "{} count={} sum={}",
+                metric.get_name(),
+                histogram.get_sample_count(),
+                histogram.get_sample_sum()
+            );
+        }
+    }
+    if expected == 0 || timely_attesters.saturating_mul(10) <= expected.saturating_mul(9) {
+        return Err("PQ delay-two inclusion did not exceed 90 percent".into());
+    }
     Ok(())
 }

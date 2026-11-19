@@ -842,6 +842,7 @@ where
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
+            beacon_chain.start_pq_aggregation();
             start_availability_cache_maintenance_service(
                 runtime_context.executor.clone(),
                 beacon_chain.clone(),

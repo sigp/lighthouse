@@ -33,6 +33,7 @@
 #![allow(clippy::result_large_err)]
 
 mod batch;
+mod pq;
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, metrics,
@@ -843,6 +844,9 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
         signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
+        if let SignedAggregateAndProof::Pq(aggregate) = signed_aggregate {
+            return Self::verify_pq(signed_aggregate, aggregate, chain);
+        }
         let indexed = IndexedAggregatedAttestation::verify(signed_aggregate, chain)?;
         Self::from_indexed(indexed, chain, CheckAttestationSignature::Yes)
     }
@@ -1013,7 +1017,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         let validator_index = attestation.attester_index();
 
         // If the attester_index at or above the pubkey cache length, reject it
-        if validator_index as usize >= chain.validator_pubkey_cache.read().len() {
+        if !matches!(attestation, SingleAttestation::Pq(_))
+            && validator_index as usize >= chain.validator_pubkey_cache.read().len()
+        {
             return Err(Error::ValidatorIndexTooHigh(validator_index as usize));
         }
 
@@ -1145,6 +1151,12 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
                 expected: expected_subnet_id,
             });
         };
+        let fork_name = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
+        let unaggregated_attestation =
+            single_attestation_to_attestation(attestation, &committee, fork_name)?;
+
         // Now that the attestation has been fully verified, store that we have received a valid
         // attestation from this validator.
         //
@@ -1163,13 +1175,6 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             });
         }
 
-        let fork_name = chain
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
-
-        let unaggregated_attestation =
-            single_attestation_to_attestation(attestation, &committee, fork_name)?;
-
         Ok((unaggregated_attestation, expected_subnet_id))
     }
 
@@ -1179,6 +1184,9 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
+        if let SingleAttestation::Pq(attestation) = unaggregated_attestation {
+            return Self::verify_pq(unaggregated_attestation, attestation, subnet_id, chain);
+        }
         let indexed =
             IndexedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, chain)?;
         Self::from_indexed(indexed, chain, CheckAttestationSignature::Yes)
@@ -1518,6 +1526,16 @@ pub fn verify_committee_index<E: EthSpec>(
     attestation: AttestationRef<E>,
     fork_name: ForkName,
 ) -> Result<(), Error> {
+    if let AttestationRef::Pq(attestation) = attestation {
+        let count = attestation.committee_bits.iter().filter(|bit| *bit).count();
+        if count != 1 {
+            return Err(Error::NotExactlyOneCommitteeBitSet(count));
+        }
+        if attestation.data.index > 1 {
+            return Err(Error::CommitteeIndexInvalid);
+        }
+        return Ok(());
+    }
     if let Ok(committee_bits) = attestation.committee_bits() {
         // Check to ensure that the attestation is for a single committee.
         let num_committee_bits = get_committee_indices::<E>(committee_bits);

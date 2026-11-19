@@ -1446,7 +1446,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 /// Will return an error when using a pre-Gloas `state`. Ensure to only run this function
 /// after the Gloas fork.
 #[allow(clippy::too_many_arguments)]
-fn get_execution_payload_gloas<T: BeaconChainTypes>(
+pub(super) fn get_execution_payload_gloas<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     parent_beacon_block_root: Hash256,
@@ -1472,11 +1472,19 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let withdrawals = if is_parent_block_full {
         if let Some(envelope) = parent_envelope {
             let mut withdrawals_state = state.clone();
-            apply_parent_execution_payload(
-                &mut withdrawals_state,
-                &envelope.execution_requests,
-                spec,
-            )?;
+            if state.fork_name_unchecked() == types::ForkName::Pq {
+                state_processing::per_block_processing::apply_parent_execution_payload_pq(
+                    &mut withdrawals_state,
+                    &(&envelope.execution_requests).into(),
+                    spec,
+                )?;
+            } else {
+                apply_parent_execution_payload(
+                    &mut withdrawals_state,
+                    &envelope.execution_requests,
+                    spec,
+                )?;
+            }
             Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(&withdrawals_state, spec)?)
                 .into()
         } else {
