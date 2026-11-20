@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
+    events::ServerSentEventHandler,
     observed_execution_payloads::ObservedExecutionPayloads,
     payload_bid_verification::{
         PayloadBidError,
@@ -251,6 +252,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
     pub store: &'a BeaconStore<T>,
+    pub event_handler: Option<&'a ServerSentEventHandler<T::EthSpec>>,
 }
 
 /// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
@@ -324,6 +326,17 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         ctx.gossip_verified_payload_bid_cache
             .observe_bid(gossip_verified_bid.clone());
+
+        if ctx
+            .gossip_verified_payload_bid_cache
+            .is_highest_gossip_or_fed_bid(&gossip_verified_bid.signed_bid)
+        {
+            emit_best_execution_payload_bid(
+                ctx.event_handler,
+                &gossip_verified_bid.signed_bid,
+                ctx.spec,
+            );
+        }
 
         Ok(gossip_verified_bid)
     }
@@ -483,6 +496,25 @@ pub(crate) fn verify_bid_conditions<T: BeaconChainTypes>(
     .ok_or(PayloadBidError::BadSignature)
 }
 
+/// Emit a `best_execution_payload_bid` event for `signed_bid`, if anyone is subscribed.
+pub(crate) fn emit_best_execution_payload_bid<E: EthSpec>(
+    event_handler: Option<&ServerSentEventHandler<E>>,
+    signed_bid: &SignedExecutionPayloadBid<E>,
+    spec: &ChainSpec,
+) {
+    if let Some(event_handler) = event_handler
+        && event_handler.has_best_execution_payload_bid_subscribers()
+    {
+        event_handler.register(EventKind::BestExecutionPayloadBid(Box::new(
+            ForkVersionedResponse {
+                version: spec.fork_name_at_slot::<E>(signed_bid.message().slot()),
+                metadata: Default::default(),
+                data: signed_bid.clone(),
+            },
+        )));
+    }
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Build a `GossipVerificationContext` from this `BeaconChain` for `GossipVerifiedPayloadBid`.
     pub fn payload_bid_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
@@ -495,6 +527,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
+            event_handler: self.event_handler.as_ref(),
         }
     }
 

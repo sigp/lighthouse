@@ -4,7 +4,10 @@ use crate::{
     BeaconChainTypes,
     payload_bid_verification::{
         PayloadBidError,
-        gossip_verified_bid::{GossipVerificationContext, verify_bid_conditions, verify_bid_slot},
+        gossip_verified_bid::{
+            GossipVerificationContext, emit_best_execution_payload_bid, verify_bid_conditions,
+            verify_bid_slot,
+        },
     },
 };
 use slot_clock::SlotClock;
@@ -18,7 +21,8 @@ use types::SignedExecutionPayloadBid;
 /// gossip-only ones (the highest-value check, the one-bid-per-builder check and the zero
 /// `execution_payment` rule), so a fed bid may carry a non-zero `execution_payment` or share its
 /// slot/parent/builder with an earlier bid. The bid is stored apart from the gossip state, is
-/// never published, and no `execution_payload_bid` event is emitted for it.
+/// never published, and no `execution_payload_bid` event is emitted for it. A
+/// `best_execution_payload_bid` event is emitted if it becomes the best bid for its parent.
 ///
 /// [`GossipVerifiedPayloadBid::new`]: crate::payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid::new
 pub fn verify_validator_fed_bid<T: BeaconChainTypes>(
@@ -46,14 +50,21 @@ pub fn verify_validator_fed_bid<T: BeaconChainTypes>(
 
     match verification {
         Ok(()) => {
-            let is_highest = ctx
+            let is_inserted = ctx
                 .gossip_verified_payload_bid_cache
-                .insert_validator_fed_bid(signed_bid);
+                .insert_validator_fed_bid(signed_bid.clone());
+            if is_inserted
+                && ctx
+                    .gossip_verified_payload_bid_cache
+                    .is_highest_gossip_or_fed_bid(&signed_bid)
+            {
+                emit_best_execution_payload_bid(ctx.event_handler, &signed_bid, ctx.spec);
+            }
             debug!(
                 %slot,
                 %parent_block_hash,
                 %parent_block_root,
-                is_highest,
+                is_inserted,
                 "Successfully verified validator-fed payload bid"
             );
             Ok(())

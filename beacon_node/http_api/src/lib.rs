@@ -3441,6 +3441,9 @@ pub async fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::ExecutionPayloadBid => {
                                     event_handler.subscribe_execution_payload_bid()
                                 }
+                                api_types::EventTopic::BestExecutionPayloadBid => {
+                                    event_handler.subscribe_best_execution_payload_bid()
+                                }
                                 api_types::EventTopic::ProposerPreferences => {
                                     event_handler.subscribe_proposer_preferences()
                                 }

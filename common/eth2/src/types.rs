@@ -1409,6 +1409,7 @@ pub enum EventKind<E: EthSpec> {
     ExecutionPayloadGossip(SseExecutionPayloadGossip),
     ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
     ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
+    BestExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
     ProposerPreferences(Box<VersionedSseProposerPreferences>),
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
     FastConfirmation(SseFastConfirmation),
@@ -1440,6 +1441,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ExecutionPayloadGossip(_) => "execution_payload_gossip",
             EventKind::ExecutionPayloadAvailable(_) => "execution_payload_available",
             EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
+            EventKind::BestExecutionPayloadBid(_) => "best_execution_payload_bid",
             EventKind::ProposerPreferences(_) => "proposer_preferences",
             EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
             EventKind::FastConfirmation(_) => "fast_confirmation",
@@ -1560,6 +1562,14 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Execution Payload Bid: {:?}", e))
                 })?,
             ))),
+            "best_execution_payload_bid" => Ok(EventKind::BestExecutionPayloadBid(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Best Execution Payload Bid: {:?}",
+                        e
+                    ))
+                })?,
+            ))),
             "proposer_preferences" => Ok(EventKind::ProposerPreferences(Box::new(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Proposer Preferences: {:?}", e))
@@ -1622,6 +1632,7 @@ pub enum EventTopic {
     ExecutionPayloadGossip,
     ExecutionPayloadAvailable,
     ExecutionPayloadBid,
+    BestExecutionPayloadBid,
     ProposerPreferences,
     PayloadAttestationMessage,
     FastConfirmation,
@@ -1655,6 +1666,7 @@ impl FromStr for EventTopic {
             "execution_payload_gossip" => Ok(EventTopic::ExecutionPayloadGossip),
             "execution_payload_available" => Ok(EventTopic::ExecutionPayloadAvailable),
             "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
+            "best_execution_payload_bid" => Ok(EventTopic::BestExecutionPayloadBid),
             "proposer_preferences" => Ok(EventTopic::ProposerPreferences),
             "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
             "fast_confirmation" => Ok(EventTopic::FastConfirmation),
@@ -1691,6 +1703,7 @@ impl fmt::Display for EventTopic {
                 write!(f, "execution_payload_available")
             }
             EventTopic::ExecutionPayloadBid => write!(f, "execution_payload_bid"),
+            EventTopic::BestExecutionPayloadBid => write!(f, "best_execution_payload_bid"),
             EventTopic::ProposerPreferences => write!(f, "proposer_preferences"),
             EventTopic::PayloadAttestationMessage => {
                 write!(f, "payload_attestation_message")

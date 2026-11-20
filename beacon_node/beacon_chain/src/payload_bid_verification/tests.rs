@@ -20,6 +20,7 @@ use types::{
     SignedProposerPreferences, SignedRoot, Slot, Spec, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
+use eth2::types::EventKind;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use types::AttestationShufflingId;
 
@@ -28,6 +29,7 @@ use crate::{
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
     chain_config::FastConfirmationMode,
+    events::ServerSentEventHandler,
     observed_execution_payloads::ObservedExecutionPayloads,
     payload_bid_verification::{
         PayloadBidError,
@@ -230,6 +232,7 @@ impl TestContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
+            event_handler: None,
         }
     }
 
@@ -1110,6 +1113,58 @@ fn validator_fed_bid_bad_signature() {
         ctx.bid_cache
             .get_highest_gossip_or_fed_bid(slot, bid_parent)
             .is_none()
+    );
+}
+
+#[test]
+fn best_execution_payload_bid_event_emitted_only_on_new_best() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let event_handler = ServerSentEventHandler::new_with_capacity(16);
+    let mut events = event_handler.subscribe_best_execution_payload_bid();
+    let gossip = GossipVerificationContext {
+        event_handler: Some(&event_handler),
+        ..ctx.gossip_ctx()
+    };
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let make_bid = |builder_index, value| {
+        ctx.sign_bid(ExecutionPayloadBidGloas {
+            slot,
+            builder_index,
+            fee_recipient: Address::ZERO,
+            gas_limit: 30_000_000,
+            value,
+            parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
+            prev_randao: ctx.expected_prev_randao(),
+            ..ExecutionPayloadBidGloas::default()
+        })
+    };
+    let mut expect_event = |expected: &SignedExecutionPayloadBid<E>| {
+        match events.try_recv() {
+            Ok(EventKind::BestExecutionPayloadBid(event)) => assert_eq!(&event.data, expected),
+            other => panic!("expected a best_execution_payload_bid event, got {other:?}"),
+        }
+        assert!(events.try_recv().is_err(), "expected exactly one event");
+    };
+
+    let gossip_bid = make_bid(1, 100);
+    GossipVerifiedPayloadBid::new(gossip_bid.clone(), &gossip).expect("gossip bid should pass");
+    expect_event(&gossip_bid);
+
+    let fed_bid = make_bid(0, 200);
+    verify_validator_fed_bid(fed_bid.clone(), &gossip).expect("fed bid should pass");
+    expect_event(&fed_bid);
+
+    GossipVerifiedPayloadBid::new(make_bid(2, 150), &gossip)
+        .expect("gossip bid below the fed bid should pass");
+    assert!(
+        events.try_recv().is_err(),
+        "a gossip bid below the fed bid is not the new best"
     );
 }
 

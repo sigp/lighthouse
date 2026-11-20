@@ -96,8 +96,8 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
     /// highest gossip bid and the highest validator-fed bid, if either exists. The gossip bid wins
     /// a tie.
     ///
-    /// Only block production should call this. Gossip validation must use
-    /// [`get_highest_bid`](Self::get_highest_bid), which never sees validator-fed bids.
+    /// Block production and the `best_execution_payload_bid` event read this. Gossip validation must
+    /// use [`get_highest_bid`](Self::get_highest_bid), which never sees validator-fed bids.
     pub fn get_highest_gossip_or_fed_bid(
         &self,
         slot: Slot,
@@ -123,6 +123,20 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
             (Some(gossip_bid), _) => Some(gossip_bid.clone()),
             (None, fed_bid) => fed_bid.cloned(),
         }
+    }
+
+    /// Whether `signed_bid` is exactly the bid
+    /// [`get_highest_gossip_or_fed_bid`](Self::get_highest_gossip_or_fed_bid) returns for its
+    /// `(slot, BidParent)`, i.e. it is the new best bid for the `best_execution_payload_bid` event.
+    pub fn is_highest_gossip_or_fed_bid(
+        &self,
+        signed_bid: &Arc<SignedExecutionPayloadBid<E>>,
+    ) -> bool {
+        self.get_highest_gossip_or_fed_bid(
+            signed_bid.message().slot(),
+            BidParent::from_bid(signed_bid.message()),
+        )
+        .is_some_and(|highest| Arc::ptr_eq(&highest, signed_bid))
     }
 
     /// Record a gossip-verified `bid` in the cache.

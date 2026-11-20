@@ -30,6 +30,7 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     execution_payload_gossip_tx: Sender<EventKind<E>>,
     execution_payload_available_tx: Sender<EventKind<E>>,
     execution_payload_bid_tx: Sender<EventKind<E>>,
+    best_execution_payload_bid_tx: Sender<EventKind<E>>,
     proposer_preferences_tx: Sender<EventKind<E>>,
     payload_attestation_message_tx: Sender<EventKind<E>>,
     fast_confirmation_tx: Sender<EventKind<E>>,
@@ -64,6 +65,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (execution_payload_gossip_tx, _) = broadcast::channel(capacity);
         let (execution_payload_available_tx, _) = broadcast::channel(capacity);
         let (execution_payload_bid_tx, _) = broadcast::channel(capacity);
+        let (best_execution_payload_bid_tx, _) = broadcast::channel(capacity);
         let (proposer_preferences_tx, _) = broadcast::channel(capacity);
         let (payload_attestation_message_tx, _) = broadcast::channel(capacity);
         let (fast_confirmation_tx, _) = broadcast::channel(capacity);
@@ -92,6 +94,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             execution_payload_gossip_tx,
             execution_payload_available_tx,
             execution_payload_bid_tx,
+            best_execution_payload_bid_tx,
             proposer_preferences_tx,
             payload_attestation_message_tx,
             fast_confirmation_tx,
@@ -196,6 +199,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .execution_payload_bid_tx
                 .send(kind)
                 .map(|count| log_count("execution payload bid", count)),
+            EventKind::BestExecutionPayloadBid(_) => self
+                .best_execution_payload_bid_tx
+                .send(kind)
+                .map(|count| log_count("best execution payload bid", count)),
             EventKind::ProposerPreferences(_) => self
                 .proposer_preferences_tx
                 .send(kind)
@@ -306,6 +313,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.execution_payload_bid_tx.subscribe()
     }
 
+    pub fn subscribe_best_execution_payload_bid(&self) -> Receiver<EventKind<E>> {
+        self.best_execution_payload_bid_tx.subscribe()
+    }
+
     pub fn subscribe_proposer_preferences(&self) -> Receiver<EventKind<E>> {
         self.proposer_preferences_tx.subscribe()
     }
@@ -400,6 +411,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_execution_payload_bid_subscribers(&self) -> bool {
         self.execution_payload_bid_tx.receiver_count() > 0
+    }
+
+    pub fn has_best_execution_payload_bid_subscribers(&self) -> bool {
+        self.best_execution_payload_bid_tx.receiver_count() > 0
     }
 
     pub fn has_proposer_preferences_subscribers(&self) -> bool {
