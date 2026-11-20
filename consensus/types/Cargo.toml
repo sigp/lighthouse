@@ -61,6 +61,7 @@ rusqlite = { workspace = true, optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
+silver_hashing = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }
 superstruct = { workspace = true }

@@ -198,13 +198,17 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut exit_balance_to_consume = state.exit_balance_to_consume().ok();
     let validators_in_consolidations = get_validators_in_consolidations(state);
 
+    // The summary below shares the participation lists, which needs them committed.
+    state.previous_epoch_participation_mut()?.commit();
+    state.current_epoch_participation_mut()?.commit();
+
     // Split the state into several disjoint mutable borrows.
     let (
         mut validators,
-        mut balances,
+        balances,
         previous_epoch_participation,
         current_epoch_participation,
-        mut inactivity_scores,
+        inactivity_scores,
         progressive_balances,
         exit_cache,
         epoch_cache,
@@ -216,8 +220,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // informational purposes (e.g. by the validator monitor).
     let summary = ParticipationEpochSummary::new(
         validators.as_ref().to_owned_list(),
-        previous_epoch_participation.to_owned_list(),
-        current_epoch_participation.to_owned_list(),
+        previous_epoch_participation.clone(),
+        current_epoch_participation.clone(),
         previous_epoch,
         current_epoch,
     );
@@ -241,10 +245,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
     // Iterate over the validators and related fields in one pass.
     let mut validators_iter = validators.iter_cow();
-    let mut balances_iter = balances.iter_cow();
-    let mut inactivity_scores_iter = inactivity_scores.iter_cow();
 
-    for (index, &previous_epoch_participation, &current_epoch_participation) in izip!(
+    for (index, previous_epoch_participation, current_epoch_participation) in izip!(
         0..num_validators,
         previous_epoch_participation.iter(),
         current_epoch_participation.iter(),
@@ -252,11 +254,11 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         let (_, mut validator) = validators_iter
             .next_cow()
             .ok_or(BeaconStateError::UnknownValidator(index))?;
-        let (_, mut balance) = balances_iter
-            .next_cow()
+        let mut balance = balances
+            .get(index)
             .ok_or(BeaconStateError::UnknownValidator(index))?;
-        let (_, mut inactivity_score) = inactivity_scores_iter
-            .next_cow()
+        let mut inactivity_score = inactivity_scores
+            .get(index)
             .ok_or(BeaconStateError::UnknownValidator(index))?;
 
         let is_active_current_epoch = validator.is_active_at(current_epoch);
@@ -349,7 +351,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             } else {
                 process_single_effective_balance_update(
                     validator_info.index,
-                    *balance,
+                    balance,
                     &mut validator,
                     validator_info.current_epoch_participation,
                     &mut next_epoch_cache,
@@ -360,6 +362,9 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 )?;
             }
         }
+
+        balances.set(index, balance)?;
+        inactivity_scores.set(index, inactivity_score)?;
     }
 
     if conf.registry_updates && fork_name.electra_enabled() {
@@ -404,9 +409,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             // Only check the signature if this is the first deposit for the validator,
             // following the logic from `apply_pending_deposit` in the spec.
             if let Some(validator_index) = state.get_validator_index(&deposit_data.pubkey)? {
-                state
-                    .get_balance_mut(validator_index)?
-                    .safe_add_assign(deposit_data.amount)?;
+                increase_balance(state, validator_index, deposit_data.amount)?;
             } else if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
                 // Apply the new deposit to the state
                 let validator_index = state.add_validator_to_registry(
@@ -431,13 +434,13 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 _,
             ) = state.mutable_validator_fields()?;
             for (_, validator_index) in added_validators.iter() {
-                let balance = *balances
+                let balance = balances
                     .get(*validator_index)
                     .ok_or(BeaconStateError::UnknownValidator(*validator_index))?;
                 let mut validator = validators
                     .get_cow(*validator_index)
                     .ok_or(BeaconStateError::UnknownValidator(*validator_index))?;
-                let validator_current_epoch_participation = *current_epoch_participation
+                let validator_current_epoch_participation = current_epoch_participation
                     .get(*validator_index)
                     .ok_or(BeaconStateError::UnknownValidator(*validator_index))?;
                 process_single_effective_balance_update(
@@ -632,7 +635,7 @@ fn process_builder_pending_payments<E: EthSpec>(
 }
 
 fn process_single_inactivity_update(
-    inactivity_score: &mut Cow<u64>,
+    inactivity_score: &mut u64,
     validator_info: &ValidatorInfo,
     state_ctxt: &StateContext,
     spec: &ChainSpec,
@@ -645,27 +648,25 @@ fn process_single_inactivity_update(
     if validator_info.is_unslashed_participating_index(TIMELY_TARGET_FLAG_INDEX)? {
         // Avoid mutating when the inactivity score is 0 and can't go any lower -- the common
         // case.
-        if **inactivity_score == 0 {
+        if *inactivity_score == 0 {
             return Ok(());
         }
-        inactivity_score.make_mut()?.safe_sub_assign(1)?;
+        inactivity_score.safe_sub_assign(1)?;
     } else {
-        inactivity_score
-            .make_mut()?
-            .safe_add_assign(spec.inactivity_score_bias)?;
+        inactivity_score.safe_add_assign(spec.inactivity_score_bias)?;
     }
 
     // Decrease the score of all validators for forgiveness when not during a leak
     if !state_ctxt.is_in_inactivity_leak {
-        let deduction = min(spec.inactivity_score_recovery_rate, **inactivity_score);
-        inactivity_score.make_mut()?.safe_sub_assign(deduction)?;
+        let deduction = min(spec.inactivity_score_recovery_rate, *inactivity_score);
+        inactivity_score.safe_sub_assign(deduction)?;
     }
 
     Ok(())
 }
 
 fn process_single_reward_and_penalty(
-    balance: &mut Cow<u64>,
+    balance: &mut u64,
     inactivity_score: &u64,
     validator_info: &ValidatorInfo,
     rewards_ctxt: &RewardsAndPenaltiesContext,
@@ -695,7 +696,6 @@ fn process_single_reward_and_penalty(
     )?;
 
     if delta.rewards != 0 || delta.penalties != 0 {
-        let balance = balance.make_mut()?;
         balance.safe_add_assign(delta.rewards)?;
         *balance = balance.saturating_sub(delta.penalties);
     }
@@ -1051,7 +1051,7 @@ impl SlashingsContext {
 }
 
 fn process_single_slashing(
-    balance: &mut Cow<u64>,
+    balance: &mut u64,
     validator: &Validator,
     slashings_ctxt: &SlashingsContext,
     state_ctxt: &StateContext,
@@ -1074,7 +1074,7 @@ fn process_single_slashing(
                 .safe_div(state_ctxt.total_active_balance)?
                 .safe_mul(increment)?
         };
-        *balance.make_mut()? = balance.saturating_sub(penalty);
+        *balance = balance.saturating_sub(penalty);
     }
     Ok(())
 }
@@ -1208,7 +1208,7 @@ impl PendingDepositsContext {
 }
 
 fn process_pending_deposits_for_validator(
-    balance: &mut Cow<u64>,
+    balance: &mut u64,
     validator_info: &ValidatorInfo,
     pending_balance_deposits_ctxt: &PendingDepositsContext,
 ) -> Result<(), Error> {
@@ -1216,7 +1216,7 @@ fn process_pending_deposits_for_validator(
         .validator_deposits_to_process
         .get(&validator_info.index)
     {
-        balance.make_mut()?.safe_add_assign(*deposit_amount)?;
+        balance.safe_add_assign(*deposit_amount)?;
     }
     Ok(())
 }
@@ -1277,7 +1277,7 @@ fn process_pending_consolidations<E: EthSpec>(
 
         // Calculate the consolidated balance
         let source_effective_balance = std::cmp::min(
-            *state
+            state
                 .balances()
                 .get(source_index)
                 .ok_or(BeaconStateError::UnknownValidator(source_index))?,
@@ -1304,13 +1304,13 @@ fn process_pending_consolidations<E: EthSpec>(
     let (mut validators, balances, _, current_epoch_participation, _, progressive_balances, _, _) =
         state.mutable_validator_fields()?;
     for &validator_index in validators_in_consolidations {
-        let balance = *balances
+        let balance = balances
             .get(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
         let mut validator = validators
             .get_cow(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
-        let validator_current_epoch_participation = *current_epoch_participation
+        let validator_current_epoch_participation = current_epoch_participation
             .get(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
 

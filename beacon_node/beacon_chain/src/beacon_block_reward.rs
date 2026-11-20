@@ -284,9 +284,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .safe_mul(WEIGHT_DENOMINATOR)?
             .safe_div(PROPOSER_WEIGHT)?;
 
-        let mut current_epoch_participation = state.current_epoch_participation()?.to_owned_list();
-        let mut previous_epoch_participation =
-            state.previous_epoch_participation()?.to_owned_list();
+        let mut current_epoch_participation = state.current_epoch_participation()?.clone();
+        let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
 
         let parent_slot = state
             .latest_execution_payload_bid()
@@ -317,15 +316,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         &mut previous_epoch_participation
                     };
 
-                    let validator_participation = epoch_participation
-                        .as_mut()
-                        .into_get_mut(index)
+                    let mut validator_participation = epoch_participation
+                        .get(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
                     if participation_flag_indices.contains(&flag_index)
                         && !validator_participation.has_flag(flag_index)?
                     {
                         validator_participation.add_flag(flag_index)?;
+                        epoch_participation
+                            .set(index, validator_participation)
+                            .map_err(|_| BeaconStateError::ParticipationOutOfBounds(index))?;
                         proposer_reward_numerator
                             .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
                     }

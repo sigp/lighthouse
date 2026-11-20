@@ -212,13 +212,13 @@ fn compute_altair_deltas<E: EthSpec>(
     let mut deltas = state
         .balances()
         .iter()
-        .map(|x| *x as i64)
+        .map(|x| x as i64)
         .collect::<Vec<_>>();
     altair::process_rewards_and_penalties_slow(state, spec)?;
 
-    for (delta, new_balance) in deltas.iter_mut().zip(state.balances()) {
+    for (delta, new_balance) in deltas.iter_mut().zip(state.balances().iter()) {
         let old_balance = *delta;
-        *delta = *new_balance as i64 - old_balance;
+        *delta = new_balance as i64 - old_balance;
     }
 
     Ok(TotalDeltas { deltas })

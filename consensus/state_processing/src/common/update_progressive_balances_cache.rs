@@ -35,8 +35,8 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
     for ((validator, current_epoch_flags), previous_epoch_flags) in state
         .validators()
         .iter()
-        .zip(state.current_epoch_participation()?)
-        .zip(state.previous_epoch_participation()?)
+        .zip(state.current_epoch_participation()?.iter())
+        .zip(state.previous_epoch_participation()?.iter())
     {
         // Exclude slashed validators. We are calculating *unslashed* participating totals.
         if validator.slashed {
@@ -45,15 +45,11 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
 
         // Update current epoch flag balances.
         if validator.is_active_at(current_epoch) {
-            update_flag_total_balances(&mut current_epoch_cache, *current_epoch_flags, validator)?;
+            update_flag_total_balances(&mut current_epoch_cache, current_epoch_flags, validator)?;
         }
         // Update previous epoch flag balances.
         if validator.is_active_at(previous_epoch) {
-            update_flag_total_balances(
-                &mut previous_epoch_cache,
-                *previous_epoch_flags,
-                validator,
-            )?;
+            update_flag_total_balances(&mut previous_epoch_cache, previous_epoch_flags, validator)?;
         }
     }
 
@@ -114,12 +110,12 @@ pub fn update_progressive_balances_on_slashing<E: EthSpec>(
     validator_effective_balance: u64,
 ) -> Result<(), BlockProcessingError> {
     if is_progressive_balances_enabled(state) {
-        let previous_epoch_participation = *state
+        let previous_epoch_participation = state
             .previous_epoch_participation()?
             .get(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
 
-        let current_epoch_participation = *state
+        let current_epoch_participation = state
             .current_epoch_participation()?
             .get(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
