@@ -54,7 +54,7 @@ use types::{
 type E = Spec;
 type T = EphemeralHarnessType<E>;
 
-const SLOTS_PER_EPOCH: u64 = 32;
+const SLOTS_PER_EPOCH: u64 = Spec::SLOTS_PER_EPOCH as u64;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const SMALL_CHAIN: u64 = 2;
 const LONG_CHAIN: u64 = SLOTS_PER_EPOCH * 2;
