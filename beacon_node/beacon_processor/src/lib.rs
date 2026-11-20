@@ -1872,9 +1872,9 @@ mod tests {
     use super::*;
     use crate::scheduler::work_queue::PeerWorkQueue;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use types::MainnetEthSpec;
+    use types::Spec;
 
-    fn rpc_block(peer_id: PeerId, ignored: Arc<AtomicUsize>) -> Work<MainnetEthSpec> {
+    fn rpc_block(peer_id: PeerId, ignored: Arc<AtomicUsize>) -> Work<Spec> {
         Work::RpcBlock {
             peer_id,
             beacon_block_root: Hash256::ZERO,
@@ -1920,7 +1920,7 @@ mod tests {
         let peer = PeerId::random();
         let ignored = Arc::new(AtomicUsize::new(0));
         let callback_counter = ignored.clone();
-        let event: WorkEvent<MainnetEthSpec> = ReadyWork::RpcBlock(QueuedRpcBlock {
+        let event: WorkEvent<Spec> = ReadyWork::RpcBlock(QueuedRpcBlock {
             peer_id: peer,
             beacon_block_root: Hash256::ZERO,
             process_fn: Box::pin(async {}),
