@@ -36,6 +36,7 @@ use crate::{
             verify_bid_state_conditions,
         },
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
+        validator_fed_bid::verify_validator_fed_bid,
     },
     proposer_preferences_verification::{
         gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences,
@@ -875,6 +876,239 @@ fn execution_payment_nonzero() {
         result,
         Err(PayloadBidError::ExecutionPaymentNonZero { .. })
     ));
+}
+
+#[test]
+fn validator_fed_bid_execution_payment_nonzero() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
+        slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 100,
+        execution_payment: 42,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        ..ExecutionPayloadBidGloas::default()
+    });
+    let result = verify_validator_fed_bid(bid.clone(), &gossip);
+    assert!(
+        result.is_ok(),
+        "fed bid should pass: {:?}",
+        result.unwrap_err()
+    );
+    assert_eq!(
+        ctx.bid_cache
+            .get_best_bid_for_production(slot, BidParent::from_bid(bid.message())),
+        Some(bid)
+    );
+}
+
+#[test]
+fn validator_fed_bid_same_builder_not_blocked() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let make_bid = |value| {
+        ctx.sign_bid(ExecutionPayloadBidGloas {
+            slot,
+            builder_index: 0,
+            fee_recipient: Address::ZERO,
+            gas_limit: 30_000_000,
+            value,
+            parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
+            prev_randao: ctx.expected_prev_randao(),
+            ..ExecutionPayloadBidGloas::default()
+        })
+    };
+    let first_bid = make_bid(100);
+    let second_bid = make_bid(200);
+
+    let result = verify_validator_fed_bid(first_bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "first fed bid should pass: {:?}",
+        result.unwrap_err()
+    );
+    let result = verify_validator_fed_bid(second_bid.clone(), &gossip);
+    assert!(
+        result.is_ok(),
+        "second fed bid from the same builder should pass: {:?}",
+        result.unwrap_err()
+    );
+    assert_eq!(
+        ctx.bid_cache
+            .get_best_bid_for_production(slot, BidParent::from_bid(second_bid.message())),
+        Some(second_bid)
+    );
+}
+
+#[test]
+fn validator_fed_bid_does_not_mark_builder_seen() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let make_bid = |value| {
+        ctx.sign_bid(ExecutionPayloadBidGloas {
+            slot,
+            builder_index: 0,
+            fee_recipient: Address::ZERO,
+            gas_limit: 30_000_000,
+            value,
+            parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
+            prev_randao: ctx.expected_prev_randao(),
+            ..ExecutionPayloadBidGloas::default()
+        })
+    };
+    let fed_bid = make_bid(100);
+    let gossip_bid = make_bid(200);
+
+    let result = verify_validator_fed_bid(fed_bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "fed bid should pass: {:?}",
+        result.unwrap_err()
+    );
+    let result = GossipVerifiedPayloadBid::new(gossip_bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "gossip bid from the fed bid's builder should pass: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn validator_fed_bid_does_not_raise_gossip_highest_bid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let make_bid = |builder_index, value| {
+        ctx.sign_bid(ExecutionPayloadBidGloas {
+            slot,
+            builder_index,
+            fee_recipient: Address::ZERO,
+            gas_limit: 30_000_000,
+            value,
+            parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
+            prev_randao: ctx.expected_prev_randao(),
+            ..ExecutionPayloadBidGloas::default()
+        })
+    };
+    let fed_bid = make_bid(0, 500);
+    let gossip_bid = make_bid(1, 100);
+
+    let result = verify_validator_fed_bid(fed_bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "fed bid should pass: {:?}",
+        result.unwrap_err()
+    );
+    let result = GossipVerifiedPayloadBid::new(gossip_bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "gossip bid below the fed bid's value should pass: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn best_bid_for_production_picks_higher_of_fed_and_gossip() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let make_bid = |builder_index, value| {
+        ctx.sign_bid(ExecutionPayloadBidGloas {
+            slot,
+            builder_index,
+            fee_recipient: Address::ZERO,
+            gas_limit: 30_000_000,
+            value,
+            parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
+            prev_randao: ctx.expected_prev_randao(),
+            ..ExecutionPayloadBidGloas::default()
+        })
+    };
+    let low_gossip_bid = make_bid(1, 100);
+    let fed_bid = make_bid(0, 200);
+    let high_gossip_bid = make_bid(2, 300);
+    let bid_parent = BidParent::from_bid(fed_bid.message());
+
+    GossipVerifiedPayloadBid::new(low_gossip_bid, &gossip).expect("low gossip bid should pass");
+    verify_validator_fed_bid(fed_bid.clone(), &gossip).expect("fed bid should pass");
+    assert_eq!(
+        ctx.bid_cache.get_best_bid_for_production(slot, bid_parent),
+        Some(fed_bid),
+        "the fed bid is higher than the gossip bid"
+    );
+
+    GossipVerifiedPayloadBid::new(high_gossip_bid.clone(), &gossip)
+        .expect("high gossip bid should pass");
+    assert_eq!(
+        ctx.bid_cache.get_best_bid_for_production(slot, bid_parent),
+        Some(high_gossip_bid),
+        "the gossip bid is higher than the fed bid"
+    );
+}
+
+#[test]
+fn validator_fed_bid_bad_signature() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let bid = ctx.make_signed_bid(
+        slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    );
+    let bid_parent = BidParent::from_bid(bid.message());
+    let result = verify_validator_fed_bid(bid, &gossip);
+    assert!(matches!(result, Err(PayloadBidError::BadSignature)));
+    assert!(
+        ctx.bid_cache
+            .get_best_bid_for_production(slot, bid_parent)
+            .is_none()
+    );
 }
 
 #[test]

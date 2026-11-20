@@ -361,6 +361,92 @@ mod tests {
     }
 
     #[test]
+    fn validator_fed_bid_leaves_gossip_state_unchanged() {
+        let cache = GossipVerifiedPayloadBidCache::<E>::default();
+        let slot = Slot::new(1);
+        let hash = ExecutionBlockHash::zero();
+        let root = Hash256::ZERO;
+        let bid_parent = BidParent {
+            parent_block_hash: hash,
+            parent_block_root: root,
+        };
+
+        assert!(cache.observe_bid(make_gossip_verified(slot, 0, hash, root, 100)));
+        let fed_bid = make_gossip_verified(slot, 1, hash, root, 500).signed_bid;
+        assert!(cache.insert_validator_fed_bid(fed_bid));
+
+        let highest = cache.get_highest_bid(slot, bid_parent).unwrap();
+        assert_eq!(highest.message().value(), 100);
+        assert_eq!(highest.message().builder_index(), 0);
+        assert!(cache.seen_builder_bid_for_parent(&slot, bid_parent, 0));
+        assert!(!cache.seen_builder_bid_for_parent(&slot, bid_parent, 1));
+    }
+
+    #[test]
+    fn validator_fed_bid_replaced_only_by_higher_value() {
+        let cache = GossipVerifiedPayloadBidCache::<E>::default();
+        let slot = Slot::new(1);
+        let hash = ExecutionBlockHash::zero();
+        let root = Hash256::ZERO;
+        let bid_parent = BidParent {
+            parent_block_hash: hash,
+            parent_block_root: root,
+        };
+        let best_fed_builder = || {
+            cache
+                .get_best_bid_for_production(slot, bid_parent)
+                .unwrap()
+                .message()
+                .builder_index()
+        };
+
+        assert!(
+            cache.insert_validator_fed_bid(
+                make_gossip_verified(slot, 0, hash, root, 100).signed_bid
+            )
+        );
+        assert!(
+            !cache
+                .insert_validator_fed_bid(make_gossip_verified(slot, 1, hash, root, 50).signed_bid)
+        );
+        assert_eq!(best_fed_builder(), 0);
+        assert!(
+            !cache.insert_validator_fed_bid(
+                make_gossip_verified(slot, 2, hash, root, 100).signed_bid
+            )
+        );
+        assert_eq!(best_fed_builder(), 0);
+        assert!(
+            cache.insert_validator_fed_bid(
+                make_gossip_verified(slot, 3, hash, root, 150).signed_bid
+            )
+        );
+        assert_eq!(best_fed_builder(), 3);
+    }
+
+    #[test]
+    fn best_bid_for_production_prefers_gossip_on_tie() {
+        let cache = GossipVerifiedPayloadBidCache::<E>::default();
+        let slot = Slot::new(1);
+        let hash = ExecutionBlockHash::zero();
+        let root = Hash256::ZERO;
+        let bid_parent = BidParent {
+            parent_block_hash: hash,
+            parent_block_root: root,
+        };
+
+        assert!(cache.observe_bid(make_gossip_verified(slot, 0, hash, root, 100)));
+        assert!(
+            cache.insert_validator_fed_bid(
+                make_gossip_verified(slot, 1, hash, root, 100).signed_bid
+            )
+        );
+
+        let best = cache.get_best_bid_for_production(slot, bid_parent).unwrap();
+        assert_eq!(best.message().builder_index(), 0);
+    }
+
+    #[test]
     fn prune_removes_old_retains_current() {
         let cache = GossipVerifiedPayloadBidCache::<E>::default();
         let hash = ExecutionBlockHash::zero();
@@ -373,19 +459,30 @@ mod tests {
         for slot in [1, 2, 3, 7, 8, 9, 10] {
             let verified = make_gossip_verified(Slot::new(slot), slot, hash, root, slot * 100);
             cache.observe_bid(verified);
+            let fed_bid = make_gossip_verified(Slot::new(slot), slot, hash, root, slot * 100 + 1);
+            cache.insert_validator_fed_bid(fed_bid.signed_bid);
         }
 
         cache.prune(Slot::new(8));
 
-        // Slots 1-7 pruned from both maps.
+        // Slots 1-7 pruned from all maps.
         for slot in [1, 2, 3, 7] {
             assert!(cache.get_highest_bid(Slot::new(slot), bid_parent).is_none());
             assert!(!cache.seen_builder_bid_for_parent(&Slot::new(slot), bid_parent, slot));
+            assert!(
+                cache
+                    .get_best_bid_for_production(Slot::new(slot), bid_parent)
+                    .is_none()
+            );
         }
-        // Slots 8-10 retained in both maps.
+        // Slots 8-10 retained in all maps.
         for slot in [8, 9, 10] {
             assert!(cache.get_highest_bid(Slot::new(slot), bid_parent).is_some());
             assert!(cache.seen_builder_bid_for_parent(&Slot::new(slot), bid_parent, slot));
+            let best = cache
+                .get_best_bid_for_production(Slot::new(slot), bid_parent)
+                .unwrap();
+            assert_eq!(best.message().value(), slot * 100 + 1);
         }
     }
 }
