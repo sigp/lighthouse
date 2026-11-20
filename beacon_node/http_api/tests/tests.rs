@@ -309,6 +309,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            work_journal_rx: _,
         } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
@@ -414,6 +415,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            work_journal_rx: _,
         } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");

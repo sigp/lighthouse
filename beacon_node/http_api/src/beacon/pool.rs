@@ -9,7 +9,6 @@ use crate::version::{
 };
 use crate::{sync_committees, utils};
 use beacon_chain::observed_operations::ObservationOutcome;
-use beacon_chain::payload_attestation_verification::Error as PayloadAttestationError;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use context_deserialize::ContextDeserialize;
@@ -26,7 +25,7 @@ use ssz::{Decode, Encode};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use types::{
     Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessage,
     ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation,
@@ -635,10 +634,16 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              messages: Vec<PayloadAttestationMessage>,
              _fork_name: Option<ForkName>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
-                    publish_payload_attestation_messages(&chain, &network_tx, messages)
-                })
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| async move {
+                let result = crate::publish_payload_attestations::publish_payload_attestations(
+                    task_spawner,
+                    chain,
+                    messages,
+                    network_tx,
+                )
+                .await
+                .map(|()| warp::reply::json(&()));
+                convert_rejection(result).await
             },
         )
         .boxed()
@@ -664,96 +669,42 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
             |body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
-                    let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
-                    if !body_bytes.len().is_multiple_of(item_len) {
-                        return Err(warp_utils::reject::custom_bad_request(format!(
-                            "SSZ body length {} is not a multiple of PayloadAttestationMessage size {}",
-                            body_bytes.len(),
-                            item_len,
-                        )));
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| async move {
+                let result = match decode_ssz_payload_attestation_messages(&body_bytes) {
+                    Ok(messages) => {
+                        crate::publish_payload_attestations::publish_payload_attestations(
+                            task_spawner,
+                            chain,
+                            messages,
+                            network_tx,
+                        )
+                        .await
+                        .map(|()| warp::reply::json(&()))
                     }
-                    let messages: Vec<PayloadAttestationMessage> = body_bytes
-                        .chunks(item_len)
-                        .map(|chunk| {
-                            PayloadAttestationMessage::from_ssz_bytes(chunk).map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "invalid SSZ: {e:?}"
-                                ))
-                            })
-                        })
-                        .collect::<Result<_, _>>()?;
-
-                    publish_payload_attestation_messages(&chain, &network_tx, messages)
-                })
+                    Err(e) => Err(e),
+                };
+                convert_rejection(result).await
             },
         )
         .boxed()
 }
 
-fn publish_payload_attestation_messages<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    messages: Vec<PayloadAttestationMessage>,
-) -> Result<(), warp::Rejection> {
-    let mut failures = vec![];
-    let mut num_already_known = 0;
-
-    for (index, message) in messages.into_iter().enumerate() {
-        match chain.verify_payload_attestation_message_for_gossip(message.clone()) {
-            Ok(verified) => {
-                utils::publish_pubsub_message(
-                    network_tx,
-                    PubsubMessage::PayloadAttestation(Box::new(message)),
-                )?;
-
-                if let Err(e) = chain.apply_payload_attestation_to_fork_choice(
-                    verified.indexed_payload_attestation(),
-                    verified.ptc(),
-                ) {
-                    warn!(
-                        error = ?e,
-                        request_index = index,
-                        "Payload attestation invalid for fork choice"
-                    );
-                }
-
-                if let Err(e) = chain.add_payload_attestation_to_pool(&verified) {
-                    warn!(
-                        reason = ?e,
-                        "Failed to add payload attestation to pool"
-                    );
-                }
-            }
-            Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. }) => {
-                num_already_known += 1;
-            }
-            // TODO(gloas): requeue for reprocessing like attestations do.
-            Err(e) => {
-                error!(
-                    error = ?e,
-                    request_index = index,
-                    "Failure verifying payload attestation for gossip"
-                );
-                failures.push(Failure::new(index, format!("{e:?}")));
-            }
-        }
+fn decode_ssz_payload_attestation_messages(
+    body_bytes: &Bytes,
+) -> Result<Vec<PayloadAttestationMessage>, warp::Rejection> {
+    let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
+    if !body_bytes.len().is_multiple_of(item_len) {
+        return Err(warp_utils::reject::custom_bad_request(format!(
+            "SSZ body length {} is not a multiple of PayloadAttestationMessage size {}",
+            body_bytes.len(),
+            item_len,
+        )));
     }
-
-    if num_already_known > 0 {
-        debug!(
-            count = num_already_known,
-            "Some payload attestations already known"
-        );
-    }
-
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err(warp_utils::reject::indexed_bad_request(
-            "error processing payload attestations".to_string(),
-            failures,
-        ))
-    }
+    body_bytes
+        .chunks(item_len)
+        .map(|chunk| {
+            PayloadAttestationMessage::from_ssz_bytes(chunk)
+                .map_err(|e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}")))
+        })
+        .collect()
 }
