@@ -161,7 +161,7 @@ fn build_chain_inner(
         finalized_checkpoint,
         shuffling_id.clone(),
         shuffling_id.clone(),
-        ExecutionStatus::irrelevant(),
+        ExecutionStatus::pre_merge(),
         None, // execution_payload_parent_hash
         None, // execution_payload_block_hash
         0,    // proposer_index
@@ -200,7 +200,7 @@ fn build_chain_inner(
             next_epoch_shuffling_id: shuffling_id.clone(),
             justified_checkpoint,
             finalized_checkpoint,
-            execution_status: ExecutionStatus::irrelevant(),
+            execution_status: ExecutionStatus::pre_merge(),
             unrealized_justified_checkpoint: Some(unrealized_justified_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash: None,

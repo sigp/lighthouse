@@ -612,7 +612,7 @@ async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &B
                 "Genesis payload header mismatch"
             );
         }
-        Ok(GenesisExecutionPayloadStatus::Irrelevant) => {
+        Ok(GenesisExecutionPayloadStatus::PreMerge) => {
             info!("Execution is not enabled from genesis");
         }
         Ok(GenesisExecutionPayloadStatus::AlreadyHappened) => {
