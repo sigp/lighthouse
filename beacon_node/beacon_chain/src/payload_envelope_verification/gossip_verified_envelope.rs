@@ -19,7 +19,8 @@ use crate::{
     canonical_head::CanonicalHead,
     observed_execution_payloads::ObservedExecutionPayloads,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeProcessingSnapshot, EnvelopeSource, load_snapshot_from_state_root,
+        EnvelopeError, EnvelopeProcessingSnapshot, EnvelopeSource, build_new_payload_request,
+        load_snapshot_from_state_root,
     },
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
@@ -284,6 +285,12 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         if !signature_is_valid {
             return Err(EnvelopeError::BadSignature);
         }
+
+        // Pin the envelope to the bid's block hash, so the envelope marked seen below is the
+        // one the builder committed to.
+        build_new_payload_request(&signed_envelope, &block)?
+            .verify_payload_block_hash()
+            .map_err(|e| EnvelopeError::InvalidPayloadHash(format!("{e:?}")))?;
 
         let gossip_verified_envelope = Self {
             signed_envelope,
