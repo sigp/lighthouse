@@ -5,10 +5,7 @@ authors = ["blacktemplar <blacktemplar@a1.net>"]
 edition = { workspace = true }
 
 [dependencies]
-chrono = { version = "0.4", default-features = false, features = [
-    "clock",
-    "std",
-] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 logroller = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }

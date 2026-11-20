@@ -61,8 +61,10 @@ warp = { workspace = true }
 warp_utils = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
 fork_choice = { workspace = true }
 genesis = { workspace = true }
+perf_benchmarking = { workspace = true }
 proto_array = { workspace = true }
 
 [[test]]
@@ -73,3 +75,7 @@ path = "tests/main.rs"
 name = "bn_http_api_spec_minimal_tests"
 path = "tests/spec_minimal.rs"
 required-features = ["spec-minimal"]
+
+[[bench]]
+name = "bench"
+harness = false
