@@ -212,6 +212,8 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .inclusion_list_tx
                 .send(kind)
                 .map(|count| log_count("inclusion list", count)),
+            // Each `attestation_weight` stream reads `BeaconChain::attestation_weight_tracker`.
+            EventKind::AttestationWeight(_) => Ok(()),
         };
         if let Err(SendError(event)) = result {
             trace!(?event, "No receivers registered to listen for event");

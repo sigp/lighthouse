@@ -26,7 +26,7 @@ use execution_layer::test_utils::{
     MockBuilder, Operation, mock_builder_extra_data, mock_el_extra_data,
 };
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::PayloadStatus;
+use fork_choice::{ForkChoiceStore, PayloadStatus};
 use futures::FutureExt;
 use futures::stream::{Stream, StreamExt};
 use http_api::{
@@ -9586,6 +9586,64 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_events_attestation_weight(self) -> Self {
+        let mut events = self
+            .client
+            .get_events::<E>(&[EventTopic::AttestationWeight])
+            .await
+            .unwrap();
+
+        let attestations = &self.single_attestations;
+        let slot = attestations[0].data.slot;
+        let (expected_weight, expected_committee_weight) = {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            let justified = fork_choice.fc_store().justified_balances();
+            let weight: u64 = attestations
+                .iter()
+                .map(|attestation| {
+                    justified.effective_balances[attestation.attester_index as usize]
+                })
+                .sum();
+            (
+                weight,
+                justified.total_effective_balance / E::slots_per_epoch(),
+            )
+        };
+
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+        self.client
+            .post_beacon_pool_attestations_v2::<E>(attestations.clone(), fork_name)
+            .await
+            .unwrap();
+
+        // Wait until every attester is counted.
+        let (committee_weight_gwei, slot_weights) =
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    if let EventKind::AttestationWeight(weights) =
+                        events.next().await.unwrap().unwrap()
+                        && let Some(slot_weights) = weights
+                            .slots
+                            .iter()
+                            .find(|s| s.slot == slot && s.voters == attestations.len() as u64)
+                    {
+                        return (weights.committee_weight_gwei, slot_weights.clone());
+                    }
+                }
+            })
+            .await
+            .expect("attestation_weight event not received");
+
+        assert_eq!(committee_weight_gwei, expected_committee_weight);
+        assert_eq!(slot_weights.weights.len(), 1);
+        assert_eq!(
+            slot_weights.weights[0].block_root,
+            attestations[0].data.beacon_block_root
+        );
+        assert_eq!(slot_weights.weights[0].weight_gwei, expected_weight);
+        self
+    }
+
     pub async fn test_get_events(self) -> Self {
         // Subscribe to all events
         let topics = vec![
@@ -11025,6 +11083,18 @@ async fn get_events_altair() {
     ApiTester::new_from_config(config)
         .await
         .test_get_events_altair()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_events_attestation_weight() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Electra.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_events_attestation_weight()
         .await;
 }
 

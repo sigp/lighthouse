@@ -73,6 +73,7 @@ use eth2::types::{
 use eth2::{
     BUILDER_URL_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
 };
+use futures::Stream;
 use health_metrics::observe::Observe;
 use lighthouse_network::Enr;
 use lighthouse_network::NetworkGlobals;
@@ -91,18 +92,21 @@ use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
+use std::convert::Infallible;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use sysinfo::{System, SystemExt};
 use system_health::{observe_nat, observe_system_health_bn};
 use task_spawner::{Priority, TaskSpawner};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{
     StreamExt,
-    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
+    wrappers::{BroadcastStream, IntervalStream, errors::BroadcastStreamRecvError},
 };
 use tracing::{debug, info, warn};
 use types::{
@@ -120,8 +124,17 @@ use warp_utils::{query::multi_key_query, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
 
+/// How often an `attestation_weight` event stream may send changed weights, unless the subscriber
+/// sets `weight_interval_ms`. A value outside the min and max is clamped to them.
+const DEFAULT_ATTESTATION_WEIGHT_INTERVAL_MS: u64 = 100;
+const MIN_ATTESTATION_WEIGHT_INTERVAL_MS: u64 = 50;
+const MAX_ATTESTATION_WEIGHT_INTERVAL_MS: u64 = 10_000;
+
 /// Alias for readability.
 pub type ExecutionOptimistic = bool;
+
+/// One topic's server-sent events, as merged into an `/eth/v1/events` response.
+type EventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
@@ -3368,11 +3381,28 @@ pub async fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     let topics = topics_res?;
                     // for each topic subscribed spawn a new subscription
-                    let mut receivers = Vec::with_capacity(topics.topics.len());
+                    let mut receivers: Vec<EventStream> = Vec::with_capacity(topics.topics.len());
 
                     if let Some(event_handler) = chain.event_handler.as_ref() {
+                        if topics
+                            .topics
+                            .contains(&api_types::EventTopic::AttestationWeight)
+                        {
+                            let interval_ms = topics
+                                .weight_interval_ms
+                                .unwrap_or(DEFAULT_ATTESTATION_WEIGHT_INTERVAL_MS)
+                                .clamp(
+                                    MIN_ATTESTATION_WEIGHT_INTERVAL_MS,
+                                    MAX_ATTESTATION_WEIGHT_INTERVAL_MS,
+                                );
+                            receivers.push(Box::pin(attestation_weight_stream(
+                                &chain,
+                                Duration::from_millis(interval_ms),
+                            )));
+                        }
                         for topic in topics.topics {
                             let receiver = match topic {
+                                api_types::EventTopic::AttestationWeight => continue,
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::HeadV2 => event_handler.subscribe_head_v2(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
@@ -3447,7 +3477,7 @@ pub async fn serve<T: BeaconChainTypes>(
                                 }
                             };
 
-                            receivers.push(
+                            receivers.push(Box::pin(
                                 BroadcastStream::new(receiver)
                                     .map(|msg| {
                                         match msg {
@@ -3468,8 +3498,8 @@ pub async fn serve<T: BeaconChainTypes>(
                                             }
                                         }
                                     })
-                                    .map(Ok::<_, std::convert::Infallible>),
-                            );
+                                    .map(Ok::<_, Infallible>),
+                            ));
                         }
                     } else {
                         return Err(warp_utils::reject::custom_server_error(
@@ -3734,4 +3764,28 @@ pub async fn serve<T: BeaconChainTypes>(
     };
 
     Ok((address, server_future))
+}
+
+/// The `attestation_weight` event stream: the attestation weights, sent when they change, at most
+/// every `interval`.
+fn attestation_weight_stream<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    interval: Duration,
+) -> impl Stream<Item = Result<Event, Infallible>> + Send + 'static {
+    let mut receiver = chain.attestation_weight_tracker.subscribe();
+    let mut ticks = tokio::time::interval(interval);
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    IntervalStream::new(ticks)
+        .filter_map(move |_| {
+            let weights = receiver.changed_weights()?;
+            Some(
+                Event::default()
+                    .event(api_types::EventTopic::AttestationWeight.to_string())
+                    .json_data(weights)
+                    .unwrap_or_else(|e| {
+                        Event::default().comment(format!("error - bad json: {e:?}"))
+                    }),
+            )
+        })
+        .map(Ok::<_, Infallible>)
 }

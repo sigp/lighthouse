@@ -757,6 +757,19 @@ where
     Ok(Vec::from(QueryVec::from(vec)))
 }
 
+/// A query parameter given at most once.
+fn option_query_one<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: FromStr,
+{
+    match option_query_vec::<D, T>(deserializer)? {
+        None => Ok(None),
+        Some(values) if values.len() == 1 => Ok(values.into_iter().next()),
+        Some(_) => Err(serde::de::Error::custom("expected a single value")),
+    }
+}
+
 fn option_query_vec<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -1234,6 +1247,38 @@ pub struct BlockGossip {
     pub block: Hash256,
 }
 
+/// Lighthouse-only `attestation_weight` event: the justified effective balance of verified votes per
+/// block for the previous, current and next slot.
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseAttestationWeight {
+    /// The justified total effective balance divided by slots per epoch, which spec thresholds such
+    /// as `REORG_HEAD_WEIGHT_THRESHOLD` are percentages of.
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub committee_weight_gwei: u64,
+    /// Slots with votes, oldest first.
+    pub slots: Vec<SlotAttestationWeight>,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SlotAttestationWeight {
+    pub slot: Slot,
+    /// Distinct validators counted for this slot.
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub voters: u64,
+    pub weights: Vec<BlockAttestationWeight>,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct BlockAttestationWeight {
+    pub block_root: Hash256,
+    /// From Gloas, `data.index == 1`: whether the votes say the block's payload is present. Votes
+    /// for the block of their own slot always have index 0 and say nothing about the payload.
+    /// `None` before Gloas.
+    pub payload_present: Option<bool>,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub weight_gwei: u64,
+}
+
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseFastConfirmation {
     pub block: Hash256,
@@ -1413,6 +1458,7 @@ pub enum EventKind<E: EthSpec> {
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
     FastConfirmation(SseFastConfirmation),
     InclusionList(Box<VersionedSseInclusionList>),
+    AttestationWeight(Box<SseAttestationWeight>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1444,6 +1490,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
             EventKind::FastConfirmation(_) => "fast_confirmation",
             EventKind::InclusionList(_) => "inclusion_list",
+            EventKind::AttestationWeight(_) => "attestation_weight",
         }
     }
 
@@ -1583,6 +1630,11 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Inclusion List: {:?}", e))
                 })?,
             ))),
+            "attestation_weight" => Ok(EventKind::AttestationWeight(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Attestation Weight: {:?}", e))
+                })?,
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1595,6 +1647,9 @@ impl<E: EthSpec> EventKind<E> {
 pub struct EventQuery {
     #[serde(deserialize_with = "query_vec")]
     pub topics: Vec<EventTopic>,
+    /// Lighthouse-only: how often, in milliseconds, the `attestation_weight` topic may send.
+    #[serde(default, deserialize_with = "option_query_one")]
+    pub weight_interval_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -1626,6 +1681,8 @@ pub enum EventTopic {
     PayloadAttestationMessage,
     FastConfirmation,
     InclusionList,
+    /// Lighthouse-only.
+    AttestationWeight,
 }
 
 impl FromStr for EventTopic {
@@ -1659,6 +1716,7 @@ impl FromStr for EventTopic {
             "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
             "fast_confirmation" => Ok(EventTopic::FastConfirmation),
             "inclusion_list" => Ok(EventTopic::InclusionList),
+            "attestation_weight" => Ok(EventTopic::AttestationWeight),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1697,6 +1755,7 @@ impl fmt::Display for EventTopic {
             }
             EventTopic::FastConfirmation => write!(f, "fast_confirmation"),
             EventTopic::InclusionList => write!(f, "inclusion_list"),
+            EventTopic::AttestationWeight => write!(f, "attestation_weight"),
         }
     }
 }

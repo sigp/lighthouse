@@ -1052,6 +1052,7 @@ where
             fork_choice_signal_tx,
             fork_choice_signal_rx,
             event_handler: self.event_handler,
+            attestation_weight_tracker: <_>::default(),
             shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,

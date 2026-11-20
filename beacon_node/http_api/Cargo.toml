@@ -53,7 +53,7 @@ system_health = { path = "../../common/system_health" }
 task_executor = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-stream = { workspace = true }
+tokio-stream = { workspace = true, features = ["time"] }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
