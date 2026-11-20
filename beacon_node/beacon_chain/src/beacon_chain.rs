@@ -1487,17 +1487,61 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
     }
 
+    /// True if `attested_root` is unknown to fork choice or its own payload is `Invalid`.
+    ///
+    /// Uses the node's own `execution_status` (not inherited) so optimistic headers stay usable.
+    fn attested_header_unusable_for_light_client(&self, attested_root: Hash256) -> bool {
+        let fork_choice = self.canonical_head.fork_choice_read_lock();
+        match fork_choice.get_block(&attested_root) {
+            None => true,
+            Some(block) => block.execution_status.is_invalid(),
+        }
+    }
+
+    /// Clear latest light client updates if either attested header is unusable.
+    fn clear_light_client_updates_if_attested_unusable(&self) {
+        let optimistic_root = self
+            .light_client_server_cache
+            .get_latest_optimistic_update()
+            .map(|update| update.get_canonical_root());
+        let finality_root = self
+            .light_client_server_cache
+            .get_latest_finality_update()
+            .map(|update| update.get_attested_header_root());
+
+        let should_clear = optimistic_root
+            .is_some_and(|root| self.attested_header_unusable_for_light_client(root))
+            || finality_root
+                .is_some_and(|root| self.attested_header_unusable_for_light_client(root));
+
+        if should_clear {
+            self.light_client_server_cache.clear_latest_updates();
+        }
+    }
+
     pub fn recompute_and_cache_light_client_updates(
         &self,
         (parent_root, slot, sync_aggregate): LightClientProducerEvent<T::EthSpec>,
     ) -> Result<(), Error> {
+        // Do not cache an attested parent that is already Invalid / unknown.
+        if self.attested_header_unusable_for_light_client(parent_root) {
+            return Ok(());
+        }
+
         self.light_client_server_cache.recompute_and_cache_updates(
             self.store.clone(),
             slot,
             &parent_root,
             &sync_aggregate,
             &self.spec,
-        )
+        )?;
+
+        // Parent may become Invalid during recompute; clear only unusable cached updates.
+        if self.attested_header_unusable_for_light_client(parent_root) {
+            self.clear_light_client_updates_if_attested_unusable();
+        }
+
+        Ok(())
     }
 
     pub fn get_light_client_updates(
@@ -6600,7 +6644,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method must be called whenever an execution engine indicates that a payload is
     /// invalid.
     ///
-    /// Fork choice will be run after the invalidation. The client may be shut down if the `op`
+    /// Fork choice will be run after the invalidation. Cached light client updates are cleared
+    /// when their attested header becomes unusable. The client may be shut down if the `op`
     /// results in the justified checkpoint being invalidated.
     ///
     /// See the documentation of `InvalidationOperation` for information about defining `op`.
@@ -6636,6 +6681,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_hash = ?op.head_hash(),
                 "Failed to process invalid payload"
             );
+        } else {
+            // Only after a successful fork-choice update; statuses are unchanged on Err.
+            let chain = self.clone();
+            self.spawn_blocking_handle(
+                move || chain.clear_light_client_updates_if_attested_unusable(),
+                "invalid_payload_clear_light_client",
+            )
+            .await?;
         }
 
         // Run fork choice since it's possible that the payload invalidation might result in a new
