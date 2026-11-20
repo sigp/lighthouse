@@ -23,6 +23,13 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_gloas_mut()?;
+    // EIP-8015 may only discard the legacy deposit fields once EIP-6110 has finalized.
+    if pre.eth1_deposit_index != pre.deposit_requests_start_index {
+        return Err(Error::LegacyDepositMigrationIncomplete {
+            deposit_index: pre.eth1_deposit_index,
+            deposit_requests_start_index: pre.deposit_requests_start_index,
+        });
+    }
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
@@ -43,10 +50,6 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         block_roots: pre.block_roots.clone(),
         state_roots: pre.state_roots.clone(),
         historical_roots: mem::take(&mut pre.historical_roots),
-        // Eth1
-        eth1_data: pre.eth1_data.clone(),
-        eth1_data_votes: mem::take(&mut pre.eth1_data_votes),
-        eth1_deposit_index: pre.eth1_deposit_index,
         // Registry
         validators: mem::take(&mut pre.validators),
         balances: mem::take(&mut pre.balances),
@@ -93,7 +96,6 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
         // Electra
-        deposit_requests_start_index: pre.deposit_requests_start_index,
         deposit_balance_to_consume: pre.deposit_balance_to_consume,
         exit_balance_to_consume: pre.exit_balance_to_consume,
         earliest_exit_epoch: pre.earliest_exit_epoch,

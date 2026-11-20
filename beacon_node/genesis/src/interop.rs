@@ -43,6 +43,9 @@ pub struct InteropGenesisBuilder<E: EthSpec> {
 
     /// The execution payload header to embed in the genesis state.
     execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+
+    /// Override the request start index for fork transition test networks.
+    deposit_requests_start_index: Option<u64>,
 }
 
 impl<E: EthSpec> InteropGenesisBuilder<E> {
@@ -79,6 +82,11 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
         execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     ) -> Self {
         self.execution_payload_header = execution_payload_header;
+        self
+    }
+
+    pub fn set_deposit_requests_start_index(mut self, index: u64) -> Self {
+        self.deposit_requests_start_index = Some(index);
         self
     }
 
@@ -138,6 +146,12 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
             spec,
         )
         .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
+
+        if let Some(index) = self.deposit_requests_start_index {
+            *state
+                .deposit_requests_start_index_mut()
+                .map_err(|e| format!("Unable to set deposit request index: {:?}", e))? = index;
+        }
 
         *state.genesis_time_mut() = genesis_time;
 
@@ -214,7 +228,7 @@ mod test {
         .expect("should build state");
 
         assert_eq!(
-            state.eth1_data().block_hash,
+            state.eth1_data().unwrap().block_hash,
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );
@@ -372,7 +386,7 @@ mod test {
         .expect("should build state");
 
         assert_eq!(
-            state.eth1_data().block_hash,
+            state.eth1_data().unwrap().block_hash,
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );
