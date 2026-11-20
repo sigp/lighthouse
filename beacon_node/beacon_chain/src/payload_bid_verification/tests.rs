@@ -908,7 +908,7 @@ fn validator_fed_bid_execution_payment_nonzero() {
     );
     assert_eq!(
         ctx.bid_cache
-            .get_best_bid_for_production(slot, BidParent::from_bid(bid.message())),
+            .get_highest_gossip_or_fed_bid(slot, BidParent::from_bid(bid.message())),
         Some(bid)
     );
 }
@@ -953,7 +953,7 @@ fn validator_fed_bid_same_builder_not_blocked() {
     );
     assert_eq!(
         ctx.bid_cache
-            .get_best_bid_for_production(slot, BidParent::from_bid(second_bid.message())),
+            .get_highest_gossip_or_fed_bid(slot, BidParent::from_bid(second_bid.message())),
         Some(second_bid)
     );
 }
@@ -1039,7 +1039,7 @@ fn validator_fed_bid_does_not_raise_gossip_highest_bid() {
 }
 
 #[test]
-fn best_bid_for_production_picks_higher_of_fed_and_gossip() {
+fn highest_gossip_or_fed_bid_picks_higher_of_fed_and_gossip() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -1069,7 +1069,8 @@ fn best_bid_for_production_picks_higher_of_fed_and_gossip() {
     GossipVerifiedPayloadBid::new(low_gossip_bid, &gossip).expect("low gossip bid should pass");
     verify_validator_fed_bid(fed_bid.clone(), &gossip).expect("fed bid should pass");
     assert_eq!(
-        ctx.bid_cache.get_best_bid_for_production(slot, bid_parent),
+        ctx.bid_cache
+            .get_highest_gossip_or_fed_bid(slot, bid_parent),
         Some(fed_bid),
         "the fed bid is higher than the gossip bid"
     );
@@ -1077,7 +1078,8 @@ fn best_bid_for_production_picks_higher_of_fed_and_gossip() {
     GossipVerifiedPayloadBid::new(high_gossip_bid.clone(), &gossip)
         .expect("high gossip bid should pass");
     assert_eq!(
-        ctx.bid_cache.get_best_bid_for_production(slot, bid_parent),
+        ctx.bid_cache
+            .get_highest_gossip_or_fed_bid(slot, bid_parent),
         Some(high_gossip_bid),
         "the gossip bid is higher than the fed bid"
     );
@@ -1106,7 +1108,7 @@ fn validator_fed_bid_bad_signature() {
     assert!(matches!(result, Err(PayloadBidError::BadSignature)));
     assert!(
         ctx.bid_cache
-            .get_best_bid_for_production(slot, bid_parent)
+            .get_highest_gossip_or_fed_bid(slot, bid_parent)
             .is_none()
     );
 }

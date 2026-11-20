@@ -64,7 +64,7 @@ pub struct GossipBidCacheInner<E: EthSpec> {
 ///
 /// It also holds validator-fed bids (`POST validator/execution_payload_bids`), kept apart from the
 /// gossip state and read only by block production via
-/// [`get_best_bid_for_production`](Self::get_best_bid_for_production).
+/// [`get_highest_gossip_or_fed_bid`](Self::get_highest_gossip_or_fed_bid).
 #[derive(Educe)]
 #[educe(Default(bound = "E: EthSpec"))]
 pub struct GossipVerifiedPayloadBidCache<E: EthSpec> {
@@ -98,7 +98,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
     ///
     /// Only block production should call this. Gossip validation must use
     /// [`get_highest_bid`](Self::get_highest_bid), which never sees validator-fed bids.
-    pub fn get_best_bid_for_production(
+    pub fn get_highest_gossip_or_fed_bid(
         &self,
         slot: Slot,
         bid_parent: BidParent,
@@ -394,7 +394,7 @@ mod tests {
         };
         let best_fed_builder = || {
             cache
-                .get_best_bid_for_production(slot, bid_parent)
+                .get_highest_gossip_or_fed_bid(slot, bid_parent)
                 .unwrap()
                 .message()
                 .builder_index()
@@ -425,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn best_bid_for_production_prefers_gossip_on_tie() {
+    fn highest_gossip_or_fed_bid_prefers_gossip_on_tie() {
         let cache = GossipVerifiedPayloadBidCache::<E>::default();
         let slot = Slot::new(1);
         let hash = ExecutionBlockHash::zero();
@@ -442,7 +442,9 @@ mod tests {
             )
         );
 
-        let best = cache.get_best_bid_for_production(slot, bid_parent).unwrap();
+        let best = cache
+            .get_highest_gossip_or_fed_bid(slot, bid_parent)
+            .unwrap();
         assert_eq!(best.message().builder_index(), 0);
     }
 
@@ -471,7 +473,7 @@ mod tests {
             assert!(!cache.seen_builder_bid_for_parent(&Slot::new(slot), bid_parent, slot));
             assert!(
                 cache
-                    .get_best_bid_for_production(Slot::new(slot), bid_parent)
+                    .get_highest_gossip_or_fed_bid(Slot::new(slot), bid_parent)
                     .is_none()
             );
         }
@@ -480,7 +482,7 @@ mod tests {
             assert!(cache.get_highest_bid(Slot::new(slot), bid_parent).is_some());
             assert!(cache.seen_builder_bid_for_parent(&Slot::new(slot), bid_parent, slot));
             let best = cache
-                .get_best_bid_for_production(Slot::new(slot), bid_parent)
+                .get_highest_gossip_or_fed_bid(Slot::new(slot), bid_parent)
                 .unwrap();
             assert_eq!(best.message().value(), slot * 100 + 1);
         }

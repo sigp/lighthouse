@@ -1192,7 +1192,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(gossip_bid) = self
             .gossip_verified_payload_bid_cache
-            .get_best_bid_for_production(
+            .get_highest_gossip_or_fed_bid(
                 ctx.slot,
                 BidParent {
                     parent_block_hash: ctx.executed_ancestor_hash,
