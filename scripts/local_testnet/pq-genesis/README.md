@@ -18,6 +18,8 @@ The VC prefers its authenticated local cache under `validators/xmss-cache`. If t
 
 Use [ethereum-package `27ba3a6`](https://github.com/ethpandaops/ethereum-package/tree/27ba3a6c46a8cd63ec921a75d3d04d90c29d6943) or a later compatible release. The package uses `lighthouse-pq-bn` for the beacon node and passes `xmss_cache_url` to Lighthouse validator clients. Use the devnet-0 image for both the beacon node and validator client. The image includes the [Lighthouse prover supervisor](lighthouse-pq-bn) and the sidecar built from [`leanvm-revision`](../../../leanvm-revision). Check the installed sidecar commit at `/usr/local/share/lighthouse/leanvm-revision` inside the image. All clients must upgrade together because proofs made with the previous leanVM pin are incompatible.
 
+The `linux/amd64` image contains five prover profiles, ordered from `generic` through `portable`, `avx2`, `avx2-gfni` and `avx512`. The launcher selects the highest profile supported by every CPU in its Linux affinity mask and logs the selected profile on startup. Set `LEANVM_CPU_PROFILE` to request a lower profile for troubleshooting. A profile that requires unavailable CPU features fails before launching the prover. The `linux/arm64` image runs its single portable sidecar directly.
+
 With the package’s default publicly known devnet mnemonic, merge the settings below into a copy of your existing network YAML. Keep all participant settings and add the VC argument only to Lighthouse participants. `xmss_pubkey_url` supplies the matching full-tree registry entries for fast genesis generation. Custom mnemonics require their own genesis key/root records and VRF artifact.
 
 ```yaml
