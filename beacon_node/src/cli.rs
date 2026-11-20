@@ -1439,10 +1439,9 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("paranoid-block-proposal")
                 .long("paranoid-block-proposal")
-                .help("Paranoid enough to be reading the source? Nice. This flag reverts some \
-                       block proposal optimisations and forces the node to check every attestation \
-                       it includes super thoroughly. This may be useful in an emergency, but not \
-                       otherwise.")
+                .help("Paranoid enough to be reading the source? Nice. This flag forces the node \
+                       to re-check the signature of every operation it includes in a block \
+                       proposal. This may be useful in an emergency, but not otherwise.")
                 .hide(true)
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)

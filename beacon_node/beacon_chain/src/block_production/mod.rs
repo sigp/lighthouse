@@ -3,8 +3,16 @@ use std::{sync::Arc, time::Duration};
 use fork_choice::PayloadStatus;
 use proto_array::{ParentPayloadStatus, ProposerHeadError};
 use slot_clock::SlotClock;
+use state_processing::ConsensusContext;
+use state_processing::per_block_processing::{
+    VerifySignatures, verify_attestation_for_block_inclusion, verify_attester_slashing,
+    verify_bls_to_execution_change, verify_exit, verify_proposer_slashing,
+};
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, EthSpec, Hash256, SignedExecutionPayloadEnvelopeSummary, Slot};
+use types::{
+    Attestation, AttesterSlashing, BeaconState, EthSpec, Hash256, ProposerSlashing,
+    SignedBlsToExecutionChange, SignedExecutionPayloadEnvelopeSummary, SignedVoluntaryExit, Slot,
+};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -296,5 +304,98 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             parent_payload_status,
             parent_envelope,
         })
+    }
+
+    /// Drop op pool operations that are invalid on top of `state`.
+    ///
+    /// Each operation is checked independently, so invalid combinations are not caught.
+    /// Signatures are only checked under `--paranoid-block-proposal`.
+    #[instrument(skip_all, level = "debug")]
+    pub(crate) fn filter_invalid_block_operations(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        attestations: &mut Vec<Attestation<T::EthSpec>>,
+        proposer_slashings: &mut Vec<ProposerSlashing>,
+        attester_slashings: &mut Vec<AttesterSlashing<T::EthSpec>>,
+        voluntary_exits: &mut Vec<SignedVoluntaryExit>,
+        bls_to_execution_changes: &mut Vec<SignedBlsToExecutionChange>,
+    ) {
+        let verify_signatures = if self.config.paranoid_block_proposal {
+            VerifySignatures::True
+        } else {
+            VerifySignatures::False
+        };
+
+        let mut ctxt = ConsensusContext::new(state.slot());
+        attestations.retain(|att| {
+            verify_attestation_for_block_inclusion(
+                state,
+                att.to_ref(),
+                &mut ctxt,
+                verify_signatures,
+                &self.spec,
+            )
+            .map_err(|e| {
+                warn!(
+                    err = ?e,
+                    block_slot = %state.slot(),
+                    attestation = ?att,
+                    "Attempted to include an invalid attestation"
+                );
+            })
+            .is_ok()
+        });
+
+        proposer_slashings.retain(|slashing| {
+            verify_proposer_slashing(slashing, state, verify_signatures, &self.spec)
+                .map_err(|e| {
+                    warn!(
+                        err = ?e,
+                        block_slot = %state.slot(),
+                        ?slashing,
+                        "Attempted to include an invalid proposer slashing"
+                    );
+                })
+                .is_ok()
+        });
+
+        attester_slashings.retain(|slashing| {
+            verify_attester_slashing(state, slashing.to_ref(), verify_signatures, &self.spec)
+                .map_err(|e| {
+                    warn!(
+                        err = ?e,
+                        block_slot = %state.slot(),
+                        ?slashing,
+                        "Attempted to include an invalid attester slashing"
+                    );
+                })
+                .is_ok()
+        });
+
+        voluntary_exits.retain(|exit| {
+            verify_exit(state, None, exit, verify_signatures, &self.spec)
+                .map_err(|e| {
+                    warn!(
+                        err = ?e,
+                        block_slot = %state.slot(),
+                        ?exit,
+                        "Attempted to include an invalid voluntary exit"
+                    );
+                })
+                .is_ok()
+        });
+
+        bls_to_execution_changes.retain(|address_change| {
+            verify_bls_to_execution_change(state, address_change, verify_signatures, &self.spec)
+                .map_err(|e| {
+                    warn!(
+                        err = ?e,
+                        block_slot = %state.slot(),
+                        ?address_change,
+                        "Attempted to include an invalid BLS to execution change"
+                    );
+                })
+                .is_ok()
+        });
     }
 }
