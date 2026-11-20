@@ -10,6 +10,7 @@ use crate::{
         },
     },
 };
+use eth2::types::BestExecutionPayloadBidSource;
 use slot_clock::SlotClock;
 use tracing::debug;
 use types::SignedExecutionPayloadBid;
@@ -58,7 +59,12 @@ pub fn verify_validator_fed_bid<T: BeaconChainTypes>(
                     .gossip_verified_payload_bid_cache
                     .is_highest_gossip_or_fed_bid(&signed_bid)
             {
-                emit_best_execution_payload_bid(ctx.event_handler, &signed_bid, ctx.spec);
+                emit_best_execution_payload_bid(
+                    ctx.event_handler,
+                    BestExecutionPayloadBidSource::Api,
+                    &signed_bid,
+                    ctx.spec,
+                );
             }
             debug!(
                 %slot,

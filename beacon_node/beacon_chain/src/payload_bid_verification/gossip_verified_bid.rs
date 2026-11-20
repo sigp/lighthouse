@@ -12,7 +12,9 @@ use crate::{
     proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
 };
 use educe::Educe;
-use eth2::types::{EventKind, ForkVersionedResponse};
+use eth2::types::{
+    BestExecutionPayloadBidSource, EventKind, ForkVersionedResponse, SseBestExecutionPayloadBid,
+};
 use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
@@ -333,6 +335,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         {
             emit_best_execution_payload_bid(
                 ctx.event_handler,
+                BestExecutionPayloadBidSource::Gossip,
                 &gossip_verified_bid.signed_bid,
                 ctx.spec,
             );
@@ -499,6 +502,7 @@ pub(crate) fn verify_bid_conditions<T: BeaconChainTypes>(
 /// Emit a `best_execution_payload_bid` event for `signed_bid`, if anyone is subscribed.
 pub(crate) fn emit_best_execution_payload_bid<E: EthSpec>(
     event_handler: Option<&ServerSentEventHandler<E>>,
+    source: BestExecutionPayloadBidSource,
     signed_bid: &SignedExecutionPayloadBid<E>,
     spec: &ChainSpec,
 ) {
@@ -509,7 +513,10 @@ pub(crate) fn emit_best_execution_payload_bid<E: EthSpec>(
             ForkVersionedResponse {
                 version: spec.fork_name_at_slot::<E>(signed_bid.message().slot()),
                 metadata: Default::default(),
-                data: signed_bid.clone(),
+                data: SseBestExecutionPayloadBid {
+                    source,
+                    signed_bid: signed_bid.clone(),
+                },
             },
         )));
     }

@@ -20,7 +20,7 @@ use types::{
     SignedProposerPreferences, SignedRoot, Slot, Spec, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
-use eth2::types::EventKind;
+use eth2::types::{BestExecutionPayloadBidSource, EventKind};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use types::AttestationShufflingId;
 
@@ -1144,9 +1144,13 @@ fn best_execution_payload_bid_event_emitted_only_on_new_best() {
             ..ExecutionPayloadBidGloas::default()
         })
     };
-    let mut expect_event = |expected: &SignedExecutionPayloadBid<E>| {
+    let mut expect_event = |expected: &SignedExecutionPayloadBid<E>,
+                            source: BestExecutionPayloadBidSource| {
         match events.try_recv() {
-            Ok(EventKind::BestExecutionPayloadBid(event)) => assert_eq!(&event.data, expected),
+            Ok(EventKind::BestExecutionPayloadBid(event)) => {
+                assert_eq!(&event.data.signed_bid, expected);
+                assert_eq!(event.data.source, source);
+            }
             other => panic!("expected a best_execution_payload_bid event, got {other:?}"),
         }
         assert!(events.try_recv().is_err(), "expected exactly one event");
@@ -1154,11 +1158,11 @@ fn best_execution_payload_bid_event_emitted_only_on_new_best() {
 
     let gossip_bid = make_bid(1, 100);
     GossipVerifiedPayloadBid::new(gossip_bid.clone(), &gossip).expect("gossip bid should pass");
-    expect_event(&gossip_bid);
+    expect_event(&gossip_bid, BestExecutionPayloadBidSource::Gossip);
 
     let fed_bid = make_bid(0, 200);
     verify_validator_fed_bid(fed_bid.clone(), &gossip).expect("fed bid should pass");
-    expect_event(&fed_bid);
+    expect_event(&fed_bid, BestExecutionPayloadBidSource::Api);
 
     GossipVerifiedPayloadBid::new(make_bid(2, 150), &gossip)
         .expect("gossip bid below the fed bid should pass");

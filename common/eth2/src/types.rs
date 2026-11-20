@@ -392,6 +392,13 @@ pub enum BuilderStatus {
     Exited,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BestExecutionPayloadBidSource {
+    Gossip,
+    Api,
+}
+
 impl BuilderStatus {
     pub fn from_builder(
         builder: &Builder,
@@ -1316,9 +1323,40 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     pub payload_attributes: T,
 }
 
+#[derive(PartialEq, Debug, Serialize, Clone)]
+#[serde(bound = "E: EthSpec")]
+pub struct SseBestExecutionPayloadBid<E: EthSpec> {
+    pub source: BestExecutionPayloadBidSource,
+    pub signed_bid: SignedExecutionPayloadBid<E>,
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SseBestExecutionPayloadBid<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper {
+            source: BestExecutionPayloadBidSource,
+            signed_bid: serde_json::Value,
+        }
+        let helper = Helper::deserialize(deserializer)?;
+
+        let signed_bid = SignedExecutionPayloadBid::context_deserialize(helper.signed_bid, context)
+            .map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            source: helper.source,
+            signed_bid,
+        })
+    }
+}
+
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
 pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
+pub type VersionedSseBestExecutionPayloadBid<E> =
+    ForkVersionedResponse<SseBestExecutionPayloadBid<E>>;
 pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 pub type VersionedSseHeadV2 = ForkVersionedResponse<SseHeadV2>;
@@ -1409,7 +1447,7 @@ pub enum EventKind<E: EthSpec> {
     ExecutionPayloadGossip(SseExecutionPayloadGossip),
     ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
     ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
-    BestExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
+    BestExecutionPayloadBid(Box<VersionedSseBestExecutionPayloadBid<E>>),
     ProposerPreferences(Box<VersionedSseProposerPreferences>),
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
     FastConfirmation(SseFastConfirmation),
