@@ -223,17 +223,13 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         self.purge_outdated_chains(local, awaiting_head_peers);
 
         let local_head_epoch = local.head_slot.epoch(T::EthSpec::slots_per_epoch());
+        let start_epoch = self.beacon_chain.range_sync_start_epoch();
         // Choose the best finalized chain if one needs to be selected.
-        self.update_finalized_chains(network, local.finalized_epoch, local_head_epoch);
+        self.update_finalized_chains(network, start_epoch, local_head_epoch);
 
         if !matches!(self.state, RangeSyncState::Finalized(_)) {
             // Handle head syncing chains if there are no finalized chains left.
-            self.update_head_chains(
-                network,
-                local.finalized_epoch,
-                local_head_epoch,
-                awaiting_head_peers,
-            );
+            self.update_head_chains(network, start_epoch, local_head_epoch, awaiting_head_peers);
         }
     }
 
