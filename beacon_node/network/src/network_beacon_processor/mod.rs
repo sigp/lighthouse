@@ -1292,7 +1292,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let blob_publication_batches = chain.config.blob_publication_batches;
                 let number_of_columns = T::EthSpec::number_of_columns();
-                let batch_size = number_of_columns / blob_publication_batches;
+                let batch_size = number_of_columns.div_ceil(blob_publication_batches);
                 let mut publish_count = 0usize;
 
                 for batch in data_columns_to_publish.chunks(batch_size) {

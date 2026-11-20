@@ -225,6 +225,12 @@ pub fn get_config<E: EthSpec>(
     }
 
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
+        let number_of_columns = E::number_of_columns();
+        if !(1..=number_of_columns).contains(&batches) {
+            return Err(format!(
+                "--blob-publication-batches must be between 1 and {number_of_columns} (inclusive), got {batches}"
+            ));
+        }
         client_config.chain.blob_publication_batches = batches;
     }
 
