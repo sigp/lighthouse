@@ -183,6 +183,13 @@ pub enum Error {
     /// The attestation may be valid once the payload envelope is retrieved; it's unclear if the
     /// attestation is valid or not, so it is ignored (not penalized) pending the envelope.
     UnknownPayloadEnvelope { beacon_block_root: Hash256 },
+    /// An `index == 1` attestation references a block whose execution payload is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// A REJECT in the spec. Lighthouse peers forward these while the payload is still
+    /// optimistic, so we downscore lightly.
+    InvalidPayload { beacon_block_root: Hash256 },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring
@@ -633,6 +640,16 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             });
         }
 
+        // [New in Gloas]: Reject an `index == 1` attestation whose payload was found invalid.
+        if fork_name.gloas_enabled()
+            && attestation.data().index == 1
+            && head_block.execution_status.is_invalid()
+        {
+            return Err(Error::InvalidPayload {
+                beacon_block_root: attestation.data().beacon_block_root,
+            });
+        }
+
         // Check the attestation target root is consistent with the head root.
         //
         // This check is not in the specification, however we guard against it since it opens us up
@@ -967,6 +984,16 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         if fork_name.gloas_enabled() && attestation.data.index == 1 && !head_block.payload_received
         {
             return Err(Error::UnknownPayloadEnvelope {
+                beacon_block_root: attestation.data.beacon_block_root,
+            });
+        }
+
+        // [New in Gloas]: Reject an `index == 1` attestation whose payload was found invalid.
+        if fork_name.gloas_enabled()
+            && attestation.data.index == 1
+            && head_block.execution_status.is_invalid()
+        {
+            return Err(Error::InvalidPayload {
                 beacon_block_root: attestation.data.beacon_block_root,
             });
         }

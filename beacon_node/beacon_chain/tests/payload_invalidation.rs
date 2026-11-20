@@ -7,8 +7,12 @@ use beacon_chain::{
     BeaconChainError, BlockError, BlockErrorWithRoot, ChainConfig, ExecutionPayloadError,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
     WhenSlotSkipped,
+    attestation_verification::Error as AttnError,
     canonical_head::CachedHead,
-    test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
+    test_utils::{
+        BeaconChainHarness, EphemeralHarnessType, MakeAttestationOptions, fork_name_from_env,
+        test_spec,
+    },
 };
 use execution_layer::{
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
@@ -1957,6 +1961,68 @@ async fn gloas_latest_valid_hash_keeps_its_child_on_empty() {
         cached_head.head_payload_status(),
         proto_array::PayloadStatus::Empty
     );
+}
+
+/// An `index == 1` attestation to an invalidated payload is rejected, single and aggregate.
+#[tokio::test]
+async fn gloas_attestation_to_invalidated_payload() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+    let block_root = rig.import_block(Payload::Syncing).await;
+    rig.invalidate_manually(rig.block_hash(block_root)).await;
+    rig.harness.advance_slot();
+
+    let harness = &rig.harness;
+    let head = harness.chain.head_snapshot();
+    let slot = harness.get_current_slot();
+    let (attestations, _) = harness.make_attestations_with_opts(
+        &harness.get_all_validators(),
+        &head.beacon_state,
+        head.beacon_state_root(),
+        block_root.into(),
+        slot,
+        MakeAttestationOptions {
+            limit: None,
+            fork: harness.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch())),
+            payload_present_override: Some(true),
+        },
+    );
+    let (committee_attestations, aggregate) = attestations
+        .into_iter()
+        .find(|(_, aggregate)| aggregate.is_some())
+        .unwrap();
+    let (attestation, subnet_id) = &committee_attestations[0];
+    let committee = head
+        .beacon_state
+        .get_beacon_committee(slot, attestation.committee_index().unwrap())
+        .unwrap();
+    let single = attestation
+        .to_single_attestation_with_attester_index(
+            committee.committee[attestation.get_aggregation_bits()[0] as usize] as u64,
+        )
+        .unwrap();
+
+    match harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&single, Some(*subnet_id))
+    {
+        Err(AttnError::InvalidPayload { beacon_block_root }) => {
+            assert_eq!(beacon_block_root, block_root)
+        }
+        other => panic!("expected InvalidPayload, got {:?}", other.err()),
+    }
+    match harness
+        .chain
+        .verify_aggregated_attestation_for_gossip(&aggregate.unwrap())
+    {
+        Err(AttnError::InvalidPayload { beacon_block_root }) => {
+            assert_eq!(beacon_block_root, block_root)
+        }
+        other => panic!("expected InvalidPayload, got {:?}", other.err()),
+    }
 }
 
 fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
