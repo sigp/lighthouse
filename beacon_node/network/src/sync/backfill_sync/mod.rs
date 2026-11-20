@@ -259,7 +259,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // refactor of `ResetEpochError` adds a variant.
                     let ResetEpochError::SyncCompleted = e;
                     error!("Backfill sync completed whilst in failed status");
-                    self.set_state(BackFillState::Completed);
+                    self.mark_sync_completed();
                     return Err(BackFillError::InvalidSyncState(String::from(
                         "chain completed",
                     )));
@@ -587,13 +587,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
                 // check if the chain has completed syncing
                 if self.check_completed() {
-                    // chain is completed
-                    info!(
-                        blocks_processed = self.validated_batches * T::EthSpec::slots_per_epoch(),
-                        "Backfill sync completed"
-                    );
-                    self.set_state(BackFillState::Completed);
-                    Ok(ProcessResult::SyncCompleted)
+                    Ok(self.finish_completed())
                 } else {
                     // chain is not completed
                     // attempt to request more batches
@@ -692,8 +686,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     return Ok(ProcessResult::Successful);
                 }
                 BatchState::AwaitingValidation(_) => {
-                    // TODO: I don't think this state is possible, log a CRIT just in case.
-                    // If this is not observed, add it to the failed state branch above.
+                    // Finish if the store already completed backfill.
+                    if self.check_completed() {
+                        return Ok(self.finish_completed());
+                    }
+
                     crit!(
                         batch = ?self.processing_target,
                         "Chain encountered a robust batch awaiting validation"
@@ -1096,16 +1093,16 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Checks with the beacon chain if backfill sync has completed.
+    ///
+    /// Uses store progress rather than `current_start`, which can lag when
+    /// import jumps `oldest_block_slot` to the backfill target.
     fn check_completed(&mut self) -> bool {
+        let anchor_info = self.beacon_chain.store.get_anchor_info();
+        if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
+            return true;
+        }
         if self.would_complete(self.current_start) {
-            // Check that the beacon chain agrees
-            let anchor_info = self.beacon_chain.store.get_anchor_info();
-            // Conditions that we have completed a backfill sync
-            if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
-                return true;
-            } else {
-                error!("Backfill out of sync with beacon chain");
-            }
+            error!("Backfill out of sync with beacon chain");
         }
         false
     }
@@ -1134,6 +1131,25 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         }
     }
 
+    /// Logs completion and marks backfill sync as completed.
+    fn finish_completed(&mut self) -> ProcessResult {
+        info!(
+            blocks_processed = self.validated_batches * T::EthSpec::slots_per_epoch(),
+            "Backfill sync completed"
+        );
+        self.mark_sync_completed();
+        ProcessResult::SyncCompleted
+    }
+
+    /// Marks backfill sync as completed and clears in-flight batch state.
+    fn mark_sync_completed(&mut self) {
+        self.batches.clear();
+        self.participating_peers.clear();
+        self.current_processing_batch = None;
+        self.last_batch_downloaded = false;
+        self.set_state(BackFillState::Completed);
+    }
+
     /// Updates the global network state indicating the current state of a backfill sync.
     fn set_state(&self, state: BackFillState) {
         *self.network_globals.backfill_state.write() = state;
@@ -1153,13 +1169,83 @@ enum ResetEpochError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beacon_chain::test_utils::BeaconChainHarness;
+    use beacon_chain::ChainConfig;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use bls::Hash256;
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
     use rand_08::RngCore;
     use rand_08::SeedableRng;
     use rand_08::prelude::StdRng;
-    use types::Spec;
+    use types::{Slot, Spec};
+
+    type TestBackFillSync = BackFillSync<EphemeralHarnessType<Spec>>;
+    type TestBeaconChain = Arc<BeaconChain<EphemeralHarnessType<Spec>>>;
+
+    fn backfill_sync_with_genesis_backfill() -> (TestBackFillSync, TestBeaconChain) {
+        let harness = BeaconChainHarness::builder(Spec::default())
+            .default_spec()
+            .deterministic_keypairs(8)
+            .chain_config(ChainConfig {
+                genesis_backfill: true,
+                ..ChainConfig::default()
+            })
+            .fresh_ephemeral_store()
+            .build();
+
+        let beacon_chain = harness.chain.clone();
+        let network_globals = Arc::new(NetworkGlobals::new_test_globals(
+            vec![],
+            Arc::new(NetworkConfig::default()),
+            beacon_chain.spec.clone(),
+        ));
+        let backfill = BackFillSync::new(beacon_chain.clone(), network_globals);
+        (backfill, beacon_chain)
+    }
+
+    // Regression for #7818.
+    #[test]
+    fn check_completed_trusts_store_when_current_start_above_genesis() {
+        let (mut backfill, beacon_chain) = backfill_sync_with_genesis_backfill();
+
+        assert!(
+            beacon_chain
+                .store
+                .get_anchor_info()
+                .block_backfill_complete(beacon_chain.genesis_backfill_slot)
+        );
+        assert_eq!(beacon_chain.genesis_backfill_slot, Slot::new(0));
+
+        backfill.current_start = Epoch::new(170);
+        backfill.set_state(BackFillState::Syncing);
+
+        assert!(backfill.check_completed());
+    }
+
+    #[test]
+    fn check_completed_false_when_store_incomplete_despite_would_complete() {
+        let (mut backfill, beacon_chain) = backfill_sync_with_genesis_backfill();
+
+        let prev = beacon_chain.store.get_anchor_info();
+        let mut incomplete = prev.clone();
+        incomplete.oldest_block_slot = Slot::new(Spec::slots_per_epoch());
+        incomplete.oldest_block_parent = Hash256::repeat_byte(0xab);
+        beacon_chain
+            .store
+            .compare_and_set_anchor_info_with_write(prev, incomplete)
+            .expect("anchor update should succeed");
+
+        assert!(
+            !beacon_chain
+                .store
+                .get_anchor_info()
+                .block_backfill_complete(beacon_chain.genesis_backfill_slot)
+        );
+
+        backfill.current_start = Epoch::new(0);
+        backfill.set_state(BackFillState::Syncing);
+
+        assert!(!backfill.check_completed());
+    }
 
     #[test]
     fn request_batches_should_not_loop_infinitely() {
