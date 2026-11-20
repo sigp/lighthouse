@@ -20,7 +20,6 @@ fixed_bytes = { workspace = true }
 hashlink = { workspace = true }
 itertools = { workspace = true }
 leveldb = { version = "0.8.6", optional = true, default-features = false }
-logging = { workspace = true }
 metrics = { workspace = true }
 milhouse = { workspace = true }
 parking_lot = { workspace = true }
