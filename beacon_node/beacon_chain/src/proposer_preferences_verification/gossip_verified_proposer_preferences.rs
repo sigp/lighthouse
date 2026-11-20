@@ -6,7 +6,7 @@ use crate::{
     proposer_preferences_verification::{
         ProposerPreferencesError, proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
-    validator_pubkey_cache::ValidatorPubkeyCache,
+    validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache},
 };
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::{Mutex, RwLock};
@@ -176,14 +176,14 @@ impl GossipVerifiedProposerPreferences {
             });
         }
 
-        // Verify the signature using the proposer's pubkey from the validator pubkey cache
+        // Verify the signature using the proposer's pubkey
         let signature_is_valid = {
-            let pubkey_cache = ctx.validator_pubkey_cache.read();
-            let pubkey = pubkey_cache
+            let pubkeys = HeadPubkeys::new(ctx.canonical_head, ctx.validator_pubkey_cache);
+            let pubkey = pubkeys
                 .get(validator_index as usize)
                 .ok_or(ProposerPreferencesError::BadSignature)?;
             signed_preferences.verify_signature::<T::EthSpec>(
-                pubkey,
+                &pubkey,
                 &proposer.fork,
                 ctx.genesis_validators_root,
                 ctx.spec,
