@@ -1521,3 +1521,154 @@ async fn envelope_publishes_retrieved_columns_awaiting_publication() {
         );
     }
 }
+
+/// Blob data that does not match the block bid's commitments must not be gossiped as columns.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn envelope_rejects_blob_data_that_fails_kzg_against_bid() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+
+    let validator_count = 64;
+    let mut tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    let state = harness.get_current_state();
+    let ((block, _), envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let envelope = envelope.expect("Gloas block should produce an envelope");
+    let block_root = block.canonical_root();
+    harness
+        .process_block(slot, block_root, (block.clone(), None))
+        .await
+        .expect("block should be imported");
+
+    let commitments = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas block should have a bid")
+        .message()
+        .blob_kzg_commitments()
+        .clone();
+    let blobs_bundle = harness
+        .execution_block_generator()
+        .blobs_bundles
+        .values()
+        .find(|bundle| bundle.commitments.iter().eq(commitments.iter()))
+        .cloned()
+        .expect("mock EL should hold the payload's blobs");
+
+    let mut blobs = blobs_bundle.blobs;
+    let first_blob = blobs
+        .get_mut(0)
+        .expect("payload should include at least one blob");
+    first_blob[0] ^= 0xff;
+
+    let contents = SignedExecutionPayloadEnvelopeContents {
+        signed_execution_payload_envelope: envelope,
+        kzg_proofs: blobs_bundle.proofs,
+        blobs,
+    };
+    tester
+        .client
+        .post_beacon_execution_payload_envelope_contents(
+            &contents,
+            harness.spec.fork_name_at_slot::<E>(slot),
+            None,
+        )
+        .await
+        .expect_err("mismatched blob data should be rejected");
+
+    while let Ok(message) = tester.network_rx.network_recv.try_recv() {
+        if let NetworkMessage::Publish { messages } = message {
+            for message in messages {
+                assert!(
+                    !matches!(message, PubsubMessage::DataColumnSidecar(_)),
+                    "invalid blob data must not be published as data columns"
+                );
+            }
+        }
+    }
+}
+
+/// Bad blob data must not be gossiped as columns even when custody columns are already cached.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn envelope_rejects_bad_blob_data_when_custody_columns_cached() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+
+    let validator_count = 64;
+    let mut tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    let state = harness.get_current_state();
+    let ((block, _), envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let envelope = envelope.expect("Gloas block should produce an envelope");
+    let block_root = block.canonical_root();
+    harness
+        .process_block(slot, block_root, (block.clone(), None))
+        .await
+        .expect("block should be imported");
+
+    let columns = generate_data_column_sidecars_from_block(&block, &harness.spec);
+    harness
+        .chain
+        .process_rpc_custody_columns(columns)
+        .await
+        .expect("custody columns should be accepted");
+
+    let commitments = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas block should have a bid")
+        .message()
+        .blob_kzg_commitments()
+        .clone();
+    let blobs_bundle = harness
+        .execution_block_generator()
+        .blobs_bundles
+        .values()
+        .find(|bundle| bundle.commitments.iter().eq(commitments.iter()))
+        .cloned()
+        .expect("mock EL should hold the payload's blobs");
+
+    let mut blobs = blobs_bundle.blobs;
+    let first_blob = blobs
+        .get_mut(0)
+        .expect("payload should include at least one blob");
+    first_blob[0] ^= 0xff;
+
+    let contents = SignedExecutionPayloadEnvelopeContents {
+        signed_execution_payload_envelope: envelope,
+        kzg_proofs: blobs_bundle.proofs,
+        blobs,
+    };
+    tester
+        .client
+        .post_beacon_execution_payload_envelope_contents(
+            &contents,
+            harness.spec.fork_name_at_slot::<E>(slot),
+            None,
+        )
+        .await
+        .expect_err("mismatched blob data should be rejected even with cached custody columns");
+
+    while let Ok(message) = tester.network_rx.network_recv.try_recv() {
+        if let NetworkMessage::Publish { messages } = message {
+            for message in messages {
+                assert!(
+                    !matches!(message, PubsubMessage::DataColumnSidecar(_)),
+                    "invalid blob data must not be published as data columns"
+                );
+            }
+        }
+    }
+}
