@@ -39,8 +39,8 @@ use tokio::sync::mpsc;
 use tracing::info;
 use types::{
     BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSubnetId,
-    ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
-    Spec as E,
+    ExecutionBlockHash, ForkContext, ForkName, Hash256, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot, Spec as E,
 };
 
 /// Extract the Gloas payload envelope (if any) carried by a stored `RangeSyncBlock`.
@@ -2883,4 +2883,45 @@ async fn gloas_empty_child_continues_while_parent_payload_withheld() {
     r.assert_no_penalties();
     r.assert_empty_network();
     r.assert_empty_processor();
+}
+
+#[tokio::test]
+async fn gloas_child_peers_keys_capped_per_peer() {
+    let Some(mut r) = TestRig::new_after_gloas() else {
+        return;
+    };
+
+    let peer = r.new_connected_peer();
+    let parent_root = Hash256::repeat_byte(0xaa);
+    let template = r.rand_block();
+
+    for i in 0..5 {
+        let mut block = template.clone();
+        let SignedBeaconBlock::Gloas(ref mut gloas_block) = block else {
+            panic!("expected a Gloas block");
+        };
+        gloas_block.message.parent_root = parent_root;
+        gloas_block
+            .message
+            .body
+            .signed_execution_payload_bid
+            .message
+            .parent_block_hash = ExecutionBlockHash::repeat_byte(i);
+        r.trigger_unknown_parent_block(peer, Arc::new(block));
+    }
+
+    assert_eq!(
+        r.sync_manager
+            .block_lookups()
+            .gloas_child_peers_len(parent_root),
+        // The key that created the lookup plus the peer's two.
+        Some(3)
+    );
+    assert_eq!(
+        crate::metrics::SYNC_LOOKUP_GLOAS_CHILD_KEYS_REFUSED
+            .as_ref()
+            .map(|counter| counter.get())
+            .ok(),
+        Some(2)
+    );
 }

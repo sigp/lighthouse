@@ -571,6 +571,13 @@ pub static SYNC_LOOKUPS_STUCK: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
         "Total count of sync lookups that are stuck and dropped",
     )
 });
+pub static SYNC_LOOKUP_GLOAS_CHILD_KEYS_REFUSED: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "sync_lookup_gloas_child_keys_refused_total",
+            "Total count of gloas child peers keys refused by MAX_GLOAS_CHILD_KEYS_PER_PEER",
+        )
+    });
 pub static SYNC_ACTIVE_NETWORK_REQUESTS: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "sync_active_network_requests",
