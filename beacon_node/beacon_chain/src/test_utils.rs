@@ -87,6 +87,12 @@ use types::*;
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 
+/// Honest + adversarial validator counts for abandoned-fork test fixtures.
+pub const ABANDONED_FORK_HONEST_VALIDATORS: usize = 32;
+pub const ABANDONED_FORK_ADVERSARIAL_VALIDATORS: usize = 16;
+pub const ABANDONED_FORK_VALIDATOR_COUNT: usize =
+    ABANDONED_FORK_HONEST_VALIDATORS + ABANDONED_FORK_ADVERSARIAL_VALIDATORS;
+
 /// Builder withdrawal credentials derived from `pubkey`, in the same way as the interop genesis
 /// derives execution addresses.
 pub fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> Hash256 {
@@ -4139,6 +4145,125 @@ where
     /// Does not produce blocks or attestations.
     pub fn advance_slot(&self) {
         self.chain.slot_clock.advance_slot();
+    }
+
+    /// Abandoned-fork head retained in proto-array after DB prune.
+    ///
+    /// Requires [`ABANDONED_FORK_VALIDATOR_COUNT`] validators. Disables proto-array pruning so the
+    /// stray head stays in fork choice while being removed from the store.
+    pub async fn non_finalized_parent_in_proto_array_not_db(&self) -> Hash256 {
+        assert!(
+            self.validator_keypairs.len() >= ABANDONED_FORK_VALIDATOR_COUNT,
+            "need at least {ABANDONED_FORK_VALIDATOR_COUNT} validators"
+        );
+        let honest: Vec<usize> = (0..ABANDONED_FORK_HONEST_VALIDATORS).collect();
+        let adversarial: Vec<usize> =
+            (ABANDONED_FORK_HONEST_VALIDATORS..ABANDONED_FORK_VALIDATOR_COUNT).collect();
+
+        self.chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .proto_array_mut()
+            .set_prune_threshold(usize::MAX);
+
+        let mut state = self.get_current_state();
+        let slots_per_epoch = self.slots_per_epoch();
+
+        let canonical_slots: Vec<Slot> = (1..=self.epoch_start_slot(1)).map(Slot::new).collect();
+        let (_, _, _, new_state) = self
+            .add_attested_blocks_at_slots(state, &canonical_slots, &honest)
+            .await;
+        state = new_state;
+        let canonical_slot: u64 = self.get_current_slot().into();
+
+        let stray_slots: Vec<Slot> = (canonical_slot + 1..self.epoch_start_slot(2))
+            .map(Slot::new)
+            .collect();
+        let (_, _, stray_head, _) = self
+            .add_attested_blocks_at_slots(self.get_current_state(), &stray_slots, &adversarial)
+            .await;
+        let stray_root = Hash256::from(stray_head);
+
+        let finalization_slots: Vec<Slot> = ((canonical_slot + 1)
+            ..=(canonical_slot + slots_per_epoch * 5))
+            .map(Slot::new)
+            .collect();
+        self.add_attested_blocks_at_slots(state, &finalization_slots, &honest)
+            .await;
+
+        assert!(
+            !self.block_exists(stray_head),
+            "stray head should be pruned from the DB"
+        );
+        {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            assert!(
+                fork_choice.proto_array_contains_block(&stray_root),
+                "stray root should remain in proto-array"
+            );
+            assert!(
+                fork_choice.get_block(&stray_root).is_none(),
+                "get_block should hide the non-finalized stray root"
+            );
+        }
+
+        stray_root
+    }
+
+    /// Genesis root retained in the DB after proto-array prune.
+    ///
+    /// Isolates the `store.block_exists` path when the parent is absent from proto-array.
+    pub async fn non_finalized_parent_in_db_not_proto_array(&self) -> Hash256 {
+        assert!(
+            !self.validator_keypairs.is_empty(),
+            "need at least one validator"
+        );
+        let validators: Vec<usize> = (0..self.validator_keypairs.len()).collect();
+
+        self.chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .proto_array_mut()
+            .set_prune_threshold(1);
+
+        let mut state = self.get_current_state();
+        let slots_per_epoch = self.slots_per_epoch();
+
+        let canonical_slots: Vec<Slot> = (1..=self.epoch_start_slot(1)).map(Slot::new).collect();
+        let (_, _, _, new_state) = self
+            .add_attested_blocks_at_slots(state, &canonical_slots, &validators)
+            .await;
+        state = new_state;
+        let canonical_slot: u64 = self.get_current_slot().into();
+
+        let finalization_slots: Vec<Slot> = ((canonical_slot + 1)
+            ..=(canonical_slot + slots_per_epoch * 5))
+            .map(Slot::new)
+            .collect();
+        self.add_attested_blocks_at_slots(state, &finalization_slots, &validators)
+            .await;
+
+        let genesis_root = self.chain.genesis_block_root;
+        assert!(
+            self.chain
+                .store
+                .block_exists(&genesis_root)
+                .expect("store block_exists should succeed"),
+            "genesis should remain in the DB"
+        );
+        {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            assert!(
+                !fork_choice.proto_array_contains_block(&genesis_root),
+                "genesis should have been pruned from proto-array"
+            );
+            assert!(
+                fork_choice.get_block(&genesis_root).is_none(),
+                "get_block should not return pruned genesis"
+            );
+        }
+
+        genesis_root
     }
 
     /// Advance the clock to `lookahead` before the start of `slot`.
