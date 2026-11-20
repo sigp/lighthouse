@@ -93,20 +93,31 @@ fn proposer_duties_internal<T: BeaconChainTypes>(
             .safe_add(1)
             .map_err(warp_utils::reject::arith_error)?
     {
-        let (proposers, dependent_root, legacy_dependent_root, execution_status, _fork) =
-            compute_proposer_duties_from_head(request_epoch, chain)
-                .map_err(warp_utils::reject::unhandled_error)?;
-        let selected_root = match root_selection {
-            DependentRootSelection::Legacy => legacy_dependent_root,
-            DependentRootSelection::True => dependent_root,
-        };
-        convert_to_api_response(
-            chain,
-            request_epoch,
-            selected_root,
-            execution_status.is_optimistic_or_invalid(),
-            proposers,
-        )
+        // Post-Fulu, next-epoch duties are determined by the shuffling decision root and are
+        // safe to cache. Pre-Fulu they still depend on the end of the current epoch, which may
+        // be undecided from a mid-epoch head. Keep the uncached path.
+        if chain
+            .spec
+            .fork_name_at_epoch(request_epoch.saturating_sub(1_u64))
+            .fulu_enabled()
+        {
+            compute_and_cache_proposer_duties(request_epoch, chain, root_selection)
+        } else {
+            let (proposers, dependent_root, legacy_dependent_root, execution_status, _fork) =
+                compute_proposer_duties_from_head(request_epoch, chain)
+                    .map_err(warp_utils::reject::unhandled_error)?;
+            let selected_root = match root_selection {
+                DependentRootSelection::Legacy => legacy_dependent_root,
+                DependentRootSelection::True => dependent_root,
+            };
+            convert_to_api_response(
+                chain,
+                request_epoch,
+                selected_root,
+                execution_status.is_optimistic_or_invalid(),
+                proposers,
+            )
+        }
     } else if request_epoch
         > current_epoch
             .safe_add(1)
@@ -185,42 +196,60 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
         .transpose()
 }
 
-/// Compute the proposer duties using the head state, add the duties to the proposer cache and
-/// return the proposers.
+/// Compute the proposer duties from the head and cache them via `with_proposer_cache`.
 ///
-/// This method does *not* attempt to read the values from the cache before computing them. See
-/// `try_proposer_duties_from_cache` to read values.
+/// Dependent roots are read from the unadvanced head; proposer indices go through the cache.
 ///
 /// ## Notes
 ///
-/// The `current_epoch` value should equal the current epoch on the slot clock, otherwise we risk
-/// washing out the proposer cache at the expense of block processing.
+/// The `request_epoch` should be the current epoch (with gossip tolerance) or, post-Fulu, the
+/// next epoch. Caching next-epoch duties pre-Fulu would be incorrect while the current epoch's
+/// terminal block is still undecided.
 fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
-    current_epoch: Epoch,
+    request_epoch: Epoch,
     chain: &BeaconChain<T>,
     root_selection: DependentRootSelection,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    let (indices, dependent_root, legacy_dependent_root, execution_status, fork) =
-        compute_proposer_duties_from_head(current_epoch, chain)
+    let (decision_root, legacy_dependent_root, execution_optimistic) = {
+        let head = chain.canonical_head.cached_head();
+        let head_block_root = head.head_block_root();
+        let state = &head.snapshot.beacon_state;
+        let decision_root = state
+            .proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root, &chain.spec)
+            .map_err(warp_utils::reject::beacon_state_error)?;
+        let legacy_dependent_root = state
+            .legacy_proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root)
+            .map_err(warp_utils::reject::beacon_state_error)?;
+        let execution_optimistic = chain
+            .is_optimistic_or_invalid_head()
             .map_err(warp_utils::reject::unhandled_error)?;
+        (decision_root, legacy_dependent_root, execution_optimistic)
+    };
 
-    // Prime the proposer shuffling cache with the newly-learned value.
-    chain
-        .beacon_proposer_cache
-        .lock()
-        .insert(current_epoch, dependent_root, indices.clone(), fork)
-        .map_err(BeaconChainError::from)
+    let indices = chain
+        .with_proposer_cache(
+            decision_root,
+            request_epoch,
+            |proposers| Ok(proposers.proposers().to_vec()),
+            || {
+                let head = chain.canonical_head.cached_head();
+                Ok::<_, BeaconChainError>((
+                    head.head_state_root(),
+                    head.snapshot.beacon_state.clone(),
+                ))
+            },
+        )
         .map_err(warp_utils::reject::unhandled_error)?;
 
     let selected_root = match root_selection {
         DependentRootSelection::Legacy => legacy_dependent_root,
-        DependentRootSelection::True => dependent_root,
+        DependentRootSelection::True => decision_root,
     };
     convert_to_api_response(
         chain,
-        current_epoch,
+        request_epoch,
         selected_root,
-        execution_status.is_optimistic_or_invalid(),
+        execution_optimistic,
         indices,
     )
 }
