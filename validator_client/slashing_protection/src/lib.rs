@@ -1,5 +1,6 @@
 mod attestation_tests;
 mod block_tests;
+mod exhaustive_tests;
 mod extra_interchange_tests;
 pub mod interchange_test;
 mod parallel_tests;
