@@ -1,10 +1,11 @@
 use super::{
     Config, Error, LighthouseValidatorStore,
     vrf_state::{self, Record, Source},
+    xmss_cache::CachedSigner,
 };
 use bls::{Keypair, PublicKeyBytes};
 use futures::{StreamExt, stream};
-use genesis::pq::{POPULATED_LEAVES, VrfTree, xmss_key_from_bls};
+use genesis::pq::{POPULATED_LEAVES, VrfTree};
 use parking_lot::Mutex;
 use signing_method::SigningMethod;
 use slot_clock::SlotClock;
@@ -13,23 +14,63 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{
     path::PathBuf,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::{
-    sync::{OnceCell, Semaphore},
+    sync::{Notify, OnceCell, Semaphore, oneshot},
     time::{Instant, MissedTickBehavior, interval_at},
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use types::{
     AggregateAndProof, AggregateAndProofPq, Attestation, AttestationData, AttestationProof, Domain,
     EthSpec, ForkName, Hash256, SignedAggregateAndProof, SignedAggregateAndProofPq, SignedRoot,
     SingleAttestation, SingleAttestationPq, Slot, VrfProof, XmssPublicKey, XmssSignature,
 };
-use validator_store::AttestationToSign;
-use xmss::{LeafIndex, XmssSecretKey};
+use validator_store::{AttestationToSign, DoppelgangerStatus, ValidatorStore};
+use xmss::{LeafIndex, SUBTREE_LEAVES};
 
 const PQ_WORKERS: usize = 8;
 const PQ_KEY_LOAD_LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PreparationWindow {
+    slot_tree: LeafIndex,
+    attestation_tree: LeafIndex,
+}
+
+impl PreparationWindow {
+    fn new<E: EthSpec>(slot: Slot) -> Result<Self, Error> {
+        let tree = |leaf| {
+            LeafIndex::try_from(leaf)
+                .map(|leaf| leaf - leaf % SUBTREE_LEAVES)
+                .map_err(pq_leaf_error)
+        };
+        Ok(Self {
+            slot_tree: tree(
+                pq::slot_leaf_index(slot, pq::LEAF_OFFSET_BEACON_PROPOSER)
+                    .map_err(pq_leaf_error)?,
+            )?,
+            attestation_tree: tree(
+                pq::attestation_leaf_index(slot.epoch(E::slots_per_epoch()))
+                    .map_err(pq_leaf_error)?,
+            )?,
+        })
+    }
+
+    fn current(self) -> [LeafIndex; 2] {
+        [self.slot_tree, self.attestation_tree]
+    }
+
+    fn leaves(self) -> impl Iterator<Item = LeafIndex> {
+        self.current()
+            .into_iter()
+            .chain(self.slot_tree.checked_add(SUBTREE_LEAVES))
+            .chain(self.attestation_tree.checked_add(SUBTREE_LEAVES))
+    }
+}
 
 enum KeyLoadOutcome {
     Prepared,
@@ -39,9 +80,19 @@ enum KeyLoadOutcome {
 
 #[derive(Default)]
 struct Key {
-    xmss: OnceLock<XmssSecretKey>,
+    xmss: OnceLock<CachedSigner>,
+    xmss_ready: AtomicBool,
+    prepared_window: Mutex<Option<PreparationWindow>>,
     vrf: OnceCell<VrfTree>,
     registered_vrf_root: OnceLock<Hash256>,
+}
+
+impl Key {
+    fn mark_xmss_ready(&self, keys_changed: &Notify) {
+        if !self.xmss_ready.swap(true, Ordering::Relaxed) {
+            keys_changed.notify_one();
+        }
+    }
 }
 
 pub(super) struct Keys {
@@ -49,7 +100,9 @@ pub(super) struct Keys {
     permits: Arc<Semaphore>,
     indices: Mutex<HashMap<PublicKeyBytes, Result<Option<u32>, String>>>,
     source: Result<Option<Source>, String>,
-    cache_dir: Option<PathBuf>,
+    vrf_cache_dir: Option<PathBuf>,
+    xmss_cache_dir: Option<PathBuf>,
+    xmss_keys_changed: Arc<Notify>,
 }
 
 impl Keys {
@@ -59,7 +112,9 @@ impl Keys {
             permits: Arc::new(Semaphore::new(PQ_WORKERS)),
             indices: Mutex::default(),
             source: config.vrf_state_url.as_deref().map(Source::new).transpose(),
-            cache_dir: config.vrf_state_cache_dir.clone(),
+            vrf_cache_dir: config.vrf_state_cache_dir.clone(),
+            xmss_cache_dir: config.xmss_cache_dir.clone(),
+            xmss_keys_changed: Arc::default(),
         }
     }
 }
@@ -142,17 +197,18 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 let Ok(signing_method) = self.doppelganger_bypassed_signing_method(pubkey) else {
                     return KeyLoadOutcome::Skipped;
                 };
+                let cache_dir = self.pq_keys.xmss_cache_dir.clone();
+                let keys_changed = Arc::clone(&self.pq_keys.xmss_keys_changed);
                 match self
                     .with_local_pq_key(pubkey, signing_method, move |key, bls| {
-                        let key = key.xmss.get_or_init(|| xmss_key_from_bls(&bls.sk));
-                        for leaf in [
-                            pq::attestation_leaf_index(slot.epoch(E::slots_per_epoch())),
-                            pq::slot_leaf_index(slot, pq::LEAF_OFFSET_BEACON_PROPOSER),
-                        ] {
-                            let leaf = LeafIndex::try_from(leaf.map_err(pq_leaf_error)?)
-                                .map_err(pq_leaf_error)?;
-                            key.prepare(leaf).map_err(pq_leaf_error)?;
+                        let signer = key.xmss.get_or_init(|| {
+                            CachedSigner::load(&bls.sk, pubkey, cache_dir.as_deref())
+                        });
+                        for leaf in PreparationWindow::new::<E>(slot)?.current() {
+                            signer.key.prepare(leaf).map_err(pq_leaf_error)?;
                         }
+                        signer.persist(pubkey);
+                        key.mark_xmss_ready(&keys_changed);
                         Ok(())
                     })
                     .await
@@ -200,6 +256,109 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         );
     }
 
+    /// A single background worker prepares rolling signing windows. It uses neither
+    /// the signing semaphore nor a long-held signing cache lock.
+    pub fn start_pq_xmss_preparation(self: &Arc<Self>) {
+        if xmss::FAKE_CRYPTO || !self.spec.is_pq_scheduled() {
+            return;
+        }
+        let store = Arc::clone(self);
+        self.task_executor.spawn(
+            async move { store.prepare_pq_xmss_windows().await },
+            "pq_xmss_preparation",
+        );
+    }
+
+    async fn prepare_pq_xmss_windows(&self) {
+        let mut previous = None;
+        let mut keys_changed = true;
+        loop {
+            let window = self.pq_xmss_window();
+            if let Some(window) = window
+                && (keys_changed || Some(window) != previous)
+            {
+                self.prepare_pq_xmss_window(window).await;
+            }
+            previous = window;
+
+            tokio::select! {
+                _ = self.pq_keys.xmss_keys_changed.notified() => keys_changed = true,
+                _ = tokio::time::sleep(self.slot_clock.slot_duration()) => keys_changed = false,
+            }
+        }
+    }
+
+    fn pq_xmss_window(&self) -> Option<PreparationWindow> {
+        let slot = self.slot_clock.now_or_genesis()?;
+        if self.spec.fork_name_at_slot::<E>(slot) != ForkName::Pq {
+            return None;
+        }
+        PreparationWindow::new::<E>(slot).ok()
+    }
+
+    async fn prepare_pq_xmss_window(&self, window: PreparationWindow) {
+        let pubkeys: Vec<_> = self.voting_pubkeys(DoppelgangerStatus::ignored);
+        let entries = {
+            let entries = self.pq_keys.entries.lock();
+            pubkeys
+                .into_iter()
+                .filter_map(|pubkey| Some((pubkey, Arc::clone(entries.get(&pubkey)?))))
+                .collect::<Vec<_>>()
+        };
+
+        for (pubkey, key) in entries {
+            if self.pq_xmss_window() != Some(window) {
+                break;
+            }
+            if !key.xmss_ready.load(Ordering::Relaxed)
+                || *key.prepared_window.lock() == Some(window)
+            {
+                continue;
+            }
+
+            // Dropping the waiting task on shutdown tells the in-flight build to stop at
+            // its next group of leaves. There is no queue of blocking work to drain.
+            let (cancel, alive) = oneshot::channel::<()>();
+            let Some(work) = self.task_executor.spawn_blocking_handle(
+                move || -> Result<(), xmss::Error> {
+                    let Some(signer) = key.xmss.get() else {
+                        return Ok(());
+                    };
+                    let started = Instant::now();
+                    for leaf in window.leaves() {
+                        if cancel.is_closed()
+                            || !signer
+                                .key
+                                .prepare_with_cancel(leaf, || cancel.is_closed())?
+                        {
+                            return Ok(());
+                        }
+                    }
+                    if !cancel.is_closed() {
+                        signer.persist(pubkey);
+                        *key.prepared_window.lock() = Some(window);
+                        debug!(
+                            ?pubkey,
+                            ?window,
+                            elapsed_ms = started.elapsed().as_millis(),
+                            "Prepared rolling PQ XMSS signing trees"
+                        );
+                    }
+                    Ok(())
+                },
+                "pq_xmss_prepare_window",
+            ) else {
+                return;
+            };
+
+            let result = work.await;
+            drop(alive);
+            if let Ok(Err(error)) = result {
+                warn!(?pubkey, %error, "Unable to prepare rolling PQ XMSS signing trees");
+            }
+        }
+    }
+
     pub(super) fn local_pq_public_key(&self, pubkey: &PublicKeyBytes) -> Option<XmssPublicKey> {
         self.pq_keys
             .entries
@@ -207,7 +366,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             .get(pubkey)?
             .xmss
             .get()
-            .map(XmssSecretKey::public_key)
+            .map(|signer| signer.key.public_key())
     }
 
     pub(super) fn has_pq_vrf_root(&self, pubkey: &PublicKeyBytes) -> bool {
@@ -281,7 +440,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         })?;
         key.vrf
             .get_or_try_init(|| async {
-                let cache_path = self.pq_keys.cache_dir.as_ref().map(|dir| match index {
+                let cache_path = self.pq_keys.vrf_cache_dir.as_ref().map(|dir| match index {
                     Some(index) => dir.join(format!("{root:x}-{index}.vrf")),
                     None => dir.join(format!("{root:x}.vrf")),
                 });
@@ -375,6 +534,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             .map_err(|error| Error::Middleware(format!("PQ signature leaf: {error}")))?;
         let signing_method = self.doppelganger_checked_signing_method(pubkey)?;
         let slashing_protection = self.slashing_protection.clone();
+        let cache_dir = self.pq_keys.xmss_cache_dir.clone();
+        let keys_changed = Arc::clone(&self.pq_keys.xmss_keys_changed);
         self.with_local_pq_key(pubkey, signing_method, move |key, bls| {
             // Commit before touching the signer. A cancellation or failure after this
             // point still reserves the leaf, and only the identical message may retry.
@@ -393,20 +554,13 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 })
                 .map_err(Error::Slashable)?;
 
-            let key = key.xmss.get_or_init(|| {
-                let started = Instant::now();
-                info!(?pubkey, "Deriving PQ XMSS validator key");
-                let xmss = xmss_key_from_bls(&bls.sk);
-                info!(
-                    ?pubkey,
-                    elapsed_ms = started.elapsed().as_millis(),
-                    "Derived PQ XMSS validator key"
-                );
-                xmss
-            });
+            let signer = key
+                .xmss
+                .get_or_init(|| CachedSigner::load(&bls.sk, pubkey, cache_dir.as_deref()));
             let _timer = validator_metrics::start_timer(&validator_metrics::PQ_XMSS_SIGN_SECONDS);
-            key.sign(&signing_root.0, leaf)
-                .map_err(|error| Error::Middleware(format!("PQ signature: {error:?}")))
+            let result = signer.key.sign(&signing_root.0, leaf);
+            key.mark_xmss_ready(&keys_changed);
+            result.map_err(|error| Error::Middleware(format!("PQ signature: {error:?}")))
         })
         .await
     }
@@ -545,6 +699,53 @@ fn checked_vrf_indices(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rolling_xmss_window_prepares_each_duty_range_ahead_of_its_boundary() {
+        use types::MainnetEthSpec;
+
+        let at = |slot| PreparationWindow::new::<MainnetEthSpec>(Slot::new(slot)).unwrap();
+        let initial = at(0);
+        assert_eq!(initial, at(4_095));
+        assert_eq!(
+            initial.leaves().collect::<Vec<_>>(),
+            [
+                initial.slot_tree,
+                initial.attestation_tree,
+                initial.slot_tree + SUBTREE_LEAVES,
+                initial.attestation_tree + SUBTREE_LEAVES,
+            ]
+        );
+        let next_slot_window = at(4_096);
+        assert_eq!(
+            next_slot_window.slot_tree,
+            initial.slot_tree + SUBTREE_LEAVES
+        );
+        assert_eq!(next_slot_window.attestation_tree, initial.attestation_tree);
+        assert!(
+            initial
+                .leaves()
+                .any(|leaf| leaf == next_slot_window.slot_tree)
+        );
+        assert_eq!(next_slot_window, at(12_287));
+        assert_eq!(
+            at(12_288).slot_tree,
+            next_slot_window.slot_tree + SUBTREE_LEAVES
+        );
+
+        let epoch_boundary = (1 << 15) * MainnetEthSpec::slots_per_epoch();
+        let previous = at(epoch_boundary - 1);
+        let current = at(epoch_boundary);
+        assert_eq!(
+            current.attestation_tree,
+            previous.attestation_tree + SUBTREE_LEAVES
+        );
+        assert!(
+            previous
+                .leaves()
+                .any(|leaf| leaf == current.attestation_tree)
+        );
+    }
 
     #[test]
     fn vrf_rejects_all_owners_of_duplicate_derivation_index() {

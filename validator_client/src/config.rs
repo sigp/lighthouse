@@ -383,6 +383,7 @@ impl Config {
         config.validator_store.prefer_builder_proposals =
             validator_client_config.prefer_builder_proposals;
         config.validator_store.gas_limit = validator_client_config.gas_limit;
+        config.validator_store.xmss_cache_dir = Some(config.validator_dir.join("xmss-cache"));
         config.validator_store.vrf_state_url = validator_client_config.vrf_state_url.clone();
         if config.validator_store.vrf_state_url.is_some() {
             config.validator_store.vrf_state_cache_dir =

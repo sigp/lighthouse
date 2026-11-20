@@ -64,6 +64,7 @@ members = [
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
     "crypto/kzg",
+    "crypto/lean_xmss_compact",
     "crypto/xmss",
     "database_manager",
     "lcli",
@@ -175,10 +176,12 @@ hyper = "1"
 initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 itertools = "0.14"
+keccak256 = { git = "https://github.com/leanEthereum/leanVM", rev = "283686575c4e81790591d2c6e3ed21c69c0e3bbe" }
 kzg = { path = "crypto/kzg" }
 # leanVM crates: all of them, and the `leanvm-sidecar` binary nodes run, must be at one revision.
 # This revision matches lean-pq-bindings v0.11.0.
 lean_xmss = { git = "https://github.com/leanEthereum/leanVM", rev = "283686575c4e81790591d2c6e3ed21c69c0e3bbe" }
+lean_xmss_compact = { path = "crypto/lean_xmss_compact" }
 leanvm_claims = { package = "claims", git = "https://github.com/leanEthereum/leanVM", rev = "283686575c4e81790591d2c6e3ed21c69c0e3bbe" }
 leanvm_sidecar = { package = "sidecar", git = "https://github.com/leanEthereum/leanVM", rev = "283686575c4e81790591d2c6e3ed21c69c0e3bbe" }
 libp2p = { git = "https://github.com/sigp/rust-libp2p", rev = "a5abdd2038d68362bdd3c0226ae177fe64a3a3d0", default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "secp256k1", "macros", "metrics", "quic", "upnp", "gossipsub", "gossipsub-partial-messages"] }
@@ -298,6 +301,9 @@ zstd = "0.14"
 opt-level = 3
 
 [profile.dev.package.lean_xmss]
+opt-level = 3
+
+[profile.dev.package.lean_xmss_compact]
 opt-level = 3
 
 [profile.maxperf]

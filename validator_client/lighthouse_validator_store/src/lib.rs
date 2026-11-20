@@ -39,6 +39,7 @@ use validator_store::{
 
 mod pq;
 mod vrf_state;
+mod xmss_cache;
 
 pub type Error = ValidatorStoreError<SigningError>;
 
@@ -60,6 +61,8 @@ pub struct Config {
     pub vrf_state_url: Option<String>,
     /// Directory for validated VRF records.
     pub vrf_state_cache_dir: Option<std::path::PathBuf>,
+    /// Directory for the local XMSS signing tree cache.
+    pub xmss_cache_dir: Option<std::path::PathBuf>,
 }
 
 /// Number of epochs of slashing protection history to keep.

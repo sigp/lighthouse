@@ -698,6 +698,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             None
         };
 
+        self.validator_store.start_pq_xmss_preparation();
+
         // Wait until genesis has occurred.
         tokio::select! {
             biased;

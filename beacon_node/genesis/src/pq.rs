@@ -12,8 +12,12 @@ pub const POPULATED_LEAVES: u64 = 1 << POPULATED_DEPTH;
 const SUBTREE_DEPTH: usize = 10;
 const SUBTREE_LEAVES: u64 = 1 << SUBTREE_DEPTH;
 
+pub fn xmss_seed_from_bls(key: &SecretKey) -> [u8; 32] {
+    hash32_concat(b"leanxmss-seed", key.serialize().as_bytes())
+}
+
 pub fn xmss_key_from_bls(key: &SecretKey) -> XmssSecretKey {
-    XmssSecretKey::from_seed(&hash32_concat(b"leanxmss-seed", key.serialize().as_bytes()))
+    XmssSecretKey::from_seed(&xmss_seed_from_bls(key))
 }
 
 /// Stores the derived first 2^20 leaves as subtree roots and optionally anchors them in the full tree.

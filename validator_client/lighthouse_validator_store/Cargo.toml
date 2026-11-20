@@ -22,20 +22,22 @@ initialized_validators = { workspace = true }
 logging = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
+ring = { workspace = true }
 serde = { workspace = true }
 signing_method = { workspace = true }
 slashing_protection = { workspace = true }
 slot_clock = { workspace = true }
 state_processing = { workspace = true }
 task_executor = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
 validator_store = { workspace = true }
 xmss = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }
 logging = { workspace = true }
-tempfile = { workspace = true }

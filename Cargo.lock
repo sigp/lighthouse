@@ -5709,6 +5709,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lean_xmss_compact"
+version = "0.1.0"
+dependencies = [
+ "keccak256",
+]
+
+[[package]]
 name = "leveldb"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6262,6 +6269,7 @@ dependencies = [
  "logging",
  "parking_lot",
  "reqwest 0.12.28",
+ "ring",
  "serde",
  "signing_method",
  "slashing_protection",
@@ -6275,6 +6283,7 @@ dependencies = [
  "validator_metrics",
  "validator_store",
  "xmss",
+ "zeroize",
 ]
 
 [[package]]
@@ -11640,6 +11649,7 @@ dependencies = [
  "ethereum_ssz",
  "hex",
  "lean_xmss",
+ "lean_xmss_compact",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
