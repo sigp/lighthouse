@@ -114,3 +114,55 @@ impl std::fmt::Display for Protocol {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tls::TlsConfig;
+    use axum::routing::get;
+
+    /// Serve a router over TLS and fetch a page from it over HTTPS.
+    ///
+    /// Regression test for https://github.com/sigp/lighthouse/issues/10598.
+    #[tokio::test]
+    async fn serve_over_tls() {
+        let certified_key =
+            rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_string()]).unwrap();
+        let cert_pem = certified_key.cert.pem();
+
+        let tls_dir = tempfile::tempdir().unwrap();
+        let cert = tls_dir.path().join("cert.pem");
+        let key = tls_dir.path().join("key.pem");
+        std::fs::write(&cert, &cert_pem).unwrap();
+        std::fs::write(&key, certified_key.key_pair.serialize_pem()).unwrap();
+
+        let router = Router::new().route("/", get(|| async { "hello" }));
+        let server = Server::builder(router, SocketAddr::from(([127, 0, 0, 1], 0)))
+            .with_tls(TlsConfig { cert, key })
+            .build()
+            .await
+            .unwrap();
+        assert_eq!(server.info().protocol, Protocol::Https);
+
+        let (address, server_future) = server
+            .serve_with_shutdown(std::future::pending())
+            .await
+            .unwrap();
+        tokio::spawn(server_future);
+
+        // Trust only the server's certificate, so the request succeeds only if the TLS handshake
+        // with that certificate does.
+        let client = reqwest::Client::builder()
+            .tls_built_in_root_certs(false)
+            .add_root_certificate(reqwest::Certificate::from_pem(cert_pem.as_bytes()).unwrap())
+            .build()
+            .unwrap();
+        let response = client
+            .get(format!("https://{address}/"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.text().await.unwrap(), "hello");
+    }
+}
