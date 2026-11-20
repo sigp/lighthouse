@@ -953,7 +953,7 @@ impl HttpJsonRpc {
         new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::Heze(
+            JsonExecutionPayload::Gloas(
                 new_payload_request_heze
                     .execution_payload
                     .clone()
