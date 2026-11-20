@@ -47,6 +47,9 @@ pub enum Error {
         block_root: Hash256,
         parent_root: Hash256,
     },
+    EnvelopeForInvalidPayload {
+        block_root: Hash256,
+    },
     Arith(ArithError),
     Unexpected(String),
     InvalidNodeVariant {
