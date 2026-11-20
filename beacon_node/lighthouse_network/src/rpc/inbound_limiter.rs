@@ -353,20 +353,18 @@ mod tests {
     use crate::rpc::rate_limiter::Quota;
     use logging::create_test_tracing_subscriber;
     use std::num::NonZeroU64;
-    use types::{Epoch, Hash256, MainnetEthSpec, Slot};
+    use types::{Epoch, Hash256, Slot, Spec};
 
-    fn limiter(config: RateLimiterConfig) -> InboundRateLimiter<MainnetEthSpec> {
+    fn limiter(config: RateLimiterConfig) -> InboundRateLimiter<Spec> {
         limiter_with_optional_config(Some(config))
     }
 
-    fn limiter_with_optional_config(
-        config: Option<RateLimiterConfig>,
-    ) -> InboundRateLimiter<MainnetEthSpec> {
+    fn limiter_with_optional_config(config: Option<RateLimiterConfig>) -> InboundRateLimiter<Spec> {
         create_test_tracing_subscriber();
-        let fork_context = Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
         InboundRateLimiter::new(config.map(InboundRateLimiterConfig), fork_context).unwrap()
     }
@@ -375,7 +373,7 @@ mod tests {
         InboundRequestId::new_unchecked(0, id)
     }
 
-    fn status_request() -> RequestType<MainnetEthSpec> {
+    fn status_request() -> RequestType<Spec> {
         RequestType::Status(StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::ZERO,
