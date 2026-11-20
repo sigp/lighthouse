@@ -12,8 +12,9 @@ use crate::{
     WhenSlotSkipped,
     inclusion_list_store::InsertOutcome,
     inclusion_list_verification::{
-        InclusionListVerificationError,
+        BLOB_TX_TYPE_ID, InclusionListTransactionsError, InclusionListVerificationError,
         gossip_verified_inclusion_list::{GossipVerificationContext, GossipVerifiedInclusionList},
+        verify_inclusion_list_transactions_bounds, verify_no_blob_transactions,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
@@ -587,4 +588,69 @@ async fn inclusion_list_in_first_heze_epoch() {
     );
     let result = GossipVerifiedInclusionList::new(signed, ctx.seen_timestamp(), &ctx.gossip_ctx());
     assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+}
+
+#[test]
+fn empty_inclusion_list_is_within_bounds() {
+    assert_eq!(
+        verify_inclusion_list_transactions_bounds(&transactions(vec![]), &E::default_spec()),
+        Ok(())
+    );
+}
+
+#[test]
+fn inclusion_list_over_the_size_limit_is_rejected() {
+    let spec = E::default_spec();
+    let max = spec.max_transactions_bytes_per_inclusion_list;
+    let size = max + 1;
+
+    assert_eq!(
+        verify_inclusion_list_transactions_bounds(
+            &transactions(vec![vec![0xaa; size as usize]]),
+            &spec
+        ),
+        Err(InclusionListTransactionsError::ListExceedsSizeLimit { size, max })
+    );
+}
+
+#[test]
+fn inclusion_list_at_the_size_limit_is_accepted() {
+    let spec = E::default_spec();
+    let max = spec.max_transactions_bytes_per_inclusion_list as usize;
+
+    assert_eq!(
+        verify_inclusion_list_transactions_bounds(&transactions(vec![vec![0xaa; max]]), &spec),
+        Ok(())
+    );
+}
+
+#[test]
+fn inclusion_list_with_empty_transaction_is_rejected() {
+    assert_eq!(
+        verify_inclusion_list_transactions_bounds(
+            &transactions(vec![vec![0xaa], vec![], vec![0xaa]]),
+            &E::default_spec()
+        ),
+        Err(InclusionListTransactionsError::EmptyTransaction { index: 1 })
+    );
+}
+
+#[test]
+fn inclusion_list_with_blob_transaction_is_rejected() {
+    assert_eq!(
+        verify_no_blob_transactions(&transactions(vec![
+            vec![0xaa; 10],
+            vec![BLOB_TX_TYPE_ID, 0xaa],
+            vec![0xaa; 10],
+        ])),
+        Err(InclusionListTransactionsError::BlobTransaction { index: 1 })
+    );
+}
+
+#[test]
+fn inclusion_list_without_blob_transactions_is_accepted() {
+    assert_eq!(
+        verify_no_blob_transactions(&transactions(vec![vec![0xaa; 10]; 3])),
+        Ok(())
+    );
 }
