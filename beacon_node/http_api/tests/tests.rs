@@ -3323,14 +3323,37 @@ impl ApiTester {
             .sync_committee_period(&self.chain.spec)
             .unwrap();
 
-        match self
+        let response = match self
             .client
             .get_beacon_light_client_updates_ssz::<E>(current_sync_committee_period, 1)
             .await
         {
-            Ok(result) => result,
+            Ok(result) => result.expect("light client update should exist"),
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
+
+        let expected = self
+            .chain
+            .store
+            .get_light_client_updates(current_sync_committee_period, 1)
+            .unwrap();
+        assert_eq!(1, expected.len());
+        let expected_update = &expected[0];
+
+        // A single chunk: `response_chunk_len (u64 LE) ++ context ++ payload`, nothing trailing.
+        let (response_chunk_len, response_chunk) = response.split_at(8);
+        let response_chunk_len = u64::from_le_bytes(response_chunk_len.try_into().unwrap());
+        assert_eq!(response_chunk_len, response_chunk.len() as u64);
+
+        let (context, payload) = response_chunk.split_at(4);
+        let epoch = expected_update
+            .attested_header_slot()
+            .epoch(E::slots_per_epoch());
+        assert_eq!(context, self.chain.compute_fork_digest(epoch));
+
+        let fork_name = self.chain.spec.fork_name_at_epoch(epoch);
+        let update = LightClientUpdate::<E>::from_ssz_bytes(payload, &fork_name).unwrap();
+        assert_eq!(&update, expected_update);
 
         self
     }
