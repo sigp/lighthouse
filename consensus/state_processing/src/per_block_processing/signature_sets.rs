@@ -35,10 +35,6 @@ pub enum Error {
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorPubkeyUnknown(PublicKeyBytes),
-    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
-    ///
-    /// The block is invalid.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The public keys supplied do not match the number of objects requiring keys. Block validity
     /// was not determined.
     MismatchedPublicKeyLen { pubkey_len: usize, other_len: usize },
@@ -94,53 +90,12 @@ where
         .map(Cow::Owned)
 }
 
-/// A signature set that is valid if a block was signed by the expected block producer.
-pub fn block_proposal_signature_set<'a, E, F, Payload: AbstractExecPayload<E>>(
-    state: &'a BeaconState<E>,
-    get_pubkey: F,
-    signed_block: &'a SignedBeaconBlock<E, Payload>,
-    block_root: Option<Hash256>,
-    verified_proposer_index: Option<u64>,
-    spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>>
-where
-    E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
-{
-    let block = signed_block.message();
-
-    let proposer_index = if let Some(proposer_index) = verified_proposer_index {
-        proposer_index
-    } else {
-        state.get_beacon_proposer_index(block.slot(), spec)? as u64
-    };
-    if proposer_index != block.proposer_index() {
-        return Err(Error::IncorrectBlockProposer {
-            block: block.proposer_index(),
-            local_shuffling: proposer_index,
-        });
-    }
-
-    block_proposal_signature_set_from_parts(
-        signed_block,
-        block_root,
-        proposer_index,
-        &state.fork(),
-        state.genesis_validators_root(),
-        get_pubkey,
-        spec,
-    )
-}
-
-/// A signature set that is valid if a block was signed by the expected block producer.
+/// A signature set that is valid if a block was signed by the validator at its `proposer_index`.
 ///
-/// Unlike `block_proposal_signature_set` this does **not** check that the proposer index is
-/// correct according to the shuffling. It should only be used if no suitable `BeaconState` is
-/// available.
-pub fn block_proposal_signature_set_from_parts<'a, E, F, Payload: AbstractExecPayload<E>>(
+/// This does **not** check that `proposer_index` is the proposer for the block's slot.
+pub fn block_proposal_signature_set<'a, E, F, Payload: AbstractExecPayload<E>>(
     signed_block: &'a SignedBeaconBlock<E, Payload>,
     block_root: Option<Hash256>,
-    proposer_index: u64,
     fork: &Fork,
     genesis_validators_root: Hash256,
     get_pubkey: F,
@@ -175,7 +130,8 @@ where
 
     Ok(SignatureSet::single_pubkey(
         signed_block.signature(),
-        get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
+        get_pubkey(block.proposer_index() as usize)
+            .ok_or(Error::ValidatorUnknown(block.proposer_index()))?,
         message,
     ))
 }
