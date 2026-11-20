@@ -2,6 +2,7 @@ use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, TryFromIter};
+use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
@@ -583,6 +584,29 @@ fn parse_execution_requests<E: EthSpec>(
     value: JsonExecutionRequests,
     fork_name: ForkName,
 ) -> Result<ExecutionRequests<E>, RequestsError> {
+    parse_execution_requests_bytes(
+        value.0.into_iter().map(|request| {
+            hex::decode(request.strip_prefix("0x").unwrap_or(&request))
+                .map_err(RequestsError::InvalidHex)
+        }),
+        fork_name,
+    )
+}
+
+/// Parse an EIP-7685 requests list of `request_type ++ request_data` elements using the request
+/// types for the fork.
+///
+/// Shared by the JSON-RPC (hex-decoded) and REST-SSZ (raw bytes) paths so both apply the same rules.
+/// Gloas uses progressive lists and removes the deposit-request count limit.
+/// Builder requests are only valid from Gloas onwards.
+pub(super) fn parse_execution_requests_bytes<E, B>(
+    encoded_requests: impl IntoIterator<Item = Result<B, RequestsError>>,
+    fork_name: ForkName,
+) -> Result<ExecutionRequests<E>, RequestsError>
+where
+    E: EthSpec,
+    B: AsRef<[u8]>,
+{
     fn decode<T: Decode>(bytes: &[u8], kind: RequestType) -> Result<T, RequestsError> {
         T::from_ssz_bytes(bytes).map_err(|e| {
             RequestsError::DecodeError(format!("Failed to decode {kind:?}Request from EL: {e:?}"))
@@ -595,14 +619,12 @@ fn parse_execution_requests<E: EthSpec>(
         ExecutionRequests::Electra(ExecutionRequestsElectra::<E>::default())
     };
     let mut prev_prefix: Option<RequestType> = None;
-    for (i, request) in value.0.into_iter().enumerate() {
-        // hex string
-        let decoded_bytes = hex::decode(request.strip_prefix("0x").unwrap_or(&request))
-            .map_err(RequestsError::InvalidHex)?;
+    for (i, request) in encoded_requests.into_iter().enumerate() {
+        let decoded_bytes = request?;
 
         // The first byte of each element is the `request_type` and the remaining bytes are the `request_data`.
         // Elements with empty `request_data` **MUST** be excluded from the list.
-        let Some((prefix_byte, request_bytes)) = decoded_bytes.split_first() else {
+        let Some((prefix_byte, request_bytes)) = decoded_bytes.as_ref().split_first() else {
             return Err(RequestsError::EmptyRequest(i));
         };
         if request_bytes.is_empty() {
@@ -1025,7 +1047,7 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
 #[superstruct(
     variants(V1, V2),
     variant_attributes(
-        derive(Debug, Clone, PartialEq, Serialize, Deserialize),
+        derive(Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize),
         serde(bound = "E: EthSpec", rename_all = "camelCase")
     )
 )]
