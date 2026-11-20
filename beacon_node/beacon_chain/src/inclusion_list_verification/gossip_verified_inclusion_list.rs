@@ -154,17 +154,13 @@ impl GossipVerifiedInclusionList {
             }
         }
 
-        let seen_slot = ctx
+        // A list for the next slot that arrives early, within the clock disparity, is timely.
+        let slot_start = ctx
             .slot_clock
-            .slot_of(seen_timestamp)
+            .start_of(slot)
             .ok_or(InclusionListVerificationError::UnableToReadSlot)?;
-        let is_timely = slot == seen_slot
-            && ctx
-                .slot_clock
-                .start_of(seen_slot)
-                .is_some_and(|slot_start| {
-                    seen_timestamp.saturating_sub(slot_start) < ctx.spec.get_inclusion_list_due()
-                });
+        let is_timely =
+            seen_timestamp < slot_start.saturating_add(ctx.spec.get_inclusion_list_due());
 
         Ok(Self {
             signed_inclusion_list,
