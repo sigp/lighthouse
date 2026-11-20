@@ -26,7 +26,7 @@ hash-db = "0.15.2"
 hash256-std-hasher = "0.15.2"
 hashlink = { workspace = true }
 hex = { workspace = true }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "12", default-features = false, features = ["aws_lc_rs"] }
 keccak-hash = "0.10.0"
 kzg = { workspace = true }
 lighthouse_version = { workspace = true }
