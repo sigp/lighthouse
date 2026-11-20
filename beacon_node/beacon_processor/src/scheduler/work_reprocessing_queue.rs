@@ -11,6 +11,10 @@
 //! Aggregated and unaggregated attestations, as well as payload attestation messages, that failed
 //! verification due to referencing an unknown block will be re-queued until their block is
 //! imported, or until they expire.
+//!
+//! Gossip execution payload envelopes that arrive before their beacon block are deferred until
+//! `BlockImported`, or until a one-slot timeout. Recently imported roots are retained so a
+//! deferred envelope can still be released if it registers after that notification.
 use crate::metrics;
 use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
 use fnv::FnvHashMap;
@@ -21,7 +25,7 @@ use logging::TimeLatch;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -79,6 +83,9 @@ const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// Set an arbitrary upper-bound on the number of queued envelopes to avoid DoS attacks.
 const MAXIMUM_QUEUED_ENVELOPES: usize = 16;
+
+/// How many recently imported block roots to retain for deferred envelope release.
+const MAXIMUM_RECENTLY_IMPORTED_BLOCK_ROOTS_FOR_ENVELOPES: usize = 2 * MAXIMUM_QUEUED_ENVELOPES;
 
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
@@ -317,6 +324,8 @@ struct ReprocessQueue<S> {
     queued_gossip_block_roots: HashSet<Hash256>,
     /// Queued envelopes awaiting their block, keyed by block root.
     awaiting_envelopes_per_root: HashMap<Hash256, (QueuedGossipEnvelope, DelayKey)>,
+    /// Recently imported block roots for releasing deferred envelopes after `BlockImported`.
+    recently_imported_block_roots_for_envelopes: VecDeque<Hash256>,
     /// Block roots of queued early envelopes.
     queued_early_envelope_block_roots: HashSet<Hash256>,
     /// Queued aggregated attestations.
@@ -558,6 +567,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             data_columns_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
             awaiting_envelopes_per_root: HashMap::new(),
+            recently_imported_block_roots_for_envelopes: VecDeque::new(),
             queued_early_envelope_block_roots: HashSet::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
@@ -582,6 +592,27 @@ impl<S: SlotClock> ReprocessQueue<S> {
             next_backfill_batch_event: None,
             slot_clock,
         }
+    }
+
+    fn remember_imported_block_root_for_envelope(&mut self, block_root: Hash256) {
+        if self
+            .recently_imported_block_roots_for_envelopes
+            .contains(&block_root)
+        {
+            return;
+        }
+        if self.recently_imported_block_roots_for_envelopes.len()
+            >= MAXIMUM_RECENTLY_IMPORTED_BLOCK_ROOTS_FOR_ENVELOPES
+        {
+            self.recently_imported_block_roots_for_envelopes.pop_front();
+        }
+        self.recently_imported_block_roots_for_envelopes
+            .push_back(block_root);
+    }
+
+    fn is_recently_imported_for_envelope(&self, block_root: Hash256) -> bool {
+        self.recently_imported_block_roots_for_envelopes
+            .contains(&block_root)
     }
 
     /// Queue an attestation for re-processing once the component it is waiting on (`awaiting`) is
@@ -760,7 +791,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             }
             // An envelope that references an unknown block. Queue it until the block is
             // imported, or until the timeout expires.
-            InboundEvent::Msg(UnknownBlockForEnvelope(queued_envelope)) => {
+            InboundEvent::Msg(UnknownBlockForEnvelope(mut queued_envelope)) => {
                 let block_root = queued_envelope.beacon_block_root;
 
                 // TODO(gloas): Perform lightweight pre-validation before queuing
@@ -774,6 +805,31 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         "Duplicate envelope for same block root, dropping"
                     );
                     return;
+                }
+
+                // Release immediately if `BlockImported` was already observed for this root.
+                if self.is_recently_imported_for_envelope(block_root) {
+                    match self
+                        .ready_work_tx
+                        .try_send(ReadyWork::Envelope(queued_envelope))
+                    {
+                        Ok(()) => {
+                            debug!(
+                                ?block_root,
+                                "Releasing deferred envelope for recently imported block"
+                            );
+                            return;
+                        }
+                        // Ready channel full/closed: recover the envelope and fall through.
+                        Err(mpsc::error::TrySendError::Full(ReadyWork::Envelope(envelope)))
+                        | Err(mpsc::error::TrySendError::Closed(ReadyWork::Envelope(envelope))) => {
+                            queued_envelope = envelope;
+                        }
+                        _ => {
+                            crit!("Unexpected return from try_send error");
+                            return;
+                        }
+                    }
                 }
 
                 // When the queue is full, drop the new envelope.
@@ -945,6 +1001,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
                 }
+
+                // Remember the root for a deferred envelope that registers after this notification.
+                self.remember_imported_block_root_for_envelope(block_root);
 
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&block_root) {
@@ -2326,6 +2385,87 @@ mod tests {
         assert!(queue.awaiting_envelopes_per_root.is_empty());
         // Delay queue entry should also be cancelled.
         assert_eq!(queue.envelope_delay_queue.len(), 0);
+    }
+
+    // Regression test for issue #10519.
+    // See: https://github.com/sigp/lighthouse/issues/10519
+    #[tokio::test]
+    async fn envelope_released_when_block_imported_before_registration() {
+        create_test_tracing_subscriber();
+
+        let config = BeaconProcessorConfig::default();
+        let (ready_work_tx, mut ready_work_rx) =
+            mpsc::channel::<ReadyWork>(config.max_scheduled_work_queue_len);
+        let (_, reprocess_work_rx) =
+            mpsc::channel::<ReprocessQueueMessage>(config.max_scheduled_work_queue_len);
+        let slot_clock = Arc::new(testing_slot_clock(12));
+        let mut queue = ReprocessQueue::new(ready_work_tx, reprocess_work_rx, slot_clock);
+
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Import notification before the deferred envelope is registered.
+        queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+        }));
+
+        queue.handle_message(InboundEvent::Msg(
+            ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
+                beacon_block_slot: Slot::new(1),
+                beacon_block_root,
+                process_fn: Box::pin(async {}),
+            }),
+        ));
+
+        let ready = ready_work_rx
+            .try_recv()
+            .expect("envelope should be ready without waiting for the timeout");
+        assert!(matches!(ready, ReadyWork::Envelope(_)));
+        assert!(queue.awaiting_envelopes_per_root.is_empty());
+        assert_eq!(queue.envelope_delay_queue.len(), 0);
+    }
+
+    // Ready channel full: fall back to the delay queue rather than dropping the envelope.
+    #[tokio::test]
+    async fn envelope_recently_imported_falls_back_when_ready_work_full() {
+        create_test_tracing_subscriber();
+
+        let (ready_work_tx, _ready_work_rx) = mpsc::channel::<ReadyWork>(1);
+        let (_, reprocess_work_rx) = mpsc::channel::<ReprocessQueueMessage>(16);
+        let slot_clock = Arc::new(testing_slot_clock(12));
+        let mut queue = ReprocessQueue::new(ready_work_tx.clone(), reprocess_work_rx, slot_clock);
+
+        tokio::time::pause();
+
+        // Fill the ready-work channel so the immediate release cannot send.
+        ready_work_tx
+            .try_send(ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock {
+                process_fn: Box::new(|| {}),
+            }))
+            .expect("fill ready work channel");
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+        }));
+
+        queue.handle_message(InboundEvent::Msg(
+            ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
+                beacon_block_slot: Slot::new(1),
+                beacon_block_root,
+                process_fn: Box::pin(async {}),
+            }),
+        ));
+
+        assert_eq!(queue.awaiting_envelopes_per_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_envelopes_per_root
+                .contains_key(&beacon_block_root)
+        );
+        assert_eq!(queue.envelope_delay_queue.len(), 1);
     }
 
     #[tokio::test]
