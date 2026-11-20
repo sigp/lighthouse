@@ -32,8 +32,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{
-    BlockImportSource, DataColumnSidecar, EthSpec, ForkName, KzgProofs,
-    SignedExecutionPayloadEnvelope,
+    BlockImportSource, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkName, KzgCommitment,
+    KzgProofs, SignedExecutionPayloadEnvelope,
 };
 use warp::{
     Filter, Rejection,
@@ -246,15 +246,19 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     // the window in which peers see envelope-without-columns. If envelope import
     // fails below, dropping this future drops the spawned `JoinHandle` (the running
     // closure on the blocking pool finishes and is then discarded — no work cancellation).
-    let column_build_future = match blobs_and_proofs {
+    let column_sidecar_build = match blobs_and_proofs {
         Some((blobs, cell_proofs)) if !blobs.is_empty() => {
-            Some(spawn_build_gloas_data_columns_task(
-                &chain,
-                beacon_block_root,
-                slot,
-                blobs,
-                cell_proofs,
-            )?)
+            let num_blobs = blobs.len();
+            Some((
+                num_blobs,
+                spawn_build_gloas_data_column_sidecars_task(
+                    &chain,
+                    beacon_block_root,
+                    slot,
+                    blobs,
+                    cell_proofs,
+                )?,
+            ))
         }
         _ => None,
     };
@@ -272,7 +276,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     // Reject stateful submissions before broadcast when the block commits to blobs but the
     // node has none cached.
-    if !includes_blob_data && column_build_future.is_none() {
+    if !includes_blob_data && column_sidecar_build.is_none() {
         let commits_to_blobs = gossip_verified
             .block
             .message()
@@ -286,6 +290,24 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             ));
         }
     }
+
+    // Take bid commitments before `process_execution_payload_envelope` consumes
+    // `gossip_verified`. Needed to KZG-verify request-supplied blob data in finalize.
+    let bid_kzg_commitments = if includes_blob_data && column_sidecar_build.is_some() {
+        let bid = gossip_verified
+            .block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .map_err(|e| {
+                warp_utils::reject::custom_bad_request(format!(
+                    "block missing execution payload bid: {e:?}"
+                ))
+            })?;
+        Some(bid.message().blob_kzg_commitments().to_vec())
+    } else {
+        None
+    };
 
     let network_tx_clone = network_tx.clone();
     let block_for_equivocation_check = gossip_verified.block.clone();
@@ -370,22 +392,9 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     // can retry against a different beacon node.
     // `EnvelopeOnly`: the cached blobs have been consumed, a retry cannot rebuild the columns. We
     // also cant retry against another beacon node. So we just log a failure and continue.
-    if let Some(column_build_future) = column_build_future {
-        match column_build_future.await {
-            Ok(columns) => {
-                match publish_and_import_columns(&chain, network_tx, slot, columns).await {
-                    Ok(imported) => {
-                        if imported {
-                            envelope_imported = true;
-                        }
-                    }
-                    Err(rejection) => {
-                        if includes_blob_data {
-                            return Err(rejection);
-                        }
-                    }
-                }
-            }
+    if let Some((num_blobs, column_sidecar_future)) = column_sidecar_build {
+        let sidecars = match column_sidecar_future.await {
+            Ok(sidecars) => sidecars,
             Err(e) => {
                 error!(
                     %slot,
@@ -395,10 +404,55 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
                 if includes_blob_data {
                     return Err(e);
                 }
+                return finish_envelope_response(&chain, envelope_imported, slot).await;
+            }
+        };
+
+        let columns = match spawn_finalize_gloas_data_columns_task(
+            &chain,
+            slot,
+            sidecars,
+            num_blobs,
+            bid_kzg_commitments,
+        )?
+        .await
+        {
+            Ok(columns) => columns,
+            Err(e) => {
+                if includes_blob_data {
+                    return Err(e);
+                }
+                error!(
+                    %slot,
+                    error = ?e,
+                    "Failed to finalize data columns after envelope publication"
+                );
+                return finish_envelope_response(&chain, envelope_imported, slot).await;
+            }
+        };
+
+        match publish_and_import_columns(&chain, network_tx, slot, columns).await {
+            Ok(imported) => {
+                if imported {
+                    envelope_imported = true;
+                }
+            }
+            Err(rejection) => {
+                if includes_blob_data {
+                    return Err(rejection);
+                }
             }
         }
     }
 
+    finish_envelope_response(&chain, envelope_imported, slot).await
+}
+
+async fn finish_envelope_response<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    envelope_imported: bool,
+    slot: types::Slot,
+) -> Result<Response, Rejection> {
     // Return 202 when broadcast succeeds but integration does not. Unlike the block path,
     // 202 applies at every validation level: missing components here are node-cached columns
     // rather than request-supplied blobs, so incomplete import is not the submitter's fault.
@@ -495,19 +549,19 @@ fn is_unable_to_publish(error: &BlockError) -> bool {
     }
 }
 
-fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
+fn spawn_build_gloas_data_column_sidecars_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     beacon_block_root: types::Hash256,
     slot: types::Slot,
     blobs: Arc<types::BlobsList<T::EthSpec>>,
     cell_proofs: Option<KzgProofs<T::EthSpec>>,
-) -> Result<impl Future<Output = Result<BuiltDataColumns<T>, Rejection>>, Rejection> {
+) -> Result<impl Future<Output = Result<DataColumnSidecarList<T::EthSpec>, Rejection>>, Rejection> {
     let chain_for_build = chain.clone();
     let handle = chain
         .task_executor
         .spawn_blocking_handle(
             move || {
-                build_gloas_data_columns(
+                build_gloas_data_column_sidecars(
                     &chain_for_build,
                     beacon_block_root,
                     slot,
@@ -515,7 +569,7 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
                     cell_proofs,
                 )
             },
-            "build_gloas_data_columns",
+            "build_gloas_data_column_sidecars",
         )
         .ok_or_else(|| warp_utils::reject::custom_server_error("runtime shutdown".to_string()))?;
 
@@ -526,15 +580,46 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
     })
 }
 
-fn build_gloas_data_columns<T: BeaconChainTypes>(
+fn spawn_finalize_gloas_data_columns_task<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    slot: types::Slot,
+    data_column_sidecars: DataColumnSidecarList<T::EthSpec>,
+    num_blobs: usize,
+    bid_kzg_commitments: Option<Vec<KzgCommitment>>,
+) -> Result<impl Future<Output = Result<BuiltDataColumns<T>, Rejection>>, Rejection> {
+    let chain_for_finalize = chain.clone();
+    let handle = chain
+        .task_executor
+        .spawn_blocking_handle(
+            move || {
+                finalize_gloas_data_columns(
+                    &chain_for_finalize,
+                    slot,
+                    data_column_sidecars,
+                    num_blobs,
+                    bid_kzg_commitments,
+                )
+            },
+            "finalize_gloas_data_columns",
+        )
+        .ok_or_else(|| warp_utils::reject::custom_server_error("runtime shutdown".to_string()))?;
+
+    Ok(async move {
+        handle
+            .await
+            .map_err(|_| warp_utils::reject::custom_server_error("join error".to_string()))?
+    })
+}
+
+fn build_gloas_data_column_sidecars<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     beacon_block_root: types::Hash256,
     slot: types::Slot,
     blobs: &types::BlobsList<T::EthSpec>,
     cell_proofs: Option<KzgProofs<T::EthSpec>>,
-) -> Result<BuiltDataColumns<T>, Rejection> {
+) -> Result<DataColumnSidecarList<T::EthSpec>, Rejection> {
     let blob_refs: Vec<_> = blobs.iter().collect();
-    let data_column_sidecars = match cell_proofs {
+    match cell_proofs {
         Some(proofs) => beacon_chain::kzg_utils::blobs_to_data_column_sidecars_gloas_with_proofs(
             &blob_refs,
             proofs.to_vec(),
@@ -558,7 +643,44 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
             "Failed to build data column sidecars for envelope"
         );
         warp_utils::reject::custom_server_error(format!("{e:?}"))
-    })?;
+    })
+}
+
+/// KZG-verify against the bid when `bid_kzg_commitments` is present, then wrap for publish/import.
+fn finalize_gloas_data_columns<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    slot: types::Slot,
+    data_column_sidecars: DataColumnSidecarList<T::EthSpec>,
+    num_blobs: usize,
+    bid_kzg_commitments: Option<Vec<KzgCommitment>>,
+) -> Result<BuiltDataColumns<T>, Rejection> {
+    if let Some(ref commitments) = bid_kzg_commitments {
+        if num_blobs != commitments.len() {
+            return Err(warp_utils::reject::custom_bad_request(format!(
+                "blob count does not match bid commitments: expected {}, got {}",
+                commitments.len(),
+                num_blobs
+            )));
+        }
+
+        beacon_chain::kzg_utils::validate_data_columns_with_commitments(
+            &chain.kzg,
+            data_column_sidecars
+                .iter()
+                .map(|column| (column, commitments.as_slice())),
+        )
+        .map_err(|(column_index, e)| {
+            warn!(
+                %slot,
+                ?column_index,
+                error = ?e,
+                "Envelope blob data failed KZG verification against bid commitments"
+            );
+            warp_utils::reject::custom_bad_request(format!(
+                "blob data failed KZG verification against bid commitments: {e:?}"
+            ))
+        })?;
+    }
 
     let mut verified = Vec::new();
     let mut unpublished = Vec::new();
