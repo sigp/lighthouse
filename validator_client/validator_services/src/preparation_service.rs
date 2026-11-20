@@ -481,11 +481,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{Epoch, MainnetEthSpec, Slot};
+    use types::{Epoch, Slot, Spec};
 
     #[test]
     fn validator_registrations_stop_at_gloas() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
         let mut spec = E::default_spec();
         let gloas_fork_epoch = Epoch::new(1);
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn validator_registrations_continue_without_gloas() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
         let mut spec = E::default_spec();
         spec.gloas_fork_epoch = None;

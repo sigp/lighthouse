@@ -1,6 +1,5 @@
 pub mod interface;
 mod lmdb_impl;
-mod mdbx_impl;
 mod redb_impl;
 
 use crate::{
@@ -54,7 +53,7 @@ const CURRENT_EPOCHS_DB: &str = "current_epochs";
 /// Map from `(slot, validator_index)` to `SignedBeaconBlockHeader`.
 const PROPOSERS_DB: &str = "proposers";
 
-/// The number of DBs for MDBX to use (equal to the number of DBs defined above).
+/// The number of DBs to use (equal to the number of DBs defined above).
 const MAX_NUM_DBS: usize = 9;
 
 /// Constant key under which the schema version is stored in the `metadata_db`.
@@ -867,9 +866,9 @@ impl<E: EthSpec> SlasherDB<E> {
 mod test {
     use super::*;
     use typenum::Unsigned;
-    use types::{Checkpoint, ForkName, MainnetEthSpec};
+    use types::{Checkpoint, ForkName, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn indexed_attestation_on_disk_roundtrip_test(
         spec: &ChainSpec,

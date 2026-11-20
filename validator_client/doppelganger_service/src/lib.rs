@@ -605,7 +605,7 @@ mod test {
     use slot_clock::TestingSlotClock;
     use std::future;
     use std::time::Duration;
-    use types::MainnetEthSpec;
+    use types::Spec;
     use validator_store::DoppelgangerStatus;
 
     const DEFAULT_VALIDATORS: usize = 8;
@@ -613,7 +613,7 @@ mod test {
     const GENESIS_TIME: Duration = Duration::from_secs(42);
     const SLOT_DURATION: Duration = Duration::from_secs(1);
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn genesis_epoch() -> Epoch {
         E::default_spec().genesis_slot.epoch(E::slots_per_epoch())
