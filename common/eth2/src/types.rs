@@ -13,7 +13,7 @@ use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::{ContextDeserialize, context_deserialize};
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
-use fork_choice::PayloadStatus;
+use fork_choice::{ExecutionVerdict, PayloadStatus};
 #[cfg(feature = "network")]
 use libp2p::multiaddr::Multiaddr;
 use lighthouse_version::{COMMIT_PREFIX, client_name};
@@ -1843,6 +1843,56 @@ pub struct ForkChoiceExtraData {
     pub execution_status: String,
     pub best_child: Option<Hash256>,
     pub best_descendant: Option<Hash256>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ForkChoiceV2 {
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+    pub fork_choice_nodes: Vec<ForkChoiceNodeV2>,
+    pub extra_data: ForkChoiceExtraDataV2,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForkChoiceExtraDataV2 {
+    pub head_root: Hash256,
+    pub head_payload_status: PayloadStatus,
+    pub proposer_boost_root: Hash256,
+    pub unrealized_justified_checkpoint: Checkpoint,
+    pub unrealized_finalized_checkpoint: Checkpoint,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForkChoiceNodeV2 {
+    pub slot: Slot,
+    pub block_root: Hash256,
+    pub payload_status: PayloadStatus,
+    pub parent_root: Hash256,
+    pub parent_payload_status: Option<PayloadStatus>,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub weight: u64,
+    // v1 reports the block's raw `ExecutionStatus` whereas `ExecutionVerdict` is the validity of
+    // the node's chain as resolved by fork choice
+    pub validity: ExecutionVerdict,
+    pub execution_block_hash: ExecutionBlockHash,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub payload_attester_count: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub payload_availability_yes_count: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub payload_data_availability_yes_count: u64,
+    pub extra_data: ForkChoiceNodeExtraDataV2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForkChoiceNodeExtraDataV2 {
+    pub target_root: Hash256,
+    pub state_root: Hash256,
+    pub unrealized_justified_checkpoint: Option<Checkpoint>,
+    pub unrealized_finalized_checkpoint: Option<Checkpoint>,
+    pub execution_status: String,
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
