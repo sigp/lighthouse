@@ -1,7 +1,8 @@
 use super::{
     Config, Error, LighthouseValidatorStore,
     vrf_state::{self, Record, Source},
-    xmss_cache::CachedSigner,
+    xmss_cache::{CacheLoader, CachedSigner},
+    xmss_cache_source,
 };
 use bls::{Keypair, PublicKeyBytes};
 use futures::{StreamExt, stream};
@@ -102,11 +103,24 @@ pub(super) struct Keys {
     source: Result<Option<Source>, String>,
     vrf_cache_dir: Option<PathBuf>,
     xmss_cache_dir: Option<PathBuf>,
+    xmss_cache_source: Option<xmss_cache_source::Source>,
     xmss_keys_changed: Arc<Notify>,
 }
 
 impl Keys {
     pub(super) fn new(config: &Config) -> Self {
+        let xmss_cache_source = config.xmss_cache_url.as_deref().and_then(|value| {
+            if xmss::FAKE_CRYPTO {
+                return None;
+            }
+            match xmss_cache_source::Source::new(value) {
+                Ok(source) => Some(source),
+                Err(error) => {
+                    warn!(%error, "Ignoring unusable pregenerated PQ XMSS cache source");
+                    None
+                }
+            }
+        });
         Self {
             entries: Mutex::default(),
             permits: Arc::new(Semaphore::new(PQ_WORKERS)),
@@ -114,6 +128,7 @@ impl Keys {
             source: config.vrf_state_url.as_deref().map(Source::new).transpose(),
             vrf_cache_dir: config.vrf_state_cache_dir.clone(),
             xmss_cache_dir: config.xmss_cache_dir.clone(),
+            xmss_cache_source,
             xmss_keys_changed: Arc::default(),
         }
     }
@@ -162,6 +177,87 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             .map_err(|_| Error::ExecutorError)?
     }
 
+    async fn prepare_pq_key(
+        &self,
+        pubkey: PublicKeyBytes,
+        signing_method: Arc<SigningMethod>,
+        slot: Slot,
+    ) -> Result<(), Error> {
+        let cache_dir = self.pq_keys.xmss_cache_dir.clone();
+        let (loader, imported) = if let Some(source) = &self.pq_keys.xmss_cache_source {
+            let dir = cache_dir.clone();
+            let loader = self
+                .with_local_pq_key(pubkey, Arc::clone(&signing_method), move |key, bls| {
+                    if key.xmss.get().is_some() {
+                        return Ok(None);
+                    }
+                    match CacheLoader::open(&bls.sk, pubkey, dir.as_deref()) {
+                        Ok(signer) => {
+                            let _ = key.xmss.set(signer);
+                            Ok(None)
+                        }
+                        Err(loader) => Ok(Some(loader)),
+                    }
+                })
+                .await?;
+            let mut imported = None;
+            if let Some(loader) = &loader
+                && let SigningMethod::LocalKeystore {
+                    voting_keystore, ..
+                } = &*signing_method
+            {
+                match vrf_state::derivation_index(voting_keystore.path().as_deref()) {
+                    Ok(index) => {
+                        if let Some(identity) = loader.identity(index) {
+                            match source.fetch(identity).await {
+                                Ok(record) => imported = Some(record),
+                                Err(error) => warn!(
+                                    ?pubkey, %error,
+                                    "Unable to read pregenerated PQ XMSS cache, building locally"
+                                ),
+                            }
+                        } else {
+                            debug!(
+                                ?pubkey,
+                                "Validator does not match a pregenerated PQ XMSS key"
+                            );
+                        }
+                    }
+                    Err(error) => warn!(
+                        ?pubkey, %error,
+                        "Unable to identify pregenerated PQ XMSS cache, building locally"
+                    ),
+                }
+            }
+            (loader, imported)
+        } else {
+            (None, None)
+        };
+
+        let keys_changed = Arc::clone(&self.pq_keys.xmss_keys_changed);
+        self.with_local_pq_key(pubkey, signing_method, move |key, bls| {
+            let signer = key.xmss.get_or_init(|| match loader {
+                Some(loader) => loader.finish(pubkey, imported),
+                None => CachedSigner::load(&bls.sk, pubkey, cache_dir.as_deref()),
+            });
+            for leaf in PreparationWindow::new::<E>(slot)?.current() {
+                signer.key.prepare(leaf).map_err(pq_leaf_error)?;
+            }
+            signer.persist(pubkey);
+            key.mark_xmss_ready(&keys_changed);
+            Ok(())
+        })
+        .await
+    }
+
+    fn local_pq_key_ready(&self, pubkey: &PublicKeyBytes) -> bool {
+        self.pq_keys
+            .entries
+            .lock()
+            .get(pubkey)
+            .is_some_and(|key| key.xmss_ready.load(Ordering::Relaxed))
+    }
+
     pub(super) async fn load_pq_keys(&self, pubkeys: Vec<PublicKeyBytes>) {
         if matches!(self.pq_keys.source, Ok(Some(_))) {
             let validators = self.validators.read();
@@ -177,10 +273,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             });
             *self.pq_keys.indices.lock() = checked_vrf_indices(indices);
         }
-        if pubkeys
-            .iter()
-            .all(|pubkey| self.local_pq_public_key(pubkey).is_some())
-        {
+        if pubkeys.iter().all(|pubkey| self.local_pq_key_ready(pubkey)) {
             return;
         }
 
@@ -191,28 +284,13 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
 
         let keys = stream::iter(pubkeys)
             .map(|pubkey| async move {
-                if self.local_pq_public_key(&pubkey).is_some() {
+                if self.local_pq_key_ready(&pubkey) {
                     return KeyLoadOutcome::Skipped;
                 }
                 let Ok(signing_method) = self.doppelganger_bypassed_signing_method(pubkey) else {
                     return KeyLoadOutcome::Skipped;
                 };
-                let cache_dir = self.pq_keys.xmss_cache_dir.clone();
-                let keys_changed = Arc::clone(&self.pq_keys.xmss_keys_changed);
-                match self
-                    .with_local_pq_key(pubkey, signing_method, move |key, bls| {
-                        let signer = key.xmss.get_or_init(|| {
-                            CachedSigner::load(&bls.sk, pubkey, cache_dir.as_deref())
-                        });
-                        for leaf in PreparationWindow::new::<E>(slot)?.current() {
-                            signer.key.prepare(leaf).map_err(pq_leaf_error)?;
-                        }
-                        signer.persist(pubkey);
-                        key.mark_xmss_ready(&keys_changed);
-                        Ok(())
-                    })
-                    .await
-                {
+                match self.prepare_pq_key(pubkey, signing_method, slot).await {
                     Ok(()) => KeyLoadOutcome::Prepared,
                     Err(error) => {
                         warn!(?pubkey, ?error, "Unable to prepare PQ XMSS validator key");
@@ -316,8 +394,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 continue;
             }
 
-            // Dropping the waiting task on shutdown tells the in-flight build to stop at
-            // its next group of leaves. There is no queue of blocking work to drain.
+            // A tree already building can finish after shutdown, but the cancellation
+            // check stops the worker before it starts the next tree.
             let (cancel, alive) = oneshot::channel::<()>();
             let Some(work) = self.task_executor.spawn_blocking_handle(
                 move || -> Result<(), xmss::Error> {

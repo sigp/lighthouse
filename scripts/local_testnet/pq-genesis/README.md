@@ -10,9 +10,13 @@ Use `--vrf-state-url` with an HTTP(S) URL, absolute or relative local path, or `
 
 With an index, the client reads the record with an HTTP Range request or local file seek. When a path is absent or the server ignores Range, the client reads up to 10,000 records and shares one copy of the complete artifact across all keys. Verified records are also cached under `vrf-state-cache` in the validator directory, and a restart revalidates them against the beacon node and the local key. A missing, invalid or unavailable record prevents block production for the affected key.
 
+Use `--xmss-cache-url` with an HTTP(S) URL, local path or `file://` URI to skip the initial leanXMSS tree builds for the default devnet-0 keys. The optional artifact holds one 14,696-byte leanVM cache per mnemonic derivation index, including the top tree and bottom trees 0 and 24,576. Lighthouse reads a single record with an HTTP Range request or local seek. It finds the expected record and public key in the pinned genesis key table using the local signing seed, including for pathless keystores. If the keystore has an EIP-2334 voting path, that index must agree.
+
+The VC prefers its authenticated local cache under `validators/xmss-cache`. If the record is unavailable, corrupt or for another key, the VC builds the trees locally. The v0.15 update replaces the old disk cache format and leaves the slashing-protection database in use. Cache import, regeneration and rolling preparation do not reserve signing leaves.
+
 ## Kurtosis
 
-Use [ethereum-package `f6c5e11`](https://github.com/ethpandaops/ethereum-package/tree/f6c5e11f7fc2c0d23cb29735a2ffcba7d43c8f0e) or a later compatible release. This package already uses `lighthouse-pq-bn` for the beacon node and supports `vrf_state_url` for Lodestar and Consensoor. Use the new devnet-0 Lighthouse image for both the beacon node and validator client. That image must include `leanvm-sidecar` built at `283686575c4e81790591d2c6e3ed21c69c0e3bbe` and the [Lighthouse prover supervisor](lighthouse-pq-bn).
+Use [ethereum-package `27ba3a6`](https://github.com/ethpandaops/ethereum-package/tree/27ba3a6c46a8cd63ec921a75d3d04d90c29d6943) or a later compatible release. The package uses `lighthouse-pq-bn` for the beacon node and passes `xmss_cache_url` to Lighthouse validator clients. Use the devnet-0 image for both the beacon node and validator client. The image includes the [Lighthouse prover supervisor](lighthouse-pq-bn) and the sidecar built from [`leanvm-revision`](../../../leanvm-revision). Check the installed sidecar commit at `/usr/local/share/lighthouse/leanvm-revision` inside the image. All clients must upgrade together because proofs made with the previous leanVM pin are incompatible.
 
 With the package’s default publicly known devnet mnemonic, merge the settings below into a copy of your existing network YAML. Keep all participant settings and add the VC argument only to Lighthouse participants. `xmss_pubkey_url` supplies the matching full-tree registry entries for fast genesis generation. Custom mnemonics require their own genesis key/root records and VRF artifact.
 
@@ -21,6 +25,7 @@ network_params:
   pq_fork_epoch: 0
   xmss_pubkey_url: https://raw.githubusercontent.com/ethpandaops/ethereum-package/d4c9a8ace9dd80ca4f9938885345f8f40a646fd0/static_files/xmss-keys
   vrf_state_url: https://raw.githubusercontent.com/ethpandaops/ethereum-package/d4c9a8ace9dd80ca4f9938885345f8f40a646fd0/static_files/xmss-keys/b9dec4e1daa17dfe.vrf
+  xmss_cache_url: https://panda-uploads-production.devops-539.workers.dev/panda/uploads/e0eeab/b9dec4e1daa17dfe.xmss
 
 ethereum_genesis_generator_params:
   image: ethpandaops/ethereum-genesis-generator:pq@sha256:296c352575e5d6cb2bf22e179165f21c39a8114f27804540c2b84bf806820e33
@@ -33,3 +38,7 @@ vc_extra_params:
 ```
 
 The artifact Git blob is `d562bf0b05b14e780b61842d7a04fe82f93ed7f0`. Its SHA-256 is `fee0d20ffdcb409774300f3209fb42058fbd521ce4a3209ece6c8cab62ea784b`. The pinned generator reports `git-ff42fce`. An isolated generator smoke run with the public cache and minimal preset produced eight registry roots that match the first eight VRF records.
+
+The [pinned public key artifact](https://github.com/ethpandaops/ethereum-package/blob/d4c9a8ace9dd80ca4f9938885345f8f40a646fd0/static_files/xmss-keys/b9dec4e1daa17dfe.bin) has Git blob `de3e27e434edfad1e222ed45a2ebfab1057eacab` and SHA-256 `5f311ade16c57284c0b3da0a4df197e7d955b9d112bf27fa8f41bb97289c9d1c`. The built-in cache lookup table contains the first 32 bytes of each 64-byte record in order. This excludes the VRF roots.
+
+The example XMSS cache URL serves 1,024 keys. The VC falls back to local generation for subsequent indices. For the index-zero regression test, bytes 0–14,695 of that artifact have SHA-256 `2250ce36f2047783a1227332f87e396b89df6ed0a19b4421caee77303fcf357c`.

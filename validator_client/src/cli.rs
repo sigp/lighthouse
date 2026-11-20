@@ -459,6 +459,13 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        value_name = "URL_OR_PATH",
+        help = "Load pregenerated devnet-0 PQ XMSS signing trees from an HTTP(S) URL or local file. Missing or invalid records are built locally."
+    )]
+    pub xmss_cache_url: Option<String>,
+
+    #[clap(
+        long,
         value_name = "UINT64",
         help = "Defines the boost factor, \
                 a percentage multiplier to apply to the builder's payload value \

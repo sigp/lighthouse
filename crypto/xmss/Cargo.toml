@@ -15,7 +15,6 @@ ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
 hex = { workspace = true }
 lean_xmss = { workspace = true }
-lean_xmss_compact = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tree_hash = { workspace = true }

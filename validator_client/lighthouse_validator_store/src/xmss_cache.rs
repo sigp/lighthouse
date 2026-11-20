@@ -1,5 +1,6 @@
 //! On-disk accelerator for local XMSS signing trees. Leaf reservations are in slashing protection.
 
+use super::xmss_cache_source::{self, CacheIdentity, ImportedCache};
 use bls::{PublicKeyBytes, SecretKey};
 use genesis::pq::xmss_seed_from_bls;
 use parking_lot::Mutex;
@@ -14,11 +15,11 @@ use tempfile::NamedTempFile;
 use tracing::{info, warn};
 use xmss::{
     MAX_CACHE_SIZE, XMSS_PUBLIC_KEY_BYTES_LEN, XMSS_SECRET_KEY_BYTES_LEN, XmssPublicKey,
-    XmssSecretKey,
+    XmssSecretKey, cache_tree_indices,
 };
 use zeroize::Zeroizing;
 
-const MAGIC: &[u8; 8] = b"LHXMSS\x00\x01";
+const MAGIC: &[u8; 8] = b"LHXMSS\x00\x02";
 const TAG_SIZE: usize = 32;
 const MAX_FILE_SIZE: usize = MAGIC.len() + XMSS_PUBLIC_KEY_BYTES_LEN + MAX_CACHE_SIZE + TAG_SIZE;
 
@@ -31,39 +32,15 @@ struct DiskCache {
     path: PathBuf,
     mac_key: hmac::Key,
     // Orders complete on-disk writes for this key. Signing never acquires this lock.
-    persisted_revision: Mutex<Option<u64>>,
+    persisted_trees: Mutex<Option<Vec<u32>>>,
 }
 
 impl CachedSigner {
     pub(super) fn load(bls_key: &SecretKey, pubkey: PublicKeyBytes, dir: Option<&Path>) -> Self {
-        let started = Instant::now();
-        let seed = Zeroizing::new(xmss_seed_from_bls(bls_key));
-        let disk = dir
-            .filter(|_| !xmss::FAKE_CRYPTO)
-            .map(|dir| DiskCache::new(dir.join(format!("{pubkey}.cache")), &seed));
-        if let Some(cache) = &disk {
-            match cache.read(&seed) {
-                Ok(key) => {
-                    *cache.persisted_revision.lock() = Some(0);
-                    info!(
-                        ?pubkey,
-                        elapsed_ms = started.elapsed().as_millis(),
-                        "Loaded PQ XMSS validator key from cache"
-                    );
-                    return Self { key, disk };
-                }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => warn!(?pubkey, %error, "Ignoring unusable PQ XMSS cache"),
-            }
+        match CacheLoader::open(bls_key, pubkey, dir) {
+            Ok(signer) => signer,
+            Err(loader) => loader.finish(pubkey, None),
         }
-
-        let key = XmssSecretKey::from_seed(&seed);
-        info!(
-            ?pubkey,
-            elapsed_ms = started.elapsed().as_millis(),
-            "Derived PQ XMSS validator key"
-        );
-        Self { key, disk }
     }
 
     pub(super) fn persist(&self, pubkey: PublicKeyBytes) {
@@ -75,19 +52,96 @@ impl CachedSigner {
     }
 }
 
+/// A local cache miss. Only startup may fetch a matching remote cache before finishing.
+pub(super) struct CacheLoader {
+    seed: Zeroizing<[u8; XMSS_SECRET_KEY_BYTES_LEN]>,
+    disk: Option<DiskCache>,
+}
+
+impl CacheLoader {
+    pub(super) fn open(
+        bls_key: &SecretKey,
+        pubkey: PublicKeyBytes,
+        dir: Option<&Path>,
+    ) -> Result<CachedSigner, Self> {
+        let started = Instant::now();
+        let seed = Zeroizing::new(xmss_seed_from_bls(bls_key));
+        let disk = dir
+            .filter(|_| !xmss::FAKE_CRYPTO)
+            .map(|dir| DiskCache::new(dir.join(format!("{pubkey}.cache")), &seed));
+        if let Some(cache) = &disk {
+            match cache.read(&seed) {
+                Ok(key) => {
+                    info!(
+                        ?pubkey,
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "Loaded PQ XMSS validator key from cache"
+                    );
+                    return Ok(CachedSigner { key, disk });
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => warn!(?pubkey, %error, "Ignoring unusable PQ XMSS cache"),
+            }
+        }
+        Err(Self { seed, disk })
+    }
+
+    pub(super) fn identity(&self, derivation_index: Option<u32>) -> Option<CacheIdentity> {
+        xmss_cache_source::identify(&self.seed, derivation_index)
+    }
+
+    pub(super) fn finish(
+        self,
+        pubkey: PublicKeyBytes,
+        imported: Option<ImportedCache>,
+    ) -> CachedSigner {
+        let started = Instant::now();
+        if let Some(ImportedCache { identity, bytes }) = imported {
+            if let Some(key) =
+                XmssSecretKey::from_cache_bytes(&self.seed, identity.public_key, &bytes)
+            {
+                info!(
+                    ?pubkey,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "Imported pregenerated PQ XMSS validator key cache"
+                );
+                return CachedSigner {
+                    key,
+                    disk: self.disk,
+                };
+            }
+            warn!(
+                ?pubkey,
+                "Pregenerated PQ XMSS cache did not verify for this key"
+            );
+        }
+
+        let key = XmssSecretKey::from_seed(&self.seed);
+        info!(
+            ?pubkey,
+            elapsed_ms = started.elapsed().as_millis(),
+            "Derived PQ XMSS validator key"
+        );
+        CachedSigner {
+            key,
+            disk: self.disk,
+        }
+    }
+}
+
 impl DiskCache {
     fn new(path: PathBuf, seed: &[u8; XMSS_SECRET_KEY_BYTES_LEN]) -> Self {
-        // The on-disk public key is selected by Lighthouse's first full key derivation.
+        // The on-disk public key was derived from the seed or verified against the genesis table.
         // Authenticate it and every cache byte with a domain-separated key derived from the
-        // local seed, before using that public key as the trust anchor for the tree checks.
+        // local seed before using that public key for the tree checks.
         let mac_key = hmac::sign(
             &hmac::Key::new(hmac::HMAC_SHA256, seed),
-            b"Lighthouse leanXMSS disk cache v1",
+            b"Lighthouse leanXMSS disk cache v2",
         );
         Self {
             path,
             mac_key: hmac::Key::new(hmac::HMAC_SHA256, mac_key.as_ref()),
-            persisted_revision: Mutex::default(),
+            persisted_trees: Mutex::default(),
         }
     }
 
@@ -114,18 +168,20 @@ impl DiskCache {
         let (key, trees) = payload
             .split_first_chunk::<XMSS_PUBLIC_KEY_BYTES_LEN>()
             .ok_or_else(|| io::Error::other("truncated XMSS cache"))?;
-        XmssSecretKey::from_cache_bytes(seed, XmssPublicKey::from(*key), trees)
-            .ok_or_else(|| io::Error::other("invalid XMSS cache trees"))
+        let key = XmssSecretKey::from_cache_bytes(seed, XmssPublicKey::from(*key), trees)
+            .ok_or_else(|| io::Error::other("invalid XMSS cache trees"))?;
+        *self.persisted_trees.lock() = cache_tree_indices(trees);
+        Ok(key)
     }
 
     fn write_if_changed(&self, key: &XmssSecretKey) -> io::Result<()> {
-        let mut persisted_revision = self.persisted_revision.lock();
-        let Some((revision, trees)) = key
-            .cache_snapshot(*persisted_revision)
-            .map_err(io::Error::other)?
-        else {
+        let mut persisted_trees = self.persisted_trees.lock();
+        let trees = key.cache_to_bytes().map_err(io::Error::other)?;
+        let indices = cache_tree_indices(&trees)
+            .ok_or_else(|| io::Error::other("invalid XMSS cache snapshot"))?;
+        if persisted_trees.as_ref() == Some(&indices) {
             return Ok(());
-        };
+        }
         let mut bytes =
             Vec::with_capacity(MAGIC.len() + XMSS_PUBLIC_KEY_BYTES_LEN + trees.len() + TAG_SIZE);
         bytes.extend_from_slice(MAGIC);
@@ -145,7 +201,7 @@ impl DiskCache {
         temp.persist(&self.path)?;
         #[cfg(unix)]
         File::open(parent)?.sync_all()?;
-        *persisted_revision = Some(revision);
+        *persisted_trees = Some(indices);
         Ok(())
     }
 }
@@ -153,6 +209,75 @@ impl DiskCache {
 #[cfg(all(test, not(debug_assertions)))]
 mod tests {
     use super::*;
+
+    // The published devnet-0 testing mnemonic, voting-key derivation index 0.
+    const INDEX_ZERO_BLS: [u8; 32] = [
+        0x0d, 0xce, 0x41, 0xfa, 0x73, 0xae, 0x9f, 0x6b, 0xdf, 0xd5, 0x1d, 0xf4, 0xd4, 0x22, 0xd7,
+        0x5e, 0xee, 0x17, 0x45, 0x53, 0xdb, 0xa5, 0xfd, 0x45, 0x0c, 0x44, 0x37, 0xe4, 0xed, 0x3f,
+        0xc9, 0x03,
+    ];
+
+    #[tokio::test]
+    async fn xmss_cache_imports_the_published_record_and_falls_back_on_wrong_trees() {
+        if xmss::FAKE_CRYPTO {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let bls_key = SecretKey::deserialize(&INDEX_ZERO_BLS).unwrap();
+        let pubkey = PublicKeyBytes::deserialize(&bls_key.public_key().serialize()).unwrap();
+        let open = |dir: Option<&Path>| match CacheLoader::open(&bls_key, pubkey, dir) {
+            Ok(_) => panic!("expected a cold disk cache"),
+            Err(loader) => loader,
+        };
+        let path = dir.path().join("published.xmss");
+        let bytes = xmss_cache_source::INDEX_ZERO_CACHE;
+        tokio::fs::write(&path, bytes).await.unwrap();
+        let source = xmss_cache_source::Source::new(path.to_str().unwrap()).unwrap();
+
+        let loader = open(Some(dir.path()));
+        let identity = loader.identity(None).unwrap();
+        assert_eq!(loader.identity(Some(0)), Some(identity));
+        assert_eq!(loader.identity(Some(1)), None);
+        assert!(xmss_cache_source::identify(&[1; 32], None).is_none());
+        let imported = source.fetch(identity).await.unwrap();
+        let started = Instant::now();
+        let signer = loader.finish(pubkey, Some(imported));
+        eprintln!("pregenerated cache import took {:?}", started.elapsed());
+        assert_eq!(signer.key.public_key(), identity.public_key);
+        assert_eq!(
+            cache_tree_indices(&signer.key.cache_to_bytes().unwrap()).unwrap(),
+            [0, 24_576]
+        );
+
+        for leaf in [32_768, 1_610_645_504] {
+            signer.key.prepare(leaf).unwrap();
+            let signature = signer.key.sign(&[3; 32], leaf).unwrap();
+            assert!(xmss::verify(
+                &identity.public_key,
+                leaf,
+                &[3; 32],
+                &signature
+            ));
+        }
+        signer.persist(pubkey);
+        let restarted = CachedSigner::load(&bls_key, pubkey, Some(dir.path()));
+        assert_eq!(
+            cache_tree_indices(&restarted.key.cache_to_bytes().unwrap()).unwrap(),
+            [0, 24_576]
+        );
+
+        let mut corrupt = *bytes;
+        corrupt[0] ^= 1;
+        tokio::fs::write(&path, corrupt).await.unwrap();
+        let imported = source.fetch(identity).await.unwrap();
+        let rebuilt = open(None).finish(pubkey, Some(imported));
+        assert_eq!(rebuilt.key.public_key(), identity.public_key);
+        assert!(
+            cache_tree_indices(&rebuilt.key.cache_to_bytes().unwrap())
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[test]
     fn xmss_cache_reuses_prepared_key_and_recovers_from_corruption() {
@@ -169,19 +294,18 @@ mod tests {
         first.key.prepare(leaf).unwrap();
         first.persist(pubkey);
         let original = fs::read(&cache.path).unwrap();
-        assert_eq!(original.len(), 16_384 + 17_588 + 72);
+        assert_eq!(original.len(), 4_096 + 5_300 + 72);
 
         let started = Instant::now();
         let restarted = CachedSigner::load(&bls_key, pubkey, Some(dir.path()));
         eprintln!("authenticated cache startup took {:?}", started.elapsed());
         let restarted_disk = restarted.disk.as_ref().unwrap();
-        assert_eq!(*restarted_disk.persisted_revision.lock(), Some(0));
+        assert_eq!(*restarted_disk.persisted_trees.lock(), Some(vec![1]));
         assert_eq!(restarted.key.public_key(), first.key.public_key());
         assert_eq!(
             restarted.key.sign(&[3; 32], leaf).unwrap(),
             first.key.sign(&[3; 32], leaf).unwrap(),
         );
-        assert!(restarted.key.cache_snapshot(Some(0)).unwrap().is_none());
 
         fs::remove_file(&cache.path).unwrap();
         restarted.persist(pubkey);
@@ -227,7 +351,7 @@ mod tests {
 
         let repaired = CachedSigner::load(&bls_key, pubkey, Some(dir.path()));
         assert_eq!(
-            *repaired.disk.as_ref().unwrap().persisted_revision.lock(),
+            *repaired.disk.as_ref().unwrap().persisted_trees.lock(),
             None
         );
         assert_eq!(repaired.key.public_key(), first.key.public_key());

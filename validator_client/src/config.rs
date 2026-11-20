@@ -384,6 +384,7 @@ impl Config {
             validator_client_config.prefer_builder_proposals;
         config.validator_store.gas_limit = validator_client_config.gas_limit;
         config.validator_store.xmss_cache_dir = Some(config.validator_dir.join("xmss-cache"));
+        config.validator_store.xmss_cache_url = validator_client_config.xmss_cache_url.clone();
         config.validator_store.vrf_state_url = validator_client_config.vrf_state_url.clone();
         if config.validator_store.vrf_state_url.is_some() {
             config.validator_store.vrf_state_cache_dir =
@@ -434,5 +435,18 @@ mod tests {
     // Ensures the default config does not panic.
     fn default_config() {
         Config::default();
+    }
+
+    #[test]
+    fn parses_optional_xmss_cache_url() {
+        use crate::cli::{Parser, ValidatorClient};
+
+        let defaults = ValidatorClient::try_parse_from(["validator_client"]).unwrap();
+        assert!(defaults.xmss_cache_url.is_none());
+        for value in ["https://example.com/devnet0.xmss", "/mnt/devnet0.xmss"] {
+            let option = format!("--xmss-cache-url={value}");
+            let cli = ValidatorClient::try_parse_from(["validator_client", &option]).unwrap();
+            assert_eq!(cli.xmss_cache_url.as_deref(), Some(value));
+        }
     }
 }

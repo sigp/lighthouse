@@ -261,12 +261,15 @@ impl HttpSource {
     }
 }
 
-async fn read_response(mut response: reqwest::Response, cap: usize) -> Result<Vec<u8>, String> {
+pub(super) async fn read_response(
+    mut response: reqwest::Response,
+    cap: usize,
+) -> Result<Vec<u8>, String> {
     if response
         .content_length()
         .is_some_and(|len| len > cap as u64)
     {
-        return Err("VRF state response exceeds the download limit".into());
+        return Err("response exceeds the download limit".into());
     }
     let mut data = Vec::new();
     while let Some(chunk) = response
@@ -275,7 +278,7 @@ async fn read_response(mut response: reqwest::Response, cap: usize) -> Result<Ve
         .map_err(|e| e.without_url().to_string())?
     {
         if chunk.len() > cap - data.len() {
-            return Err("VRF state response exceeds the download limit".into());
+            return Err("response exceeds the download limit".into());
         }
         data.extend_from_slice(&chunk);
     }

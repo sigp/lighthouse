@@ -585,7 +585,7 @@ fn live_sidecar_round_trip() {
     let keys: Vec<XmssSecretKey> = (1..=3u8)
         .map(|i| XmssSecretKey::from_seed(&[i; 32]))
         .collect();
-    let signed = |keys: &[XmssSecretKey], message: [u8; 32]| {
+    let signed = |keys: &[XmssSecretKey], message: [u8; 32], leaf| {
         let statement = Statement {
             pubkeys: keys.iter().map(XmssSecretKey::public_key).collect(),
             leaf_index: u64::from(leaf),
@@ -598,8 +598,8 @@ fn live_sidecar_round_trip() {
         (statement, signatures)
     };
 
-    let (first, first_signatures) = signed(&keys[..2], [1; 32]);
-    let (second, second_signatures) = signed(&keys[1..], [2; 32]);
+    let (first, first_signatures) = signed(&keys[..2], [1; 32], leaf);
+    let (second, second_signatures) = signed(&keys[1..], [2; 32], leaf + 1);
     let left_statements = vec![first];
     let right_statements = vec![second];
     let left = backend

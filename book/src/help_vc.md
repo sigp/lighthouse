@@ -159,6 +159,9 @@ Options:
       --vrf-state-url <URL_OR_PATH>
           Load full-tree PQ VRF state from an HTTP(S) URL or local file.
           Required for PQ block proposals.
+      --xmss-cache-url <URL_OR_PATH>
+          Load pregenerated devnet-0 PQ XMSS signing trees from an HTTP(S) URL
+          or local file. Missing or invalid records are built locally.
 
 Flags:
       --beacon-nodes-sync-tolerances <SYNC_TOLERANCES>

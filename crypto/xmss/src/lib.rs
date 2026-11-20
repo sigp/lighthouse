@@ -8,8 +8,8 @@
 //! The byte types are spec-exact: [`XmssPublicKey`] is `XMSSPubkey = Bytes32` and
 //! [`XmssSignature`] is `XMSSSignature = ByteVector[2404]`, for SSZ and for tree hashing.
 //!
-//! Verification uses the pinned leanVM revision. Signing uses a compact cache backported
-//! onto that revision. With the `fake_crypto` feature both are replaced by a cheap, insecure
+//! Signing and verification use the pinned leanVM revision. With the `fake_crypto` feature
+//! both are replaced by a cheap, insecure
 //! stand-in whose signatures still bind the key, the leaf and the message.
 
 #[cfg(feature = "fake_crypto")]
@@ -48,8 +48,39 @@ pub type LeafIndex = u32;
 /// The number of signing leaves in one bottom tree.
 pub const SUBTREE_LEAVES: LeafIndex = 1 << 16;
 
+/// Sizes of the top and bottom tree records in the pinned leanVM cache format.
+pub const CACHE_TOP_TREE_SIZE: usize = 4_096;
+pub const CACHE_BOTTOM_TREE_SIZE: usize = 5_300;
+
 /// Upper bound for the compact tree payload, excluding any caller-provided framing.
-pub const MAX_CACHE_SIZE: usize = backend::MAX_CACHE_SIZE;
+pub const MAX_CACHE_SIZE: usize =
+    CACHE_TOP_TREE_SIZE + backend::MAX_CACHED_BOTTOM_TREES * CACHE_BOTTOM_TREE_SIZE;
+
+/// The unique bottom tree indices in a well-framed cache payload, in sorted order.
+pub fn cache_tree_indices(bytes: &[u8]) -> Option<Vec<u32>> {
+    if bytes.len() > MAX_CACHE_SIZE {
+        return None;
+    }
+    let (_, bottoms) = bytes.split_at_checked(CACHE_TOP_TREE_SIZE)?;
+    let (records, []) = bottoms.as_chunks::<CACHE_BOTTOM_TREE_SIZE>() else {
+        return None;
+    };
+    let mut indices = records
+        .iter()
+        .map(|record| record.first_chunk::<4>().copied().map(u32::from_le_bytes))
+        .collect::<Option<Vec<_>>>()?;
+    indices.sort_unstable();
+    if indices
+        .iter()
+        .any(|&index| index > u32::MAX / SUBTREE_LEAVES)
+        || indices
+            .windows(2)
+            .any(|pair| matches!(pair, [a, b] if a == b))
+    {
+        return None;
+    }
+    Some(indices)
+}
 
 /// Length of the little-endian leaf index at the start of a signature.
 const LEAF_INDEX_BYTES_LEN: usize = size_of::<LeafIndex>();
@@ -277,13 +308,14 @@ impl XmssSecretKey {
 
     /// Expands from a compact tree cache authenticated by the caller for this seed.
     ///
-    /// The public key and the cached trees are checked before use. A restored cache starts
-    /// at revision zero. With `fake_crypto`, there are no trees to restore.
+    /// The independently trusted public key and the cached trees are checked before use.
+    /// With `fake_crypto`, there are no trees to restore.
     pub fn from_cache_bytes(
         seed: &[u8; XMSS_SECRET_KEY_BYTES_LEN],
         public_key: XmssPublicKey,
         bytes: &[u8],
     ) -> Option<Self> {
+        cache_tree_indices(bytes)?;
         let expanded = backend::from_cache_bytes(seed, public_key.as_bytes(), bytes)?;
         Some(Self {
             public_key,
@@ -291,10 +323,21 @@ impl XmssSecretKey {
         })
     }
 
-    /// Returns the current revision and its public tree data if the set of trees changed.
-    /// Callers should authenticate these bytes before trusting them on reload.
-    pub fn cache_snapshot(&self, previous: Option<u64>) -> Result<Option<(u64, Vec<u8>)>, Error> {
-        backend::cache_snapshot(&self.expanded, previous)
+    /// Serializes cached tree data. Callers need a trusted public key on reload.
+    pub fn cache_to_bytes(&self) -> Result<Vec<u8>, Error> {
+        backend::cache_to_bytes(&self.expanded)
+    }
+
+    /// Derives the public parameter without building signing trees, for matching known keys.
+    pub fn public_parameter(seed: &[u8; XMSS_SECRET_KEY_BYTES_LEN]) -> Option<[u8; 16]> {
+        #[cfg(not(feature = "fake_crypto"))]
+        return Some(backend::public_parameter(seed));
+
+        #[cfg(feature = "fake_crypto")]
+        {
+            let _ = seed;
+            None
+        }
     }
 
     pub fn public_key(&self) -> XmssPublicKey {
@@ -311,7 +354,7 @@ impl XmssSecretKey {
     }
 
     /// Prepares a tree without holding the cache lock during computation.
-    /// Returns false if cancelled before the tree could be prepared.
+    /// Checks cancellation before and after preparation. An in-progress tree build finishes.
     pub fn prepare_with_cancel(
         &self,
         leaf_index: LeafIndex,
@@ -416,44 +459,29 @@ mod tests {
 
     #[cfg(not(feature = "fake_crypto"))]
     #[test]
-    fn compact_cache_matches_pinned_signer_and_reloads_boundary_trees() {
-        use std::{cell::Cell, time::Instant};
-
+    fn compact_cache_reloads_boundary_trees() {
         let seed = seed(0x34);
         let message = message(0xf2);
-        let (old, old_public_key) = lean_xmss::key_gen(&seed);
         let key = XmssSecretKey::from_seed(&seed);
-        assert_eq!(key.public_key().to_bytes(), old_public_key.to_bytes());
-
-        let leaf_indices = [0, 63, 64, SUBTREE_LEAVES - 1, SUBTREE_LEAVES, u32::MAX];
-        let mut signatures = Vec::new();
-        let mut old_total = std::time::Duration::ZERO;
-        let mut compact_total = std::time::Duration::ZERO;
-        for leaf in leaf_indices {
-            old.prepare(leaf);
-            key.prepare(leaf).unwrap();
-            let started = Instant::now();
-            let expected = lean_xmss::sign(&old, &message, leaf).to_bytes();
-            old_total += started.elapsed();
-            let started = Instant::now();
-            let signature = key.sign(&message, leaf).unwrap();
-            compact_total += started.elapsed();
-            assert_eq!(signature.to_bytes(), expected, "leaf {leaf}");
-            assert!(verify(&key.public_key(), leaf, &message, &signature));
-            signatures.push(signature);
-        }
-
-        let (revision, bytes) = key.cache_snapshot(None).unwrap().unwrap();
-        assert_eq!(revision, 3);
-        assert_eq!(bytes.len(), 16_384 + 3 * 17_588);
-        let started = Instant::now();
-        let restored = XmssSecretKey::from_cache_bytes(&seed, key.public_key(), &bytes).unwrap();
-        eprintln!(
-            "six warm signatures: pinned {:?}, compact {:?}; restored three subtrees in {:?}",
-            old_total,
-            compact_total,
-            started.elapsed(),
+        assert_eq!(
+            XmssSecretKey::public_parameter(&seed).unwrap(),
+            key.public_key().as_bytes()[16..]
         );
+
+        let leaf_indices = [0, 255, 256, SUBTREE_LEAVES - 1, SUBTREE_LEAVES, u32::MAX];
+        let signatures = leaf_indices.map(|leaf| {
+            let signature = key.sign(&message, leaf).unwrap();
+            assert!(verify(&key.public_key(), leaf, &message, &signature));
+            signature
+        });
+        let bytes = key.cache_to_bytes().unwrap();
+        assert_eq!(
+            bytes.len(),
+            CACHE_TOP_TREE_SIZE + 3 * CACHE_BOTTOM_TREE_SIZE
+        );
+        assert_eq!(cache_tree_indices(&bytes).unwrap(), [0, 1, 65_535]);
+
+        let restored = XmssSecretKey::from_cache_bytes(&seed, key.public_key(), &bytes).unwrap();
         for (leaf, expected) in leaf_indices.into_iter().zip(signatures) {
             assert_eq!(
                 restored.sign(&message, leaf).unwrap(),
@@ -461,21 +489,13 @@ mod tests {
                 "leaf {leaf}"
             );
         }
-        assert!(restored.cache_snapshot(Some(0)).unwrap().is_none());
-
-        // The new subtree spans 65,536 leaves. Cancellation during its construction
-        // cannot publish a partial tree, change the revision, or evict a usable tree.
-        let probes = Cell::new(0);
+        assert_eq!(restored.cache_to_bytes().unwrap(), bytes);
         assert!(
             !restored
-                .prepare_with_cancel(2 * SUBTREE_LEAVES, || {
-                    probes.set(probes.get() + 1);
-                    probes.get() == 4
-                })
+                .prepare_with_cancel(2 * SUBTREE_LEAVES, || true)
                 .unwrap()
         );
-        assert_eq!(probes.get(), 4);
-        assert!(restored.cache_snapshot(Some(0)).unwrap().is_none());
+        assert_eq!(restored.cache_to_bytes().unwrap(), bytes);
 
         let reload = |data| XmssSecretKey::from_cache_bytes(&seed, key.public_key(), data);
         assert!(reload(&bytes[1..]).is_none());
@@ -483,13 +503,15 @@ mod tests {
         tampered[3] ^= 1;
         assert!(reload(&tampered).is_none());
         let mut tampered = bytes.clone();
-        tampered[16_384 + 1204] ^= 1;
+        tampered[CACHE_TOP_TREE_SIZE + 1204] ^= 1;
         assert!(reload(&tampered).is_none());
         let mut duplicate = bytes.clone();
-        duplicate.extend_from_slice(&bytes[16_384..16_384 + 17_588]);
+        duplicate.extend_from_slice(
+            &bytes[CACHE_TOP_TREE_SIZE..CACHE_TOP_TREE_SIZE + CACHE_BOTTOM_TREE_SIZE],
+        );
         assert!(reload(&duplicate).is_none());
         let mut oversized = bytes.clone();
-        oversized.resize(MAX_CACHE_SIZE + 17_588, 0);
+        oversized.resize(MAX_CACHE_SIZE + CACHE_BOTTOM_TREE_SIZE, 0);
         assert!(reload(&oversized).is_none());
         assert!(XmssSecretKey::from_cache_bytes(&[0x35; 32], key.public_key(), &bytes).is_none());
         assert!(XmssSecretKey::from_cache_bytes(&seed, XmssPublicKey::empty(), &bytes).is_none());
