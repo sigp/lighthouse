@@ -40,6 +40,7 @@ use super::network_context::{
 };
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
+use crate::network_beacon_processor::sync_methods::WhichPeerToPenalize;
 use crate::network_beacon_processor::{
     BlockProcessingResult, ChainSegmentProcessId, NetworkBeaconProcessor,
 };
@@ -226,6 +227,7 @@ pub enum BatchProcessResult {
     FaultyFailure {
         imported_blocks: usize,
         penalty: PeerAction,
+        to_penalize: WhichPeerToPenalize,
     },
     NonFaultyFailure,
 }
@@ -559,7 +561,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.pending_unknown_roots.pop(&root);
         }
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
-        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.block_lookups.peer_disconnected(peer_id);
 
         // Inject a Disconnected error on all requests associated with the disconnected peer
@@ -1361,8 +1362,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             self.on_range_components_response(
                 id.parent_request_id,
-                peer_id,
-                RangeBlockComponent::PayloadEnvelope(id, resp),
+                RangeBlockComponent::PayloadEnvelope(id, resp, peer_id),
             );
         }
     }
@@ -1399,7 +1399,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_blocks_by_range_response(id, peer_id, block) {
             self.on_range_components_response(
                 id.parent_request_id,
-                peer_id,
                 RangeBlockComponent::Block(id, resp, peer_id),
             );
         }
@@ -1414,8 +1413,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
             self.on_range_components_response(
                 id.parent_request_id,
-                peer_id,
-                RangeBlockComponent::Blob(id, resp),
+                RangeBlockComponent::Blob(id, resp, peer_id),
             );
         }
     }
@@ -1456,8 +1454,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .unwrap_or_else(|| PeerGroup::from_set(Default::default()));
                 self.on_range_components_response(
                     components_by_range_id,
-                    // Peer attributability is broken in range sync :)
-                    PeerId::random(),
                     RangeBlockComponent::CustodyResult(response, peer_group),
                 );
             }
@@ -1469,7 +1465,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn on_range_components_response(
         &mut self,
         range_request_id: ComponentsByRangeRequestId,
-        peer_id: PeerId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
         if let Some(resp) = self
@@ -1477,13 +1472,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .range_block_component_response(range_request_id, range_block_component)
         {
             match resp {
-                // On success the batch is attributed to the peer that provided its blocks.
-                Ok((peer_id, blocks)) => {
+                // The batch is attributed to every peer that served part of it.
+                Ok((batch_peers, blocks)) => {
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(
                                 &mut self.network,
-                                peer_id,
+                                batch_peers,
                                 chain_id,
                                 batch_id,
                                 range_request_id.id,
@@ -1495,7 +1490,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             match self.backfill_sync.on_block_response(
                                 &mut self.network,
                                 batch_id,
-                                &peer_id,
+                                batch_peers,
                                 range_request_id.id,
                                 blocks,
                             ) {
@@ -1510,11 +1505,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
                 }
-                Err(e) => match range_request_id.requester {
+                Err((batch_peers, e)) => match range_request_id.requester {
                     RangeRequestId::RangeSync { chain_id, batch_id } => {
                         self.range_sync.inject_error(
                             &mut self.network,
-                            Some(peer_id),
+                            batch_peers.as_ref(),
                             batch_id,
                             chain_id,
                             range_request_id.id,
@@ -1526,7 +1521,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         match self.backfill_sync.inject_error(
                             &mut self.network,
                             batch_id,
-                            &peer_id,
+                            batch_peers.as_ref(),
                             range_request_id.id,
                             e,
                         ) {

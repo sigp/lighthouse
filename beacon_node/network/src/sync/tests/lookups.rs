@@ -494,6 +494,7 @@ impl TestRig {
                             self.push_sync_message(SyncMessage::BatchProcessed {
                                 sync_type,
                                 result: BatchProcessResult::FaultyFailure {
+                                    to_penalize: WhichPeerToPenalize::BlockPeer,
                                     imported_blocks: 0,
                                     penalty: PeerAction::LowToleranceError,
                                 },

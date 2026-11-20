@@ -1,3 +1,4 @@
+use crate::sync::network_context::BatchPeers;
 use beacon_chain::block_verification_types::RangeSyncBlock;
 use educe::Educe;
 use lighthouse_network::PeerId;
@@ -104,7 +105,9 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig, D: Hash> {
     /// Number of processing attempts that have failed but we do not count.
     non_faulty_processing_attempts: u8,
     /// The number of download retries this batch has undergone due to a failed request.
-    failed_download_attempts: Vec<Option<PeerId>>,
+    failed_download_attempts: u8,
+    /// The block peer of every failed download or processing attempt of this batch.
+    failed_block_peers: HashSet<PeerId>,
     /// State of the batch.
     state: BatchState<D>,
     /// Whether this batch contains all blocks or all blocks and blobs.
@@ -134,9 +137,9 @@ pub enum BatchState<D: Hash> {
     /// The batch is being downloaded.
     Downloading(Id, Instant),
     /// The batch has been completely downloaded and is ready for processing.
-    AwaitingProcessing(PeerId, D, Instant),
+    AwaitingProcessing(BatchPeers, D, Instant),
     /// The batch is being processed.
-    Processing(Attempt<D>, Instant),
+    Processing(Attempt<D>, BatchPeers, Instant),
     /// The batch was successfully processed and is waiting to be validated.
     ///
     /// It is not sufficient to process a batch successfully to consider it correct. This is
@@ -163,7 +166,7 @@ impl<D: Hash> BatchState<D> {
             BatchState::Downloading(..) => BatchMetricsState::Downloading,
             BatchState::AwaitingProcessing(..) => BatchMetricsState::AwaitingProcessing,
             BatchState::Processing(..) => BatchMetricsState::Processing,
-            BatchState::AwaitingValidation(_) => BatchMetricsState::AwaitingValidation,
+            BatchState::AwaitingValidation(..) => BatchMetricsState::AwaitingValidation,
             BatchState::Poisoned | BatchState::Failed => BatchMetricsState::Failed,
         }
     }
@@ -190,7 +193,8 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
             start_slot,
             end_slot,
             failed_processing_attempts: Vec::new(),
-            failed_download_attempts: Vec::new(),
+            failed_download_attempts: 0,
+            failed_block_peers: HashSet::new(),
             non_faulty_processing_attempts: 0,
             state: BatchState::<D>::AwaitingDownload,
             batch_type,
@@ -200,20 +204,8 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
 
     /// Gives a list of peers from which this batch has had a failed download or processing
     /// attempt.
-    pub fn failed_peers(&self) -> HashSet<PeerId> {
-        let mut peers = HashSet::with_capacity(
-            self.failed_processing_attempts.len() + self.failed_download_attempts.len(),
-        );
-
-        for attempt in &self.failed_processing_attempts {
-            peers.insert(attempt.peer_id);
-        }
-
-        for peer in self.failed_download_attempts.iter().flatten() {
-            peers.insert(*peer);
-        }
-
-        peers
+    pub fn failed_block_peers(&self) -> HashSet<PeerId> {
+        self.failed_block_peers.clone()
     }
 
     /// Verifies if an incoming request id to this batch.
@@ -235,7 +227,7 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
 
     /// Returns the elapsed time since the batch entered the Processing state.
     pub fn time_since_processing(&self) -> Option<Duration> {
-        if let BatchState::Processing(_, start) = &self.state {
+        if let BatchState::Processing(_, _, start) = &self.state {
             Some(start.elapsed())
         } else {
             None
@@ -243,12 +235,14 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
     }
 
     /// Returns the peer that is currently responsible for progressing the state of the batch.
-    pub fn processing_peer(&self) -> Option<&PeerId> {
+    pub fn processing_peers(&self) -> Option<&BatchPeers> {
         match &self.state {
             BatchState::AwaitingDownload | BatchState::Failed | BatchState::Downloading(..) => None,
-            BatchState::AwaitingProcessing(peer_id, _, _)
-            | BatchState::Processing(Attempt { peer_id, .. }, _)
-            | BatchState::AwaitingValidation(Attempt { peer_id, .. }) => Some(peer_id),
+            BatchState::AwaitingProcessing(peers, _, _) | BatchState::Processing(_, peers, _) => {
+                Some(peers)
+            }
+            // Processing has finished, so no peer is progressing the batch.
+            BatchState::AwaitingValidation(_) => None,
             BatchState::Poisoned => unreachable!("Poisoned batch"),
         }
     }
@@ -264,7 +258,7 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             BatchState::Failed => BatchOperationOutcome::Failed {
                 blacklist: self.failed_processing_attempts.len()
-                    > self.failed_download_attempts.len(),
+                    > self.failed_download_attempts as usize,
             },
             _ => BatchOperationOutcome::Continue,
         }
@@ -281,10 +275,14 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
     /// Marks the batch as ready to be processed if the data columns are in the range. The number of
     /// received columns is returned, or the wrong batch end on failure
     #[must_use = "Batch may have failed"]
-    pub fn download_completed(&mut self, data_columns: D, peer: PeerId) -> Result<(), WrongState> {
+    pub fn download_completed(
+        &mut self,
+        data_columns: D,
+        peers: BatchPeers,
+    ) -> Result<(), WrongState> {
         match self.state.poison() {
             BatchState::Downloading(..) => {
-                self.state = BatchState::AwaitingProcessing(peer, data_columns, Instant::now());
+                self.state = BatchState::AwaitingProcessing(peers, data_columns, Instant::now());
                 Ok(())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
@@ -303,20 +301,21 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
     /// This can happen if a peer disconnects or some error occurred that was not the peers fault.
     /// The `peer` parameter, when set to `None`, still counts toward
     /// `max_batch_download_attempts` (to prevent infinite retries on persistent failures)
-    /// but does not register a peer in `failed_peers()`.
+    /// but does not register a peer in `failed_block_peers()`.
     #[must_use = "Batch may have failed"]
     pub fn download_failed(
         &mut self,
-        peer: Option<PeerId>,
+        peers: Option<BatchPeers>,
     ) -> Result<BatchOperationOutcome, WrongState> {
         match self.state.poison() {
             BatchState::Downloading(..) => {
                 // register the attempt and check if the batch can be tried again
-                self.failed_download_attempts.push(peer);
+                self.failed_download_attempts = self.failed_download_attempts.saturating_add(1);
+                if let Some(peers) = peers {
+                    self.failed_block_peers.insert(peers.block_peer());
+                }
 
-                self.state = if self.failed_download_attempts.len()
-                    >= B::max_batch_download_attempts() as usize
-                {
+                self.state = if self.failed_download_attempts >= B::max_batch_download_attempts() {
                     BatchState::Failed
                 } else {
                     BatchState::AwaitingDownload
@@ -353,9 +352,9 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
 
     pub fn start_processing(&mut self) -> Result<(D, Duration), WrongState> {
         match self.state.poison() {
-            BatchState::AwaitingProcessing(peer, data_columns, start_instant) => {
-                self.state =
-                    BatchState::Processing(Attempt::new::<B>(peer, &data_columns), Instant::now());
+            BatchState::AwaitingProcessing(peers, data_columns, start_instant) => {
+                let attempt = Attempt::new::<B>(peers.block_peer(), &data_columns);
+                self.state = BatchState::Processing(attempt, peers, Instant::now());
                 Ok((data_columns, start_instant.elapsed()))
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
@@ -374,11 +373,12 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
         processing_result: BatchProcessingResult,
     ) -> Result<BatchOperationOutcome, WrongState> {
         match self.state.poison() {
-            BatchState::Processing(attempt, _start) => {
+            BatchState::Processing(attempt, _peers, _start) => {
                 self.state = match processing_result {
                     BatchProcessingResult::Success => BatchState::AwaitingValidation(attempt),
                     BatchProcessingResult::FaultyFailure => {
                         // register the failed attempt
+                        self.failed_block_peers.insert(attempt.peer_id);
                         self.failed_processing_attempts.push(attempt);
 
                         // check if the batch can be downloaded again
@@ -413,6 +413,7 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
     pub fn validation_failed(&mut self) -> Result<BatchOperationOutcome, WrongState> {
         match self.state.poison() {
             BatchState::AwaitingValidation(attempt) => {
+                self.failed_block_peers.insert(attempt.peer_id);
                 self.failed_processing_attempts.push(attempt);
 
                 // check if the batch can be downloaded again
@@ -512,7 +513,7 @@ impl<D: Hash> Attempt<D> {
 impl<D: Hash> std::fmt::Debug for BatchState<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BatchState::Processing(Attempt { peer_id, .. }, _) => {
+            BatchState::Processing(Attempt { peer_id, .. }, _, _) => {
                 write!(f, "Processing({})", peer_id)
             }
             BatchState::AwaitingValidation(Attempt { peer_id, .. }) => {
@@ -520,8 +521,8 @@ impl<D: Hash> std::fmt::Debug for BatchState<D> {
             }
             BatchState::AwaitingDownload => f.write_str("AwaitingDownload"),
             BatchState::Failed => f.write_str("Failed"),
-            BatchState::AwaitingProcessing(peer, ..) => {
-                write!(f, "AwaitingProcessing({})", peer)
+            BatchState::AwaitingProcessing(peers, ..) => {
+                write!(f, "AwaitingProcessing({})", peers.block_peer())
             }
             BatchState::Downloading(request_id, _) => {
                 write!(f, "Downloading({})", request_id)
@@ -538,7 +539,7 @@ impl<D: Hash> BatchState<D> {
         match self {
             BatchState::Downloading(..) => 'D',
             BatchState::Processing(..) => 'P',
-            BatchState::AwaitingValidation(_) => 'v',
+            BatchState::AwaitingValidation(..) => 'v',
             BatchState::AwaitingDownload => 'd',
             BatchState::Failed => 'F',
             BatchState::AwaitingProcessing(..) => 'p',
@@ -574,7 +575,9 @@ mod tests {
 
     fn advance_to_processing(batch: &mut TestBatch, req_id: Id, peer_id: PeerId) {
         batch.start_downloading(req_id).unwrap();
-        batch.download_completed(vec![1, 2, 3], peer_id).unwrap();
+        batch
+            .download_completed(vec![1, 2, 3], BatchPeers::new_without_columns(peer_id))
+            .unwrap();
         batch.start_processing().unwrap();
     }
 
@@ -595,7 +598,9 @@ mod tests {
         batch.start_downloading(1).unwrap();
         assert!(matches!(batch.state(), BatchState::Downloading(1, _)));
 
-        batch.download_completed(vec![10, 20], p).unwrap();
+        batch
+            .download_completed(vec![10, 20], BatchPeers::new_without_columns(p))
+            .unwrap();
         assert!(matches!(batch.state(), BatchState::AwaitingProcessing(..)));
 
         let (data, _duration) = batch.start_processing().unwrap();
@@ -615,13 +620,17 @@ mod tests {
 
         for i in 1..max_dl() as Id {
             batch.start_downloading(i).unwrap();
-            let outcome = batch.download_failed(Some(peer())).unwrap();
+            let outcome = batch
+                .download_failed(Some(BatchPeers::new_without_columns(peer())))
+                .unwrap();
             assert!(matches!(outcome, BatchOperationOutcome::Continue));
         }
 
         // Next failure hits the limit
         batch.start_downloading(max_dl() as Id).unwrap();
-        let outcome = batch.download_failed(Some(peer())).unwrap();
+        let outcome = batch
+            .download_failed(Some(BatchPeers::new_without_columns(peer())))
+            .unwrap();
         assert!(matches!(
             outcome,
             BatchOperationOutcome::Failed { blacklist: false }
@@ -633,13 +642,13 @@ mod tests {
         let mut batch = new_batch();
 
         // None still counts toward the limit (prevents infinite retry on persistent
-        // network failures), but doesn't register a peer in failed_peers().
+        // network failures), but doesn't register a peer in failed_block_peers().
         for i in 0..max_dl() as Id {
             batch.start_downloading(i).unwrap();
             batch.download_failed(None).unwrap();
         }
         assert!(matches!(batch.state(), BatchState::Failed));
-        assert!(batch.failed_peers().is_empty());
+        assert!(batch.failed_block_peers().is_empty());
     }
 
     #[test]
@@ -679,7 +688,7 @@ mod tests {
             assert!(matches!(outcome, BatchOperationOutcome::Continue));
         }
         // Non-faulty failures also don't register peers as failed
-        assert!(batch.failed_peers().is_empty());
+        assert!(batch.failed_block_peers().is_empty());
     }
 
     #[test]
@@ -711,7 +720,9 @@ mod tests {
 
         // One download failure
         batch.start_downloading(next_id()).unwrap();
-        batch.download_failed(Some(peer())).unwrap();
+        batch
+            .download_failed(Some(BatchPeers::new_without_columns(peer())))
+            .unwrap();
 
         // One faulty processing failure (requires a successful download first)
         advance_to_processing(&mut batch, next_id(), peer());
@@ -729,7 +740,9 @@ mod tests {
         // Fill remaining download failures to hit the limit
         for _ in 1..max_dl() {
             batch.start_downloading(next_id()).unwrap();
-            batch.download_failed(Some(peer())).unwrap();
+            batch
+                .download_failed(Some(BatchPeers::new_without_columns(peer())))
+                .unwrap();
         }
 
         // Download failures > processing failures → blacklist: false
