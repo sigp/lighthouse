@@ -13,7 +13,7 @@ use crate::{
 
 mod bid_selection;
 mod gloas;
-mod pq;
+pub(crate) mod pq;
 
 pub use gloas::PayloadEnvelopeContents;
 pub use pq::PqBlockContents;

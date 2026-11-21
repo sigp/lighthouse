@@ -537,6 +537,27 @@ fn reconnects_when_the_sidecar_went_away() {
 }
 
 #[test]
+fn does_not_replay_proving_after_losing_the_reply() {
+    let mock = MockSidecar::good();
+    let backend = mock.backend();
+    let statements = [statement(0..1, 1)];
+    let signatures = [vec![signature_at(40_000, 0x40)]];
+    mock.script([
+        Step::Respond(proven(&statements, &[1])),
+        Step::HangUp,
+        Step::Respond(proven(&statements, &[2])),
+    ]);
+
+    assert!(backend.prove(&statements, &signatures).is_ok());
+    assert!(matches!(
+        backend.prove(&statements, &signatures),
+        Err(Error::SidecarIo(_))
+    ));
+    assert_eq!(mock.connections(), 1);
+    assert_eq!(mock.requests().len(), 2);
+}
+
+#[test]
 fn busy_verifier_connection_respects_timeout() {
     let mut config = SidecarConfig::new("unused.sock");
     config.verify_timeout = Some(Duration::from_millis(10));
@@ -637,6 +658,60 @@ fn live_sidecar_round_trip() {
     assert!(backend.verify(&all_statements, &merged).unwrap());
     assert!(backend.verify(&reordered, &merged).unwrap());
     assert!(!backend.verify(&left_statements, &merged).unwrap());
+
+    // Extend a saved proof with a child sharing one identical signer/claim.
+    let (overlap, overlap_signatures) = signed(&keys[1..], [1; 32], leaf);
+    let overlap = vec![overlap];
+    let overlap_proof = backend
+        .prove(&overlap, std::slice::from_ref(&overlap_signatures))
+        .unwrap();
+    let output = vec![Statement {
+        pubkeys: vec![
+            keys[2].public_key(),
+            keys[0].public_key(),
+            keys[1].public_key(),
+        ],
+        ..left_statements[0].clone()
+    }];
+    let inputs = vec![(left_statements.clone(), left), (overlap, overlap_proof)];
+    let union = backend
+        .merge_for_statements(&inputs, &output, 1 << 20)
+        .unwrap();
+    assert!(backend.verify(&output, &union).unwrap());
+    assert!(!backend.verify(&left_statements, &union).unwrap());
+    assert!(
+        backend
+            .merge_for_statements(&inputs, &left_statements, 1 << 20)
+            .is_err()
+    );
+
+    // The reference backend has ordered witnesses; the old concatenate-only merge is invalid.
+    let reference = crate::ReferenceBackend;
+    let first_reference = reference
+        .prove(&inputs[0].0, std::slice::from_ref(&first_signatures))
+        .unwrap();
+    let overlap_reference = reference
+        .prove(&inputs[1].0, &[overlap_signatures])
+        .unwrap();
+    let reference_children = [
+        (inputs[0].0.clone(), first_reference),
+        (inputs[1].0.clone(), overlap_reference),
+    ];
+    assert!(
+        !reference
+            .verify(&output, &reference.merge(&reference_children).unwrap())
+            .unwrap()
+    );
+    let proof = reference
+        .merge_for_statements(&reference_children, &output, 1 << 20)
+        .unwrap();
+    assert!(reference.verify(&output, &proof).unwrap());
+    assert_eq!(proof.len(), 3 * crate::XMSS_SIGNATURE_BYTES_LEN);
+    assert!(
+        reference
+            .merge_for_statements(&reference_children, &output, proof.len() - 1)
+            .is_err()
+    );
 
     // An invalid signature is the sidecar's to find.
     let swapped = vec![first_signatures[1].clone(), first_signatures[0].clone()];

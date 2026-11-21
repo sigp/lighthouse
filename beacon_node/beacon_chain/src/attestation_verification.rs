@@ -354,6 +354,7 @@ struct IndexedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
 pub struct VerifiedAggregatedAttestation<'a, T: BeaconChainTypes> {
     signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
+    pq_statement: Option<pq_prover::Statement>,
 }
 
 impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<'_, T> {
@@ -401,6 +402,10 @@ pub trait VerifiedAttestation<T: BeaconChainTypes>: Sized {
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
 
+    fn pq_statement(&self) -> Option<&pq_prover::Statement> {
+        None
+    }
+
     // Inefficient default implementation. This is overridden for gossip verified attestations.
     fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
         let attestation = self.attestation().clone_as_attestation();
@@ -416,6 +421,10 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestati
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
+    }
+
+    fn pq_statement(&self) -> Option<&pq_prover::Statement> {
+        self.pq_statement.as_ref()
     }
 }
 
@@ -911,6 +920,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
         }
 
         Ok(VerifiedAggregatedAttestation {
+            pq_statement: None,
             signed_aggregate,
             indexed_attestation,
         })

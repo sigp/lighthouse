@@ -52,7 +52,7 @@ pub use leanvm_claims::AggregateClaims;
 pub use reference::ReferenceBackend;
 #[cfg(unix)]
 pub use sidecar::{MAX_CHILDREN_PER_AGGREGATE, SidecarBackend, SidecarConfig, merge_plan};
-pub use xmss::{XMSS_MESSAGE_BYTES_LEN, XmssPublicKey, XmssSignature};
+pub use xmss::{XMSS_MESSAGE_BYTES_LEN, XMSS_SIGNATURE_BYTES_LEN, XmssPublicKey, XmssSignature};
 
 /// The leanVM commit every leanVM dependency of the workspace is pinned to, and that the
 /// `leanvm-sidecar` binary must be built from.
@@ -173,9 +173,62 @@ pub trait ProverBackend: Send + Sync {
     /// Children are assumed valid: verify untrusted ones first.
     fn merge(&self, children: &[(Vec<Statement>, Proof)]) -> Result<Proof, Error>;
 
+    /// Merge one scheduled batch into the exact claims in the final packed statements.
+    fn merge_for_statements(
+        &self,
+        children: &[(Vec<Statement>, Proof)],
+        output: &[Statement],
+        max_proof_bytes: usize,
+    ) -> Result<Proof, Error> {
+        check_packed_claims(children, output)?;
+        let proof = self.merge(children)?;
+        if proof.len() > max_proof_bytes {
+            return Err(Error::InvalidInput(
+                "packed proof exceeds its byte bound".into(),
+            ));
+        }
+        Ok(proof)
+    }
+
     /// The spec's `VerifyAggregates`. `Ok(false)` is an invalid proof; `Err` means the
     /// backend could not decide (e.g. the sidecar is unreachable).
     fn verify(&self, statements: &[Statement], proof: &Proof) -> Result<bool, Error>;
+}
+
+fn statement_witnesses(
+    statements: &[Statement],
+) -> impl Iterator<Item = (XmssPublicKey, [u8; 32], u64)> + '_ {
+    statements.iter().flat_map(|statement| {
+        statement
+            .pubkeys
+            .iter()
+            .map(|key| (*key, statement.message, statement.leaf_index))
+    })
+}
+
+fn check_packed_claims(
+    children: &[(Vec<Statement>, Proof)],
+    output: &[Statement],
+) -> Result<(), Error> {
+    use std::collections::BTreeSet;
+    if children.is_empty()
+        || children.len() > 16
+        || children.iter().any(|(statements, proof)| {
+            proof.is_empty() || statement_witnesses(statements).next().is_none()
+        })
+    {
+        return Err(Error::InvalidInput("invalid packed proof batch".into()));
+    }
+    let provided: BTreeSet<_> = children
+        .iter()
+        .flat_map(|(statements, _)| statement_witnesses(statements))
+        .collect();
+    if provided != statement_witnesses(output).collect() {
+        return Err(Error::InvalidInput(
+            "packed statements differ from the child claims".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Checks that `signatures` has one group per statement and one signature per public key,

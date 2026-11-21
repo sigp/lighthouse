@@ -19,45 +19,151 @@ pub struct CompactIndexedAttestationPq<E: EthSpec> {
     pub attestation: AttestationPq<E>,
     pub attesting_indices: Vec<u64>,
     pub proof: AttestationProof<E>,
+    pub statement: pq_prover::Statement,
 }
 
-type PqCommittees<E> = BTreeMap<(Hash256, u64), Arc<CompactIndexedAttestationPq<E>>>;
+impl<E: EthSpec> CompactIndexedAttestationPq<E> {
+    pub fn retained_bytes(&self) -> usize {
+        self.proof
+            .len()
+            .saturating_add(self.statement.pubkeys.len().saturating_mul(32))
+            .saturating_add(self.attesting_indices.len().saturating_mul(8))
+            .saturating_add(self.attestation.aggregation_bits.len().div_ceil(8))
+            .saturating_add(size_of::<Self>())
+    }
+
+    fn covers(&self, other: &Self) -> bool {
+        if self.attestation.data != other.attestation.data
+            || self.statement.message != other.statement.message
+            || self.statement.leaf_index != other.statement.leaf_index
+            || self.attestation.aggregation_bits.len() != other.attestation.aggregation_bits.len()
+        {
+            return false;
+        }
+
+        let mut self_keys = self.statement.pubkeys.iter();
+        let mut other_keys = other.statement.pubkeys.iter();
+        self.attestation
+            .aggregation_bits
+            .iter()
+            .zip(other.attestation.aggregation_bits.iter())
+            .all(|(ours, theirs)| {
+                let own_key = ours.then(|| self_keys.next()).flatten();
+                !theirs || (own_key.is_some() && own_key == other_keys.next())
+            })
+    }
+}
+
+const EXTRA_PER_SLOT: usize = 8 << 20;
+const EXTRA_TOTAL: usize = 64 << 20;
+const MAX_VARIANTS: usize = 4;
+
+type PqCommittees<E> = BTreeMap<(Hash256, u64), Vec<Arc<CompactIndexedAttestationPq<E>>>>;
+
+#[derive(Debug, Default)]
+struct PqSlot<E: EthSpec> {
+    committees: PqCommittees<E>,
+    extra_bytes: usize,
+}
 
 #[derive(Debug, Default)]
 pub(crate) struct PqAttestationMap<E: EthSpec> {
-    slots: BTreeMap<Slot, PqCommittees<E>>,
+    slots: BTreeMap<Slot, PqSlot<E>>,
+    extra_bytes: usize,
 }
 
 impl<E: EthSpec> PqAttestationMap<E> {
-    pub(crate) fn insert(&mut self, entry: Arc<CompactIndexedAttestationPq<E>>) {
+    pub(crate) fn insert(&mut self, entry: Arc<CompactIndexedAttestationPq<E>>) -> bool {
         let Some(committee) = entry.attestation.committee_index() else {
-            return;
+            return false;
         };
-        let slot_entries = self.slots.entry(entry.attestation.data.slot).or_default();
+        let slot = self.slots.entry(entry.attestation.data.slot).or_default();
         let key = (entry.attestation.data.tree_hash_root(), committee);
-        if let Some(current) = slot_entries.get_mut(&key) {
-            if entry.attesting_indices.len() > current.attesting_indices.len() {
-                *current = entry;
+        let budget = EXTRA_PER_SLOT
+            .saturating_sub(slot.extra_bytes)
+            .min(EXTRA_TOTAL.saturating_sub(self.extra_bytes));
+        if let Some(variants) = slot.committees.get_mut(&key) {
+            if variants.iter().any(|known| known.covers(&entry)) {
+                return false;
             }
-            return;
-        }
-        // The wire allows several forks per committee. Cap proof memory even
-        // when validators distribute their votes over many different forks.
-        let max_entries = E::max_committees_per_slot_pq().saturating_mul(4);
-        if slot_entries.len() >= max_entries {
-            let Some((weakest_key, weakest)) = slot_entries
+            let old_extra: usize = variants
                 .iter()
-                .min_by_key(|(_, aggregate)| aggregate.attesting_indices.len())
-            else {
-                return;
+                .skip(1)
+                .map(|item| item.retained_bytes())
+                .sum();
+            let old_ptrs: Vec<_> = variants.iter().map(Arc::as_ptr).collect();
+            variants.retain(|known| !entry.covers(known));
+            variants.push(entry);
+            variants.sort_by_key(|entry| std::cmp::Reverse(entry.attesting_indices.len()));
+            let Some(primary) = variants.first().cloned() else {
+                return false;
             };
-            if weakest.attesting_indices.len() >= entry.attesting_indices.len() {
-                return;
-            }
-            let weakest_key = *weakest_key;
-            slot_entries.remove(&weakest_key);
+            variants[1..].sort_by_key(|entry| {
+                std::cmp::Reverse(
+                    entry
+                        .attestation
+                        .aggregation_bits
+                        .iter()
+                        .zip(primary.attestation.aggregation_bits.iter())
+                        .filter(|(bit, primary_bit)| *bit && !primary_bit)
+                        .count(),
+                )
+            });
+            let mut new_extra = 0usize;
+            let mut retained = 0;
+            variants.retain(|entry| {
+                if Arc::ptr_eq(entry, &primary) {
+                    return true;
+                }
+                let next = new_extra.saturating_add(entry.retained_bytes());
+                if retained == MAX_VARIANTS - 1 || next > budget.saturating_add(old_extra) {
+                    return false;
+                }
+                new_extra = next;
+                retained += 1;
+                true
+            });
+            slot.extra_bytes = slot
+                .extra_bytes
+                .saturating_sub(old_extra)
+                .saturating_add(new_extra);
+            self.extra_bytes = self
+                .extra_bytes
+                .saturating_sub(old_extra)
+                .saturating_add(new_extra);
+            return !variants.iter().map(Arc::as_ptr).eq(old_ptrs);
         }
-        slot_entries.insert(key, entry);
+        let max_entries = E::max_committees_per_slot_pq().saturating_mul(4);
+        if slot.committees.len() >= max_entries {
+            let Some((weakest_key, weakest)) = slot
+                .committees
+                .iter()
+                .min_by_key(|(_, variants)| {
+                    variants.first().map(|entry| entry.attesting_indices.len())
+                })
+                .and_then(|(key, variants)| {
+                    variants
+                        .first()
+                        .map(|entry| (*key, entry.attesting_indices.len()))
+                })
+            else {
+                return false;
+            };
+            if weakest >= entry.attesting_indices.len() {
+                return false;
+            }
+            if let Some(removed) = slot.committees.remove(&weakest_key) {
+                let bytes = removed
+                    .iter()
+                    .skip(1)
+                    .map(|entry| entry.retained_bytes())
+                    .sum();
+                slot.extra_bytes = slot.extra_bytes.saturating_sub(bytes);
+                self.extra_bytes = self.extra_bytes.saturating_sub(bytes);
+            }
+        }
+        slot.committees.insert(key, vec![entry]);
+        true
     }
 
     pub(crate) fn prune(&mut self, current_epoch: Epoch) {
@@ -65,14 +171,29 @@ impl<E: EthSpec> PqAttestationMap<E> {
             .saturating_sub(1u64)
             .start_slot(E::slots_per_epoch());
         self.slots.retain(|slot, _| *slot >= earliest_slot);
+        self.extra_bytes = self.slots.values().map(|slot| slot.extra_bytes).sum();
     }
 
     pub(crate) fn candidates(&self, latest_slot: Slot) -> Vec<Arc<CompactIndexedAttestationPq<E>>> {
-        self.slots
-            .range(..=latest_slot)
-            .rev()
-            .flat_map(|(_, committees)| committees.values().cloned())
-            .collect()
+        let mut bytes = 0usize;
+        let mut candidates = Vec::new();
+        for (_, slot) in self.slots.range(..=latest_slot).rev() {
+            for rank in 0..MAX_VARIANTS {
+                for variants in slot.committees.values() {
+                    if let Some(entry) = variants.get(rank) {
+                        let size = entry.retained_bytes();
+                        if bytes.saturating_add(size) <= (32 << 20) {
+                            bytes = bytes.saturating_add(size);
+                            candidates.push(Arc::clone(entry));
+                            if candidates.len() == 256 {
+                                return candidates;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        candidates
     }
 }
 
@@ -766,11 +887,18 @@ mod pq_tests {
     ) -> Arc<CompactIndexedAttestationPq<MinimalEthSpec>> {
         let mut committee_bits = types::CommitteeBitsPq::<MinimalEthSpec>::default();
         committee_bits.set(committee, true).unwrap();
-        let mut aggregation_bits = ProgressiveBitList::with_capacity(count as usize);
+        let mut aggregation_bits = ProgressiveBitList::with_capacity(8);
         for index in 0..count as usize {
             aggregation_bits.set(index, true).unwrap();
         }
         Arc::new(CompactIndexedAttestationPq {
+            statement: pq_prover::Statement {
+                pubkeys: (0..count)
+                    .map(|index| pq_prover::XmssPublicKey::from([index as u8; 32]))
+                    .collect(),
+                leaf_index: 0,
+                message: [0; 32],
+            },
             attestation: AttestationPq {
                 aggregation_bits,
                 committee_bits,
@@ -782,6 +910,24 @@ mod pq_tests {
             attesting_indices: (0..count).collect(),
             proof: Default::default(),
         })
+    }
+
+    #[test]
+    fn pq_pool_retains_an_incomparable_smaller_aggregate() {
+        let mut pool = PqAttestationMap::default();
+        let primary = aggregate(0, 0, 2);
+        let mut alternative = aggregate(0, 0, 1);
+        let entry = Arc::get_mut(&mut alternative).unwrap();
+        entry.attestation.aggregation_bits.set(0, false).unwrap();
+        entry.attestation.aggregation_bits.set(2, true).unwrap();
+        entry.statement.pubkeys = vec![pq_prover::XmssPublicKey::from([2; 32])];
+        entry.attesting_indices = vec![2];
+        assert!(pool.insert(Arc::clone(&primary)));
+        assert!(pool.insert(Arc::clone(&alternative)));
+        assert!(!pool.insert(Arc::clone(&alternative)));
+        let accepted = pool.candidates(Slot::new(0));
+        assert!(Arc::ptr_eq(&accepted[0], &primary));
+        assert!(Arc::ptr_eq(&accepted[1], &alternative));
     }
 
     #[test]

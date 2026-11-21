@@ -114,12 +114,15 @@ impl<E: EthSpec> OperationPool<E> {
         &self,
         current_epoch: Epoch,
         entry: Arc<CompactIndexedAttestationPq<E>>,
-    ) {
+    ) -> bool {
         let mut pool = self.pq_attestations.write();
         pool.prune(current_epoch);
-        if entry.attestation.data.target.epoch.saturating_add(1u64) >= current_epoch {
-            pool.insert(entry);
-        }
+        entry.attestation.data.target.epoch.saturating_add(1u64) >= current_epoch
+            && pool.insert(entry)
+    }
+
+    pub fn prune_pq_attestations(&self, current_epoch: Epoch) {
+        self.pq_attestations.write().prune(current_epoch);
     }
 
     pub fn pq_attestation_candidates(

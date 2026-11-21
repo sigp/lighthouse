@@ -150,7 +150,9 @@ pub fn post_validator_duties_attester<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
-                    attester_duties::attester_duties(epoch, &indices.0, &chain)
+                    let duties = attester_duties::attester_duties(epoch, &indices.0, &chain)?;
+                    chain.refresh_pq_attester_duties(epoch, &indices.0);
+                    Ok(duties)
                 })
             },
         )
@@ -774,6 +776,7 @@ pub fn post_validator_register_validator<T: BeaconChainTypes>(
                                 preparation_data.iter().map(|(data, limit)| (data, limit)),
                             )
                             .await;
+                        chain.refresh_pq_local_duties();
 
                         info!(
                             count = filtered_registration_data.len(),
@@ -1042,6 +1045,7 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                                 preparation_data.iter().map(|data| (data, &None)),
                             )
                             .await;
+                        chain.refresh_pq_local_duties();
                     }
 
                     // TODO(gloas): verify this is correct. We skip proposer preparation for
@@ -1149,13 +1153,11 @@ pub fn post_validator_beacon_committee_subscriptions<T: BeaconChainTypes>(
                     let subscriptions: std::collections::BTreeSet<_> = committee_subscriptions
                         .iter()
                         .map(|subscription| {
-                            if subscription.is_aggregator {
-                                chain.register_pq_aggregation_duty(
-                                    subscription.slot,
-                                    subscription.committee_index,
-                                    subscription.validator_index,
-                                );
-                            }
+                            chain.register_pq_aggregation_duty(
+                                subscription.slot,
+                                subscription.committee_index,
+                                subscription.validator_index,
+                            );
                             chain
                                 .validator_monitor
                                 .write()

@@ -1,33 +1,30 @@
+pub(crate) mod attestation_packing;
+
 use super::{BlockProductionState, gloas::get_execution_payload_gloas};
 use crate::graffiti_calculator::GraffitiSettings;
+use crate::pq::{
+    attestation_preparation::{PreparedAttestations, merge, reuse},
+    prover_scheduler::fallback_deadline,
+};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError, metrics};
+use attestation_packing::ProposalView;
 use execution_layer::BlockProposalContentsGloas;
-use operation_pool::CompactIndexedAttestationPq;
-use pq_prover::{Proof, Statement};
 use slot_clock::SlotClock;
-use ssz::{Encode, ProgressiveBitList};
+use ssz::Encode;
 use state_processing::{
-    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
-    common::get_attestation_participation_flag_indices,
-    per_block_processing::{
-        apply_parent_execution_payload_pq, verify_attestation_for_block_inclusion,
-    },
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
     pq::{self, MIN_ATTESTATION_INCLUSION_DELAY_PQ},
     state_advance::complete_state_advance,
 };
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
+use std::sync::Arc;
 use tokio::time::{Instant, timeout_at};
-use tracing::warn;
+use tracing::{debug, warn};
 use tree_hash::TreeHash;
 use types::{
-    Address, AttestationPq, AttestationProof, AttestationRef, BeaconBlock, BeaconBlockPq,
-    BeaconState, BlobsList, ChainSpec, EmptyBlock, Epoch, EthSpec, ExecutionPayloadBidGloas,
-    ExecutionPayloadEnvelopePq, ExecutionRequestsPq, ForkName, KzgProofs, RelativeEpoch,
-    SignedBeaconBlock, SignedExecutionPayloadBidPq, Slot, Uint256, VrfProof, XmssSignature,
-    consts::{altair::PARTICIPATION_FLAG_WEIGHTS, gloas::BUILDER_INDEX_SELF_BUILD},
+    Address, AttestationPq, AttestationProof, BeaconBlock, BeaconBlockPq, BeaconState, BlobsList,
+    EmptyBlock, EthSpec, ExecutionPayloadBidGloas, ExecutionPayloadEnvelopePq, ExecutionRequestsPq,
+    ForkName, KzgProofs, SignedBeaconBlock, SignedExecutionPayloadBidPq, Slot, Uint256, VrfProof,
+    XmssSignature, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 pub struct PqBlockContents<E: EthSpec> {
@@ -115,6 +112,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BlockProductionError::TokioJoin)??;
 
+        let ready = self.pq_provers.as_ref().and_then(|provers| {
+            provers.scheduler.snapshot(
+                slot,
+                self.slot_clock.now_duration()?,
+                self.slot_clock.start_of(slot)?,
+                self.slot_clock.slot_duration(),
+            )
+        });
+        let state = Arc::new(state);
         let parent_bid = state.latest_execution_payload_bid()?;
         let parent_hash = if should_build_on_full {
             parent_bid.block_hash()
@@ -130,7 +136,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await;
         let build_execution_payload = async {
             let chain = Arc::clone(self);
-            let payload_state = state.clone();
+            let payload_state = Arc::clone(&state);
             let (parent_root, proposer) = (block.parent_root, block.proposer_index);
             let handle = self
                 .task_executor
@@ -159,7 +165,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         let (payload, (attestations, proof)) = tokio::join!(
             build_execution_payload,
-            self.merge_pq_attestations(&state, &parent_requests, should_build_on_full),
+            self.pq_proposal_attestations(
+                Arc::clone(&state),
+                should_build_on_full.then(|| parent_requests.clone()),
+                ready,
+            ),
         );
         let BlockProposalContentsGloas {
             payload,
@@ -196,7 +206,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.task_executor
             .spawn_blocking_handle(
                 move || {
-                    let mut state = state;
+                    let mut state = Arc::unwrap_or_clone(state);
                     let signed = SignedBeaconBlock::from_block(
                         BeaconBlock::Pq(block),
                         XmssSignature::empty(),
@@ -240,82 +250,90 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BlockProductionError::TokioJoin)?
     }
 
-    async fn merge_pq_attestations(
-        &self,
-        state: &BeaconState<T::EthSpec>,
-        parent_requests: &ExecutionRequestsPq<T::EthSpec>,
-        should_build_on_full: bool,
+    async fn pq_proposal_attestations(
+        self: &Arc<Self>,
+        state: Arc<BeaconState<T::EthSpec>>,
+        parent_requests: Option<ExecutionRequestsPq<T::EthSpec>>,
+        ready: Option<Arc<PreparedAttestations<T::EthSpec>>>,
     ) -> (Vec<AttestationPq<T::EthSpec>>, AttestationProof<T::EthSpec>) {
         let slot = state.slot();
-        let candidates = self
-            .op_pool
-            .pq_attestation_candidates(slot.saturating_sub(MIN_ATTESTATION_INCLUSION_DELAY_PQ));
-        if candidates.is_empty() {
-            return Default::default();
-        }
-        let Some(provers) = self.pq_provers.as_ref() else {
-            return Default::default();
-        };
-        let remaining = self
+        let Some((start, now)) = self
             .slot_clock
             .start_of(slot)
             .zip(self.slot_clock.now_duration())
-            .and_then(|(start, now)| {
-                (start
-                    + self
-                        .spec
-                        .get_attestation_due::<T::EthSpec>(slot)
-                        .mul_f64(0.75))
-                .checked_sub(now)
-            });
-        let Some(remaining) = remaining else {
-            metrics::inc_counter(&metrics::PQ_PROOF_DEADLINE_MISSES);
+        else {
             return Default::default();
         };
-        let Ok(permit) = provers.proving.clone().try_acquire_owned() else {
-            metrics::inc_counter(&metrics::PQ_PROOF_DEADLINE_MISSES);
-            return Default::default();
+        let deadline = fallback_deadline(start, self.spec.get_attestation_due::<T::EthSpec>(slot));
+        let fallback_at = Instant::now() + deadline.saturating_sub(now);
+        let chain = Arc::clone(self);
+        // The ready path must be allowed to finish its local validation even when the
+        // fallback proving deadline has passed. It never calls the prover.
+        let Some(validation) = self.task_executor.spawn_blocking_handle(
+            move || {
+                if let Some(ready) = ready.as_deref()
+                    && let Ok(view) = ProposalView::new(&state, &chain.spec, parent_requests.as_ref())
+                    && view.bundle_is_valid(&ready.attestations, &ready.statements)
+                {
+                    debug!(%slot, records = ready.attestations.len(), "Using prepared PQ proposal proof");
+                    return Ok(ready.for_proposal());
+                }
+                debug!(%slot, ready = ready.is_some(), "PQ proposal proof cache miss");
+                Err((state, parent_requests))
+            },
+            "pq_validate_proposal_attestations",
+        ) else { return Default::default(); };
+        let (state, parent_requests) = match validation.await {
+            Ok(Ok(hit)) => return hit,
+            Ok(Err(miss)) => miss,
+            Err(_) => return Default::default(),
         };
-        let deadline = Instant::now() + remaining;
-        let backend = provers.aggregate.clone();
-        let (mut state, spec, parent_requests) =
-            (state.clone(), self.spec.clone(), parent_requests.clone());
+
+        let chain = Arc::clone(self);
         let Some(job) = self.task_executor.spawn_blocking_handle(
             move || {
-                let _permit = permit;
-                if should_build_on_full {
-                    apply_parent_execution_payload_pq(&mut state, &parent_requests, &spec)
-                        .map_err(BeaconChainError::PrepareProposerFailed)?;
-                }
-                let (attestations, children) = select_attestations(&state, &spec, candidates)?;
-                if Instant::now() >= deadline {
-                    return Ok(None);
-                }
-                let _timer = metrics::start_timer(&metrics::PQ_MERGE_SECONDS);
-                metrics::observe(&metrics::PQ_MERGE_CHILDREN, children.len() as f64);
-                #[cfg(unix)]
-                metrics::observe(
-                    &metrics::PQ_MERGE_ROUNDS,
-                    pq_prover::merge_plan(children.len()).0 as f64,
+                let Some(provers) = &chain.pq_provers else {
+                    return Ok(Default::default());
+                };
+                let view = ProposalView::new(&state, &chain.spec, parent_requests.as_ref())?
+                    .with_reward_cache()?;
+                let candidates = chain.op_pool.pq_attestation_candidates(
+                    slot.saturating_sub(MIN_ATTESTATION_INCLUSION_DELAY_PQ),
                 );
-                let proof = backend
-                    .merge(&children)
+                let reference = provers.aggregate.name() == "reference";
+                let Some(packing) = view.select(&candidates, None, false, reference) else {
+                    return Ok(Default::default());
+                };
+                if let Some(proof) = reuse(&packing) {
+                    return PreparedAttestations::finish(packing, proof)
+                        .map(|bundle| bundle.for_proposal());
+                }
+                let Some(now) = chain.slot_clock.now_duration() else {
+                    return Ok(Default::default());
+                };
+                let Some(active) = provers.scheduler.start_fallback(now, slot, deadline) else {
+                    let single = view.select(&candidates, None, true, reference);
+                    if let Some((packing, proof)) =
+                        single.and_then(|packing| reuse(&packing).map(|proof| (packing, proof)))
+                    {
+                        return PreparedAttestations::finish(packing, proof)
+                            .map(|bundle| bundle.for_proposal());
+                    }
+                    return Ok(Default::default());
+                };
+                let proof = active
+                    .run(|| merge(provers.aggregate.as_ref(), &packing))
                     .map_err(BeaconChainError::PqProverError)?;
-                let proof = proof
-                    .as_bytes()
-                    .to_vec()
-                    .try_into()
-                    .map_err(BeaconChainError::SszTypesError)?;
-                Ok::<_, BeaconChainError>(Some((attestations, proof)))
+                PreparedAttestations::finish(packing, proof).map(|bundle| bundle.for_proposal())
             },
-            "pq_merge_attestations",
+            "pq_proposal_fallback",
         ) else {
             return Default::default();
         };
-        match timeout_at(deadline, job).await {
-            Ok(Ok(Ok(Some(merged)))) => merged,
+        match timeout_at(fallback_at, job).await {
+            Ok(Ok(Ok(bundle))) => bundle,
             Ok(Ok(Err(error))) => {
-                warn!(?slot, ?error, "Unable to merge PQ attestations");
+                warn!(%slot, ?error, "Unable to prepare fallback PQ proposal proof");
                 Default::default()
             }
             _ => {
@@ -324,142 +342,4 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
     }
-}
-
-type Participation = (Epoch, u64, usize);
-type CommitteeProof = (Vec<Statement>, Proof);
-
-#[derive(Default)]
-struct Candidate<E: EthSpec> {
-    committees: BTreeMap<u64, Arc<CompactIndexedAttestationPq<E>>>,
-    gains: BTreeMap<Participation, u64>,
-}
-
-fn select_attestations<E: EthSpec>(
-    state: &BeaconState<E>,
-    spec: &ChainSpec,
-    candidates: Vec<Arc<CompactIndexedAttestationPq<E>>>,
-) -> Result<(Vec<AttestationPq<E>>, Vec<CommitteeProof>), BeaconChainError> {
-    let mut groups = BTreeMap::<_, Candidate<E>>::new();
-    let mut context = ConsensusContext::new(state.slot());
-    for entry in candidates {
-        let attestation = &entry.attestation;
-        let data = &attestation.data;
-        let Some(committee) = attestation.committee_index() else {
-            continue;
-        };
-        if verify_attestation_for_block_inclusion(
-            state,
-            AttestationRef::Pq(attestation),
-            &mut context,
-            VerifySignatures::False,
-            spec,
-        )
-        .is_err()
-        {
-            continue;
-        }
-        // Use this branch's committee order to check that the cached proof
-        // still covers the same participants after a reorganization.
-        let mut indices = pq::committee_attesters(state, attestation)?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-        indices.sort_unstable();
-        let mut verified_indices = entry.attesting_indices.clone();
-        verified_indices.sort_unstable();
-        if indices != verified_indices {
-            continue;
-        }
-        let parent_slot = state.latest_block_header().slot;
-        let delay = state.slot().as_u64().saturating_sub(data.slot.as_u64());
-        let flags = get_attestation_participation_flag_indices(
-            state,
-            data,
-            Some(parent_slot),
-            delay,
-            spec,
-        )?;
-        let participation = if RelativeEpoch::from_epoch(state.current_epoch(), data.target.epoch)
-            == Ok(RelativeEpoch::Current)
-        {
-            state.current_epoch_participation()?
-        } else {
-            state.previous_epoch_participation()?
-        };
-        let group = groups.entry(data.tree_hash_root()).or_default();
-        for index in indices {
-            let validator = state.get_validator(index as usize)?;
-            for flag in flags.iter().copied() {
-                if participation
-                    .get(index as usize)
-                    .is_some_and(|flags| flags.has_flag(flag).unwrap_or(false))
-                {
-                    continue;
-                }
-                if let Some(weight) = PARTICIPATION_FLAG_WEIGHTS.get(flag) {
-                    group.gains.insert(
-                        (data.target.epoch, index, flag),
-                        validator.effective_balance.saturating_mul(*weight),
-                    );
-                }
-            }
-        }
-        group.committees.insert(committee, entry);
-    }
-
-    let mut covered = HashSet::new();
-    let mut attestations = Vec::new();
-    let mut children = Vec::new();
-    for _ in 0..E::max_attestations_pq() {
-        let score = |candidate: &Candidate<E>| {
-            candidate
-                .gains
-                .iter()
-                .filter(|(key, _)| !covered.contains(*key))
-                .fold(0u64, |sum, (_, weight)| sum.saturating_add(*weight))
-        };
-        let Some((key, candidate)) = groups.iter().max_by_key(|(_, candidate)| score(candidate))
-        else {
-            break;
-        };
-        if score(candidate) == 0 {
-            break;
-        }
-        let key = *key;
-        let Some(group) = groups.remove(&key) else {
-            break;
-        };
-        covered.extend(group.gains.keys().copied());
-        let Some(data) = group
-            .committees
-            .values()
-            .next()
-            .map(|entry| entry.attestation.data.clone())
-        else {
-            continue;
-        };
-        let mut bits = Vec::new();
-        let mut committee_bits = types::CommitteeBitsPq::<E>::default();
-        for (committee, entry) in group.committees {
-            committee_bits.set(committee as usize, true)?;
-            bits.extend(entry.attestation.aggregation_bits.iter());
-            children.push((
-                pq::attestation_statements(state, &entry.attestation, spec)?,
-                Proof::from_bytes(entry.proof.to_vec()),
-            ));
-        }
-        let mut aggregation_bits = ProgressiveBitList::with_capacity(bits.len());
-        for (index, bit) in bits.into_iter().enumerate() {
-            if bit {
-                aggregation_bits.set(index, true)?;
-            }
-        }
-        attestations.push(AttestationPq {
-            data,
-            aggregation_bits,
-            committee_bits,
-        });
-    }
-    Ok((attestations, children))
 }

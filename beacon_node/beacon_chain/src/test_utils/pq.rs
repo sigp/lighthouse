@@ -264,3 +264,86 @@ fn sign_pq_block<E: EthSpec>(
         .expect("PQ proposer signature");
     SignedBeaconBlock::from_block(block, signature).expect("PQ signed block")
 }
+
+#[cfg(all(test, feature = "spec-minimal", not(debug_assertions)))]
+mod early_prover_tests {
+    use super::*;
+    use crate::{
+        block_production::pq::attestation_packing::ProposalView,
+        pq::attestation_preparation::{PreparedAttestations, merge, reuse},
+    };
+    use operation_pool::CompactIndexedAttestationPq;
+
+    #[tokio::test]
+    async fn early_prover_packs_overlap_and_preserves_authenticated_claims() {
+        type E = MinimalEthSpec;
+        let spec = Arc::new(ForkName::Pq.make_genesis_spec(E::default_spec()));
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .spec(spec.clone())
+            .deterministic_keypairs(3 * E::slots_per_epoch() as usize)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+
+        let slot = Slot::new(2);
+        let vote_slot = Slot::new(0);
+        let mut state = harness.get_current_state();
+        complete_state_advance(&mut state, None, slot, None, &spec).unwrap();
+        state.build_caches(&spec).unwrap();
+        let vote_committee = state.get_beacon_committee(vote_slot, 0).unwrap();
+        let [a, b, c, ..] = vote_committee.committee else {
+            panic!("test needs three committee members");
+        };
+        let make = |voters: HashSet<usize>| {
+            let (attestation, proof) = make_pq_attestation(
+                &state,
+                vote_slot,
+                &voters,
+                harness.pq_keys.as_ref().unwrap(),
+                &spec,
+            );
+            let attestation = attestation.unwrap();
+            let mut statements = pq::attestation_statements(&state, &attestation, &spec).unwrap();
+            assert_eq!(statements.len(), 1);
+            let attesting_indices = pq::committee_attesters(&state, &attestation)
+                .unwrap()
+                .remove(0);
+            Arc::new(CompactIndexedAttestationPq {
+                attestation,
+                proof,
+                statement: statements.remove(0),
+                attesting_indices,
+            })
+        };
+        let left = make(HashSet::from([*a, *b]));
+        let right = make(HashSet::from([*b, *c]));
+        let view = ProposalView::new(&state, &spec, None)
+            .unwrap()
+            .with_reward_cache()
+            .unwrap();
+        let initial = view
+            .select(std::slice::from_ref(&left), None, false, true)
+            .unwrap();
+        let proof = reuse(&initial).unwrap();
+        let saved = PreparedAttestations::finish(initial, proof).unwrap();
+        let extension = view
+            .select(&[left, right], Some(&saved), false, true)
+            .unwrap();
+        assert_eq!(extension.children.len(), 2);
+        assert_eq!(extension.attestations.len(), 1);
+        assert_eq!(extension.attestations[0].aggregation_bits.num_set_bits(), 3);
+        assert!(extension.gained > 0);
+        assert_eq!(extension.statements[0].pubkeys.len(), 3);
+        let proof = merge(&ReferenceBackend, &extension).unwrap();
+        assert!(
+            ReferenceBackend
+                .verify(&extension.statements, &proof)
+                .unwrap()
+        );
+        let prepared = PreparedAttestations::finish(extension, proof).unwrap();
+        assert!(
+            view.bundle_credits(&prepared.attestations, &prepared.statements)
+                .is_some()
+        );
+    }
+}

@@ -58,12 +58,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         let (aggregate, subnet_id) =
             Self::verify_late_checks(single_attestation, index, subnet_id, chain)?;
         if let AttestationRef::Pq(aggregate) = aggregate.to_ref() {
-            chain.pq_signatures.lock().insert(
-                chain.slot()?,
-                chain.config.pq_aggregate_all,
-                attestation,
-                &aggregate.aggregation_bits,
-            );
+            chain.insert_pq_signature(attestation, &aggregate.aggregation_bits);
         }
         Ok(Self {
             attestation: aggregate,
@@ -171,7 +166,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
             let _timer = metrics::start_timer(&metrics::PQ_AGGREGATE_VERIFY_SECONDS);
             if !backend
                 .verify(
-                    &[statement],
+                    std::slice::from_ref(&statement),
                     &Proof::from_bytes(aggregate.message.proof.to_vec()),
                 )
                 .map_err(BeaconChainError::PqProverError)?
@@ -201,6 +196,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
         let mut indices = indices;
         indices.sort_unstable();
         Ok(Self {
+            pq_statement: Some(statement),
             signed_aggregate,
             indexed_attestation: IndexedAttestation::Pq(IndexedAttestationPq {
                 attesting_indices: indices.try_into()?,

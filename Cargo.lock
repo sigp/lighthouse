@@ -7261,6 +7261,7 @@ dependencies = [
  "maplit",
  "metrics",
  "parking_lot",
+ "pq_prover",
  "rand 0.9.5",
  "rayon",
  "serde",

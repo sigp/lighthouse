@@ -1,6 +1,9 @@
 //! The spec's reference "prover": a proof is the signatures, concatenated.
 
-use crate::{Error, Proof, ProverBackend, Statement, check_shape};
+use crate::{
+    Error, Proof, ProverBackend, Statement, check_packed_claims, check_shape, statement_witnesses,
+};
+use std::collections::BTreeMap;
 use xmss::{LeafIndex, XMSS_SIGNATURE_BYTES_LEN, XmssSignature};
 
 /// The consensus-specs stand-in for a recursive STARK: `prove` and `merge` concatenate their
@@ -52,6 +55,44 @@ impl ProverBackend for ReferenceBackend {
             merged.extend_from_slice(proof.as_bytes());
         }
         Ok(Proof::from_bytes(merged))
+    }
+
+    fn merge_for_statements(
+        &self,
+        children: &[(Vec<Statement>, Proof)],
+        output: &[Statement],
+        max_proof_bytes: usize,
+    ) -> Result<Proof, Error> {
+        check_packed_claims(children, output)?;
+        let size = statement_witnesses(output)
+            .count()
+            .checked_mul(XMSS_SIGNATURE_BYTES_LEN)
+            .filter(|size| *size <= max_proof_bytes)
+            .ok_or_else(|| {
+                Error::InvalidInput("packed reference proof exceeds its byte bound".into())
+            })?;
+        let mut witnesses = BTreeMap::new();
+        for (statements, proof) in children {
+            let chunks = proof.as_bytes().chunks_exact(XMSS_SIGNATURE_BYTES_LEN);
+            if !chunks.remainder().is_empty()
+                || chunks.len() != statement_witnesses(statements).count()
+            {
+                return Err(Error::InvalidInput(
+                    "invalid packed reference child length".into(),
+                ));
+            }
+            for (key, bytes) in statement_witnesses(statements).zip(chunks) {
+                witnesses.entry(key).or_insert(bytes);
+            }
+        }
+        let mut packed = Vec::with_capacity(size);
+        for key in statement_witnesses(output) {
+            let witness = witnesses
+                .get(&key)
+                .ok_or_else(|| Error::InvalidInput("missing reference witness".into()))?;
+            packed.extend_from_slice(witness);
+        }
+        Ok(Proof::from_bytes(packed))
     }
 
     fn verify(&self, statements: &[Statement], proof: &Proof) -> Result<bool, Error> {

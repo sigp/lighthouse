@@ -120,6 +120,7 @@ impl SidecarBackend {
             &self.verify_connection,
             self.config.verify_timeout,
             "hello",
+            Retry::OnDisconnect,
             |client| Ok(client.prover().to_string()),
         )
     }
@@ -137,6 +138,7 @@ impl SidecarBackend {
             &self.prove_connection,
             self.config.prove_timeout,
             "aggregate",
+            Retry::Never,
             |client| {
                 client.aggregate(
                     children,
@@ -253,6 +255,7 @@ impl ProverBackend for SidecarBackend {
             &self.verify_connection,
             self.config.verify_timeout,
             "verify",
+            Retry::OnDisconnect,
             |client| client.verify(&claims, proof.as_bytes()),
         )
     }
@@ -298,16 +301,23 @@ fn open(config: &SidecarConfig, timeout: Option<Duration>) -> Result<Client, Err
     Ok(client)
 }
 
+#[derive(Clone, Copy)]
+enum Retry {
+    Never,
+    OnDisconnect,
+}
+
 /// Runs `call` on the connection in `slot`, opening it first if needed.
 ///
-/// A connection that fails is dropped, as the protocol requires after anything but a
-/// rejection. If it was an existing connection that failed, other than by timing out, the
-/// sidecar may simply have restarted: reconnect and try once more.
+/// A failed connection is dropped except after a well-formed rejection. Only read-only
+/// requests may be retried on reconnect. A submitted proof can keep running after its
+/// connection fails, so the caller must see that failure without reissuing the request.
 fn with_connection<T>(
     config: &SidecarConfig,
     slot: &Mutex<Option<Client>>,
     timeout: Option<Duration>,
     operation: &'static str,
+    retry: Retry,
     mut call: impl FnMut(&mut Client) -> Result<T, SidecarError>,
 ) -> Result<T, Error> {
     let started = Instant::now();
@@ -339,7 +349,9 @@ fn with_connection<T>(
             Err(SidecarError::Rejected(rejection, message)) => {
                 return Err(SidecarError::Rejected(rejection, message).into());
             }
-            Err(SidecarError::Io(error)) if reused && !is_timeout(&error) => {
+            Err(SidecarError::Io(error))
+                if matches!(retry, Retry::OnDisconnect) && reused && !is_timeout(&error) =>
+            {
                 *slot = None;
                 reused = false;
             }

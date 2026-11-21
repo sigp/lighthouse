@@ -1203,6 +1203,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let old_snapshot = &old_cached_head.snapshot;
         let new_head_is_optimistic = new_head_verdict.is_optimistic_or_invalid();
 
+        if let Some(provers) = &self.pq_provers {
+            provers.scheduler.head_changed();
+            self.refresh_pq_local_duties();
+        }
+
         // Only run on head *block* changes - payload status changes only need the
         // `cached_head` update above, not re-org detection or event emission.
         if new_snapshot.beacon_block_root != old_snapshot.beacon_block_root

@@ -405,7 +405,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub spec: Arc<ChainSpec>,
     /// Configuration for `BeaconChain` runtime behaviour.
     pub config: ChainConfig,
-    pub(crate) pq_provers: Option<crate::pq::Provers>,
+    pub(crate) pq_provers: Option<crate::pq::Provers<T::EthSpec>>,
     pub(crate) pq_signatures: Mutex<crate::pq::signature_pool::SignaturePool<T::EthSpec>>,
     pub(crate) pq_proposer_preferences:
         Mutex<HashMap<(Slot, Hash256), Arc<SignedProposerPreferencesPq>>>,
@@ -2748,14 +2748,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             verified_attestation.attestation(),
             verified_attestation.indexed_attestation(),
         ) {
-            self.op_pool.insert_pq_attestation(
-                self.epoch()?,
-                Arc::new(operation_pool::CompactIndexedAttestationPq {
-                    attestation: attestation.clone(),
-                    attesting_indices: indexed.attesting_indices.iter().copied().collect(),
-                    proof: indexed.proof.clone(),
-                }),
-            );
+            if let Some(statement) = verified_attestation.pq_statement()
+                && self.op_pool.insert_pq_attestation(
+                    self.epoch()?,
+                    Arc::new(operation_pool::CompactIndexedAttestationPq {
+                        attestation: attestation.clone(),
+                        attesting_indices: indexed.attesting_indices.iter().copied().collect(),
+                        proof: indexed.proof.clone(),
+                        statement: statement.clone(),
+                    }),
+                )
+                && let Some(provers) = &self.pq_provers
+            {
+                provers.scheduler.aggregate_changed();
+            }
             return Ok(());
         }
 
