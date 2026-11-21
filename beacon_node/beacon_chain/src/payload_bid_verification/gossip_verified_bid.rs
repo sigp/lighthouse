@@ -326,13 +326,14 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
 
-        ctx.gossip_verified_payload_bid_cache
+        let beats_highest = ctx
+            .gossip_verified_payload_bid_cache
+            .beats_highest_gossip_or_fed_bid(&gossip_verified_bid.signed_bid);
+        let is_inserted = ctx
+            .gossip_verified_payload_bid_cache
             .observe_bid(gossip_verified_bid.clone());
 
-        if ctx
-            .gossip_verified_payload_bid_cache
-            .is_highest_gossip_or_fed_bid(&gossip_verified_bid.signed_bid)
-        {
+        if beats_highest && is_inserted {
             emit_best_execution_payload_bid(
                 ctx.event_handler,
                 BestExecutionPayloadBidSource::Gossip,

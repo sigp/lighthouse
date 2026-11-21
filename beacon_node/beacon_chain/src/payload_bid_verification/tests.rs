@@ -1173,6 +1173,49 @@ fn best_execution_payload_bid_event_emitted_only_on_new_best() {
 }
 
 #[test]
+fn best_execution_payload_bid_event_not_emitted_for_gossip_copy_of_fed_bid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let event_handler = ServerSentEventHandler::new_with_capacity(16);
+    let mut events = event_handler.subscribe_best_execution_payload_bid();
+    let gossip = GossipVerificationContext {
+        event_handler: Some(&event_handler),
+        ..ctx.gossip_ctx()
+    };
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
+        slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 100,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        ..ExecutionPayloadBidGloas::default()
+    });
+
+    verify_validator_fed_bid(bid.clone(), &gossip).expect("fed bid should pass");
+    match events.try_recv() {
+        Ok(EventKind::BestExecutionPayloadBid(event)) => {
+            assert_eq!(&event.data.signed_bid, bid.as_ref());
+            assert_eq!(event.data.source, BestExecutionPayloadBidSource::Api);
+        }
+        other => panic!("expected a best_execution_payload_bid event, got {other:?}"),
+    }
+
+    GossipVerifiedPayloadBid::new(bid, &gossip).expect("gossip copy of the fed bid should pass");
+    assert!(
+        events.try_recv().is_err(),
+        "the gossip copy of the best fed bid does not change the best"
+    );
+}
+
+#[test]
 fn unknown_builder_index() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;

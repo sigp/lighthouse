@@ -125,18 +125,19 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
         }
     }
 
-    /// Whether `signed_bid` is exactly the bid
+    /// Whether `signed_bid` has a strictly higher value than the bid
     /// [`get_highest_gossip_or_fed_bid`](Self::get_highest_gossip_or_fed_bid) returns for its
-    /// `(slot, BidParent)`, i.e. it is the new best bid for the `best_execution_payload_bid` event.
-    pub fn is_highest_gossip_or_fed_bid(
+    /// `(slot, BidParent)`, or no bid exists yet. Called before the bid is inserted: if it is then
+    /// inserted, it is the new best bid for the `best_execution_payload_bid` event.
+    pub fn beats_highest_gossip_or_fed_bid(
         &self,
-        signed_bid: &Arc<SignedExecutionPayloadBid<E>>,
+        signed_bid: &SignedExecutionPayloadBid<E>,
     ) -> bool {
         self.get_highest_gossip_or_fed_bid(
             signed_bid.message().slot(),
             BidParent::from_bid(signed_bid.message()),
         )
-        .is_some_and(|highest| Arc::ptr_eq(&highest, signed_bid))
+        .is_none_or(|highest| signed_bid.message().value() > highest.message().value())
     }
 
     /// Record a gossip-verified `bid` in the cache.

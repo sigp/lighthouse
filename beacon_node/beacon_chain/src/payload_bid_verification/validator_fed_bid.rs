@@ -51,14 +51,13 @@ pub fn verify_validator_fed_bid<T: BeaconChainTypes>(
 
     match verification {
         Ok(()) => {
+            let beats_highest = ctx
+                .gossip_verified_payload_bid_cache
+                .beats_highest_gossip_or_fed_bid(&signed_bid);
             let is_inserted = ctx
                 .gossip_verified_payload_bid_cache
                 .insert_validator_fed_bid(signed_bid.clone());
-            if is_inserted
-                && ctx
-                    .gossip_verified_payload_bid_cache
-                    .is_highest_gossip_or_fed_bid(&signed_bid)
-            {
+            if beats_highest && is_inserted {
                 emit_best_execution_payload_bid(
                     ctx.event_handler,
                     BestExecutionPayloadBidSource::Api,
