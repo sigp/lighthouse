@@ -199,9 +199,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
                         .unwrap_or(());
                 }
 
-                if let Some(next_slot_start) = self.slot_clock.start_of_next_slot() {
-                    self.slot_clock.sleep_until(next_slot_start).await;
-                } else {
+                if !self.slot_clock.sleep_until_next_slot().await {
                     error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;
@@ -234,9 +232,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
                 }
 
                 // Wait one slot if the register validator request fails or if we should not publish at the current slot.
-                if let Some(next_slot_start) = self.slot_clock.start_of_next_slot() {
-                    self.slot_clock.sleep_until(next_slot_start).await;
-                } else {
+                if !self.slot_clock.sleep_until_next_slot().await {
                     error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;

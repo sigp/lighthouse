@@ -14,12 +14,11 @@ pub fn spawn_timer<T: BeaconChainTypes>(
 ) -> Result<(), &'static str> {
     let timer_future = async move {
         loop {
-            let Some(next_slot_start) = beacon_chain.slot_clock.start_of_next_slot() else {
-                warn!("Unable to determine start of next slot");
+            if !beacon_chain.slot_clock.sleep_until_next_slot().await {
+                warn!("Unable to determine duration to next slot");
                 return;
-            };
+            }
 
-            beacon_chain.slot_clock.sleep_until(next_slot_start).await;
             beacon_chain.per_slot_task().await;
         }
     };

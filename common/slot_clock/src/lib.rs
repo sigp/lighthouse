@@ -84,6 +84,21 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         }
     }
 
+    /// Waits until the start of the next slot, or the genesis time if genesis hasn't happened
+    /// yet. Returns `false` without waiting if the clock can't be read.
+    fn sleep_until_next_slot(&self) -> impl Future<Output = bool> + Send + use<Self> {
+        let sleep = self.start_of_next_slot().map(|time| self.sleep_until(time));
+        async move {
+            match sleep {
+                Some(sleep) => {
+                    sleep.await;
+                    true
+                }
+                None => false,
+            }
+        }
+    }
+
     /// Returns the start of the first slot of the next epoch, or the genesis time if genesis
     /// hasn't happened yet, as a duration since the UNIX epoch.
     fn start_of_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration> {

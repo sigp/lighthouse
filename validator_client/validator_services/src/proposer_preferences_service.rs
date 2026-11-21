@@ -102,9 +102,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     async fn sleep_until_next_slot(&self) {
-        match self.slot_clock.start_of_next_slot() {
-            Some(next_slot_start) => self.slot_clock.sleep_until(next_slot_start).await,
-            None => sleep(self.chain_spec.get_slot_duration()).await,
+        if !self.slot_clock.sleep_until_next_slot().await {
+            sleep(self.chain_spec.get_slot_duration()).await;
         }
     }
 

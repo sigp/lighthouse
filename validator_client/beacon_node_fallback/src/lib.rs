@@ -129,9 +129,8 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                         error,
                         "payload_available service failed, retrying next slot"
                     );
-                    match slot_clock.start_of_next_slot() {
-                        Some(next_slot_start) => slot_clock.sleep_until(next_slot_start).await,
-                        None => sleep(beacon_nodes_ref.spec.get_slot_duration()).await,
+                    if !slot_clock.sleep_until_next_slot().await {
+                        sleep(beacon_nodes_ref.spec.get_slot_duration()).await;
                     }
                 }
             }
