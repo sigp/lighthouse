@@ -1,12 +1,16 @@
 //! Materialize proof requests and validate completed PQ proposal bundles.
 
-use super::prover_scheduler::{Attempt, Work};
+use super::{
+    measurement::{Job, ns, proof_id},
+    prover_scheduler::{Attempt, Work},
+};
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
     block_production::pq::attestation_packing::{Packing, ProposalView, participation},
     metrics,
 };
 use pq_prover::{Proof, ProverBackend, Statement};
+use serde_json::json;
 use slot_clock::SlotClock;
 use state_processing::{
     pq::MIN_ATTESTATION_INCLUSION_DELAY_PQ, state_advance::complete_state_advance,
@@ -74,6 +78,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         BeaconChainError,
     > {
         let head = self.canonical_head.cached_head();
+        self.speculative_pq_state_from_head(slot, &head)
+    }
+
+    pub(crate) fn speculative_pq_state_from_head(
+        &self,
+        slot: Slot,
+        head: &crate::canonical_head::CachedHead<T::EthSpec>,
+    ) -> Result<
+        Option<(
+            BeaconState<T::EthSpec>,
+            Option<ExecutionRequestsPq<T::EthSpec>>,
+        )>,
+        BeaconChainError,
+    > {
         let parent = head.head_block_root();
         let parent_state_root = head.head_state_root();
         let parent_status = head.head_payload_status();
@@ -115,24 +133,65 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some((state, requests)))
     }
 
+    #[cfg(test)]
     pub(super) fn prepare_pq_attestations(
         &self,
         job: Attempt,
         slot: Slot,
     ) -> Result<(), BeaconChainError> {
+        let now = self.slot_clock.now_duration().unwrap_or_default();
+        let trace = self.pq_measurement.job(job, now);
+        self.prepare_pq_attestations_with_trace(job, slot, &trace)
+    }
+
+    pub(super) fn prepare_pq_attestations_with_trace(
+        &self,
+        job: Attempt,
+        slot: Slot,
+        trace: &Job<T::EthSpec>,
+    ) -> Result<(), BeaconChainError> {
         let Some(provers) = &self.pq_provers else {
             return Ok(());
         };
         let scheduler = &provers.scheduler;
-        let observed_head = scheduler.head_revision();
-        let Some((state, parent)) = self.speculative_pq_state(slot)? else {
+        let mut observed_head = scheduler.head_revision();
+        let Some(before_preparation) = self.slot_clock.now_duration() else {
+            return Ok(());
+        };
+        let latest = slot.saturating_sub(MIN_ATTESTATION_INCLUSION_DELAY_PQ);
+        let (input, frozen) = if job.experiment().is_some() {
+            let Some((candidates, frozen)) =
+                self.pq_measurement
+                    .proposal_inputs(job, latest, before_preparation)
+            else {
+                trace.emit(
+                    "job_outcome",
+                    "missing_input_snapshot",
+                    before_preparation,
+                    || json!({}),
+                );
+                scheduler.skip(job);
+                return Ok(());
+            };
+            (Some(candidates), frozen)
+        } else {
+            (None, None)
+        };
+        let context = if let Some(frozen) = &frozen {
+            observed_head = frozen.head_revision;
+            self.speculative_pq_state_from_head(slot, &frozen.head)?
+        } else {
+            self.speculative_pq_state(slot)?
+        };
+        let Some((state, parent)) = context else {
+            trace.emit("job_outcome", "missing_context", before_preparation, || {
+                json!({})
+            });
             scheduler.skip(job);
             return Ok(());
         };
         let view = ProposalView::new(&state, &self.spec, parent.as_ref())?.with_reward_cache()?;
-        let candidates = self
-            .op_pool
-            .pq_attestation_candidates(slot.saturating_sub(MIN_ATTESTATION_INCLUSION_DELAY_PQ));
+        let candidates = input.unwrap_or_else(|| self.op_pool.pq_attestation_candidates(latest));
         let baseline = scheduler.ready(job);
         let reference = provers.aggregate.name() == "reference";
         let Some(now) = self.slot_clock.now_duration() else {
@@ -155,30 +214,71 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             packing = Some(candidate);
         }
         let Some(packing) = packing else {
+            trace.emit(
+                "job_outcome",
+                "no_useful_inputs",
+                now,
+                || json!({"available_inputs": candidates.len()}),
+            );
             debug!(%slot, work = ?job.work(), "No useful compatible PQ proof inputs");
             scheduler.skip(job);
             return Ok(());
         };
 
+        let predecessor = trace
+            .detailed()
+            .then(|| baseline.as_ref().map(|base| proof_id(&base.proof)))
+            .flatten();
+        trace.emit("experiment_selected", "selected", self.slot_clock.now_duration().unwrap_or(now), || json!({
+            "available_inputs": candidates.len(),
+            "input_proof_count": packing.children.len(),
+            "input_proof_ids": packing.children.iter().map(|(_, proof)| proof_id(proof.as_bytes())).collect::<Vec<_>>(),
+            "predecessor_proof_id": predecessor,
+            "records": packing.attestations.len(),
+            "distinct_messages": packing.statements.iter().map(|statement| statement.message)
+                .collect::<std::collections::BTreeSet<_>>().len(),
+            "unique_claims": packing.unique_claims, "participation": packing.participation, "gain": packing.gained,
+            "input_cutoff_wall_ns": frozen.as_ref().map(|input| ns(input.cutoff)),
+            "input_captured_wall_ns": frozen.as_ref().map(|input| ns(input.captured_at)),
+            "selection_head_root": frozen.as_ref().map(|input| input.head.head_block_root()),
+        }));
         debug!(%slot, gained = packing.gained, children = packing.children.len(), "Packed PQ proposal participation");
+        let mut merged = false;
         let proof = if let Some(proof) = reuse(&packing) {
+            trace.emit("job_outcome", "reused", now, || {
+                json!({
+                    "proof_id": proof_id(proof.as_bytes()),
+                })
+            });
             proof
         } else {
             let Some(now) = self.slot_clock.now_duration() else {
                 return Ok(());
             };
             let Some(active) = scheduler.start(now, job) else {
+                trace.emit("job_outcome", "admission_changed", now, || json!({}));
                 return Ok(());
             };
+            merged = true;
             active
-                .run(|| merge(provers.aggregate.as_ref(), &packing))
+                .run_observed(
+                    trace,
+                    job.experiment(),
+                    || self.slot_clock.now_duration(),
+                    || merge(provers.aggregate.as_ref(), &packing),
+                )
                 .map_err(BeaconChainError::PqProverError)?
         };
-        if !provers
+        let verify_start = std::time::Instant::now();
+        let verified = provers
             .aggregate
             .verify(&packing.statements, &proof)
-            .map_err(BeaconChainError::PqProverError)?
-        {
+            .map_err(BeaconChainError::PqProverError)?;
+        let verification = verify_start.elapsed();
+        trace.latency("verification", verification);
+        let verified_at = self.slot_clock.now_duration().unwrap_or(now);
+        if !verified {
+            trace.emit("job_outcome", "invalid_proof", verified_at, || json!({}));
             scheduler.skip(job);
             return Ok(());
         }
@@ -206,8 +306,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
-        if let Some(now) = self.slot_clock.now_duration() {
-            scheduler.save(now, job, checked_head, Arc::new(prepared));
+        let available = trace.detailed().then(|| {
+            (
+                proof_id(&prepared.proof),
+                prepared.participation,
+                prepared.attestations.len(),
+            )
+        });
+        if let Some(installed) = scheduler.save_candidate(
+            || self.slot_clock.now_duration(),
+            job,
+            checked_head,
+            Arc::new(prepared),
+            merged,
+        ) {
+            trace.latency("ready", trace.queue_wait());
+            trace.emit("candidate_ready", "ready", installed, || {
+                json!({
+                    "proof_id": available.as_ref().map(|(id, _, _)| id),
+                    "participation": available.as_ref().map(|(_, value, _)| value),
+                    "records": available.as_ref().map(|(_, _, value)| value),
+                    "predecessor_proof_id": predecessor,
+                    "recursive_depth": job.depth().saturating_add(u64::from(merged)),
+                    "backend_call": merged,
+                    "verified_wall_ns": ns(verified_at),
+                    "verification_duration_ns": ns(verification),
+                })
+            });
+        } else {
+            trace.emit("job_outcome", "expired_or_reassigned", verified_at, || {
+                json!({})
+            });
         }
         Ok(())
     }

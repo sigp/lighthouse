@@ -39,6 +39,7 @@ pub(crate) struct Packing<E: EthSpec> {
     pub(crate) children: Vec<(Vec<Statement>, Proof)>,
     pub(crate) participation: u64,
     pub(crate) gained: u64,
+    pub(crate) unique_claims: usize,
     pub(crate) single_committee: bool,
 }
 
@@ -305,6 +306,7 @@ impl<'a, E: EthSpec> ProposalView<'a, E> {
             children,
             participation,
             gained: participation.saturating_sub(before),
+            unique_claims: claims.len(),
             single_committee,
         })
     }

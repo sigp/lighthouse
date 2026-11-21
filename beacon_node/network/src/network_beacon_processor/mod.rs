@@ -12,8 +12,8 @@ use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
-    BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
-    WorkEvent as BeaconWorkEvent,
+    BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage,
+    GossipSyncDrop, Work, WorkEvent as BeaconWorkEvent,
 };
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
@@ -33,7 +33,7 @@ use ssz_types::{ProgressiveVariableList, VariableList};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{Instrument, Span, debug, error, instrument, trace, warn};
@@ -82,6 +82,33 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.beacon_processor_send.try_send(event)
     }
 
+    fn report_pq_sync_drop(
+        &self,
+        kind: beacon_chain::PqGossipKind,
+        message_id: &MessageId,
+        slot: Slot,
+        received_at: Option<Instant>,
+    ) -> Option<GossipSyncDrop> {
+        received_at.map(|received_at| {
+            let chain = self.chain.clone();
+            let message_id = message_id.clone();
+            GossipSyncDrop::new(move || {
+                let wall = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default();
+                chain.record_pq_gossip_validation(
+                    kind,
+                    || message_id.to_string(),
+                    slot,
+                    Some(received_at),
+                    Instant::now(),
+                    u64::try_from(wall.as_nanos()).unwrap_or(u64::MAX),
+                    beacon_chain::PqValidationOutcome::SyncDropped,
+                );
+            })
+        })
+    }
+
     /// Create a new `Work` event for some unaggregated attestation.
     pub fn send_unaggregated_attestation(
         self: &Arc<Self>,
@@ -91,6 +118,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
+        received_at: Option<Instant>,
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
@@ -103,6 +131,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.should_import,
                 ReprocessAllowance::BlockAndPayload,
                 package.seen_timestamp,
+                package.received_at,
             )
         };
 
@@ -113,6 +142,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .process_gossip_attestation_batch(attestations, ReprocessAllowance::BlockAndPayload)
         };
 
+        let on_sync_drop = self.report_pq_sync_drop(
+            beacon_chain::PqGossipKind::Individual,
+            &message_id,
+            attestation.data().slot,
+            received_at,
+        );
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAttestation {
@@ -123,6 +158,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     subnet_id,
                     should_import,
                     seen_timestamp,
+                    received_at,
+                    on_sync_drop,
                 }),
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),
@@ -137,6 +174,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         aggregate: SignedAggregateAndProof<T::EthSpec>,
         seen_timestamp: Duration,
+        received_at: Option<Instant>,
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
@@ -147,6 +185,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.aggregate,
                 ReprocessAllowance::BlockAndPayload,
                 package.seen_timestamp,
+                package.received_at,
             )
         };
 
@@ -158,6 +197,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
+        let on_sync_drop = self.report_pq_sync_drop(
+            beacon_chain::PqGossipKind::Aggregate,
+            &message_id,
+            aggregate.message().aggregate().data().slot,
+            received_at,
+        );
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAggregate {
@@ -167,6 +212,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     aggregate: Box::new(aggregate),
                     beacon_block_root,
                     seen_timestamp,
+                    received_at,
+                    on_sync_drop,
                 }),
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),

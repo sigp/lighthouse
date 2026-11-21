@@ -1,9 +1,13 @@
 //! The single proving lane for PQ committee and proposal work.
 
-use super::attestation_preparation::PreparedAttestations;
+use super::{
+    attestation_preparation::PreparedAttestations,
+    measurement::{self, Job},
+};
 use crate::{BeaconChain, BeaconChainTypes, metrics};
 use parking_lot::Mutex;
 use pq_prover::Error;
+use serde_json::json;
 use slot_clock::SlotClock;
 use std::{
     collections::BTreeMap,
@@ -18,10 +22,10 @@ use types::{EthSpec, Slot};
 const PROVER_LOST: ShutdownReason =
     ShutdownReason::Failure("PQ prover became unavailable while serving local validators");
 
-const INITIAL_DELAY: Duration = Duration::from_secs(8);
-const SAFETY_MARGIN: Duration = Duration::from_millis(500);
-const SINGLE_COMMITTEE_ESTIMATE: Duration = Duration::from_secs(2);
-const MERGE_MULTIPLIER: f64 = 1.6;
+pub(super) const INITIAL_DELAY: Duration = Duration::from_secs(8);
+pub(super) const SAFETY_MARGIN: Duration = Duration::from_millis(500);
+pub(super) const SINGLE_COMMITTEE_ESTIMATE: Duration = Duration::from_secs(2);
+pub(super) const MERGE_MULTIPLIER: f64 = 1.6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Work {
@@ -32,7 +36,7 @@ pub(super) enum Work {
 }
 
 impl Work {
-    fn slot(self) -> Slot {
+    pub(super) fn slot(self) -> Slot {
         match self {
             Self::Committee(slot, _)
             | Self::Initial(slot)
@@ -40,12 +44,27 @@ impl Work {
             | Self::Fallback(slot) => slot,
         }
     }
+    pub(super) fn reference_slot(self) -> Slot {
+        match self {
+            Self::Committee(slot, _) => slot,
+            _ => self.slot().saturating_sub(2u64),
+        }
+    }
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Committee(..) => "committee",
+            Self::Initial(_) => "initial",
+            Self::Improvement(_) => "improvement",
+            Self::Fallback(_) => "fallback",
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct Window {
-    start: Duration,
-    end: Duration,
+    pub(super) start: Duration,
+    pub(super) end: Duration,
 }
 
 pub(super) fn committee_window(start: Duration, attest: Duration, aggregate: Duration) -> Window {
@@ -82,11 +101,31 @@ pub(super) struct Attempt {
     input_revision: u64,
     head_revision: u64,
     reservation_revision: u64,
+    experiment: Option<u64>,
+    round: u64,
+    depth: u64,
+    cutoff: Duration,
 }
 
 impl Attempt {
     pub(super) fn work(self) -> Work {
         self.work
+    }
+
+    pub(super) fn experiment(self) -> Option<u64> {
+        self.experiment
+    }
+
+    pub(super) fn round(self) -> u64 {
+        self.round
+    }
+
+    pub(super) fn depth(self) -> u64 {
+        self.depth
+    }
+
+    pub(super) fn cutoff(self) -> Duration {
+        self.cutoff
     }
 }
 
@@ -95,6 +134,7 @@ struct Committee {
     generation: u64,
     local: bool,
     learned_late: bool,
+    experiment: Option<u64>,
     priority: usize,
     attempted: Option<Attempt>,
     revision: u64,
@@ -103,7 +143,11 @@ struct Committee {
 struct Proposal<E: EthSpec> {
     window: Window,
     snapshot_forecast: Duration,
-    validator: u64,
+    validator: Option<u64>,
+    experiment: Option<u64>,
+    round: u64,
+    depth: u64,
+    backend_calls: u64,
     generation: u64,
     ready: Option<Arc<PreparedAttestations<E>>>,
     last_merge: Option<Duration>,
@@ -120,13 +164,16 @@ struct Schedule<E: EthSpec> {
     snapshots: BTreeMap<Slot, (Duration, Option<Arc<PreparedAttestations<E>>>)>,
     fallbacks: BTreeMap<Slot, Duration>,
     active: Option<Work>,
+    active_job: Option<(u64, Option<u64>)>,
     preparing_proposal: bool,
     preparing_committee: bool,
     stopped: bool,
     duties_head_revision: u64,
+    measurements_suspended: bool,
     unavailable: bool,
     generation: u64,
     input_revision: u64,
+    network_revision: u64,
     head_revision: u64,
     reservation_revision: u64,
 }
@@ -146,7 +193,7 @@ impl<E: EthSpec> Schedule<E> {
             }
         });
         self.proposals.retain(|slot, duty| {
-            if now < duty.window.end {
+            if now < duty.window.end || duty.experiment.is_some() {
                 true
             } else {
                 if duty.ready.is_none() {
@@ -166,12 +213,21 @@ impl<E: EthSpec> Schedule<E> {
     fn replace(&mut self, now: Duration, committees: CommitteeDuties, proposals: ProposalDuties) {
         self.expire(now);
         let previous = (self.generation, self.committees.len(), self.proposals.len());
-        self.committees
-            .retain(|key, old| !old.local || committees.contains_key(key));
+        self.committees.retain(|key, old| {
+            if old.experiment.is_some() {
+                !committees.contains_key(key)
+            } else {
+                !old.local || committees.contains_key(key)
+            }
+        });
         self.proposals.retain(|slot, old| {
-            proposals
-                .get(slot)
-                .is_some_and(|(_, _, validator)| old.validator == *validator)
+            if old.experiment.is_some() {
+                !proposals.contains_key(slot)
+            } else {
+                proposals
+                    .get(slot)
+                    .is_some_and(|(_, _, validator)| old.validator == Some(*validator))
+            }
         });
         for (key, window) in committees {
             if now >= window.end {
@@ -191,6 +247,7 @@ impl<E: EthSpec> Schedule<E> {
                         generation: self.generation,
                         local: true,
                         learned_late: now >= window.start,
+                        experiment: None,
                         priority: 0,
                         attempted: None,
                         revision: 0,
@@ -209,7 +266,11 @@ impl<E: EthSpec> Schedule<E> {
                     Proposal {
                         window,
                         snapshot_forecast,
-                        validator,
+                        validator: Some(validator),
+                        experiment: None,
+                        round: 0,
+                        depth: 0,
+                        backend_calls: 0,
                         generation: self.generation,
                         ready: None,
                         last_merge: None,
@@ -224,17 +285,36 @@ impl<E: EthSpec> Schedule<E> {
     }
 
     fn attempt(&self, work: Work) -> Option<Attempt> {
-        let (generation, input_revision) = match work {
+        let (generation, input_revision, experiment, round, depth, cutoff) = match work {
             Work::Committee(slot, committee) => {
                 let duty = self.committees.get(&(slot, committee))?;
-                (duty.generation, duty.revision)
+                (
+                    duty.generation,
+                    duty.revision,
+                    duty.experiment,
+                    0,
+                    0,
+                    duty.window.start,
+                )
             }
             Work::Initial(slot) | Work::Improvement(slot) => {
                 let duty = self.proposals.get(&slot)?;
                 if (work == Work::Initial(slot)) != duty.ready.is_none() {
                     return None;
                 }
-                (duty.generation, self.input_revision)
+                let revision = match work {
+                    Work::Initial(_) if duty.experiment.is_some() => 0,
+                    Work::Improvement(_) if duty.experiment.is_some() => self.network_revision,
+                    _ => self.input_revision,
+                };
+                (
+                    duty.generation,
+                    revision,
+                    duty.experiment,
+                    duty.round.saturating_add(1),
+                    duty.depth,
+                    duty.window.start,
+                )
             }
             Work::Fallback(_) => return None,
         };
@@ -242,6 +322,10 @@ impl<E: EthSpec> Schedule<E> {
             work,
             generation,
             input_revision,
+            experiment,
+            round,
+            depth,
+            cutoff,
             head_revision: self.head_revision,
             reservation_revision: if matches!(work, Work::Improvement(_)) {
                 self.reservation_revision
@@ -257,7 +341,10 @@ impl<E: EthSpec> Schedule<E> {
             .iter()
             .filter_map(|(&(slot, committee), duty)| {
                 let attempt = self.attempt(Work::Committee(slot, committee))?;
-                (now >= duty.window.start && duty.attempted != Some(attempt)).then_some((
+                (now >= duty.window.start
+                    && now < duty.window.end
+                    && duty.attempted != Some(attempt))
+                .then_some((
                     duty.window.end,
                     false,
                     std::cmp::Reverse(duty.priority),
@@ -335,7 +422,7 @@ impl<E: EthSpec> Schedule<E> {
         if self
             .proposals
             .values()
-            .any(|duty| duty.ready.is_none() && duty.window.start <= now)
+            .any(|duty| duty.ready.is_none() && duty.window.start <= now && now < duty.window.end)
         {
             return None;
         }
@@ -398,7 +485,7 @@ impl<E: EthSpec> ProverScheduler<E> {
         }
     }
 
-    pub(super) fn head_revision(&self) -> u64 {
+    pub(crate) fn head_revision(&self) -> u64 {
         self.schedule.lock().head_revision
     }
 
@@ -417,6 +504,11 @@ impl<E: EthSpec> ProverScheduler<E> {
 
     pub(crate) fn aggregate_changed(&self) {
         self.schedule.lock().input_revision += 1;
+        self.changed.notify_one();
+    }
+
+    pub(crate) fn measurement_aggregate_changed(&self) {
+        self.schedule.lock().network_revision += 1;
         self.changed.notify_one();
     }
 
@@ -442,6 +534,7 @@ impl<E: EthSpec> ProverScheduler<E> {
                     generation,
                     local: false,
                     learned_late: false,
+                    experiment: None,
                     priority: 0,
                     attempted: None,
                     revision: 0,
@@ -450,7 +543,9 @@ impl<E: EthSpec> ProverScheduler<E> {
             self.changed.notify_one();
         }
         schedule.committees.get(&key).is_some_and(|duty| {
-            now < duty.window.end && (now < duty.window.start || duty.learned_late)
+            duty.experiment.is_none()
+                && now < duty.window.end
+                && (now < duty.window.start || duty.learned_late)
         })
     }
 
@@ -529,13 +624,21 @@ impl<E: EthSpec> ProverScheduler<E> {
         if let Some((_, ready)) = schedule.snapshots.get(&slot) {
             return ready.clone();
         }
-        let ready = schedule.proposals.remove(&slot).and_then(|duty| {
-            if duty.ready.is_none() {
-                metrics::inc_counter(&metrics::PQ_PROOF_DEADLINE_MISSES);
-                warn!(%slot, "PQ proposal reached its snapshot without a prepared proof");
-            }
-            duty.ready
-        });
+        let ready = if schedule
+            .proposals
+            .get(&slot)
+            .is_some_and(|duty| duty.experiment.is_some())
+        {
+            None
+        } else {
+            schedule.proposals.remove(&slot).and_then(|duty| {
+                if duty.ready.is_none() {
+                    metrics::inc_counter(&metrics::PQ_PROOF_DEADLINE_MISSES);
+                    warn!(%slot, "PQ proposal reached its snapshot without a prepared proof");
+                }
+                duty.ready
+            })
+        };
         schedule.snapshots.insert(slot, (expires, ready.clone()));
         schedule.reservation_revision += 1;
         debug!(%slot, ready = ready.is_some(), active = ?schedule.active, "PQ proposal took its preparation snapshot");
@@ -553,6 +656,7 @@ impl<E: EthSpec> ProverScheduler<E> {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn save(
         &self,
         now: Duration,
@@ -560,21 +664,182 @@ impl<E: EthSpec> ProverScheduler<E> {
         checked_head: u64,
         ready: Arc<PreparedAttestations<E>>,
     ) {
+        self.save_candidate(|| Some(now), job, checked_head, ready, true);
+    }
+
+    pub(super) fn save_candidate(
+        &self,
+        clock: impl FnOnce() -> Option<Duration>,
+        job: Attempt,
+        checked_head: u64,
+        ready: Arc<PreparedAttestations<E>>,
+        merged: bool,
+    ) -> Option<Duration> {
         let mut schedule = self.schedule.lock();
+        let now = clock()?;
         schedule.expire(now);
         if schedule.stopped || schedule.head_revision != checked_head {
-            return;
+            return None;
         }
         let slot = job.work.slot();
-        if let Some(duty) = schedule.proposals.get_mut(&slot)
-            && duty.generation == job.generation
-        {
-            debug!(%slot, participation = ready.participation, records = ready.attestations.len(), "Saved PQ proposal proof");
-            duty.ready = Some(ready);
-            // A newly saved result can expose a different marginal winner.
-            duty.attempted = None;
+        let duty = schedule.proposals.get_mut(&slot)?;
+        if duty.generation != job.generation || now >= duty.window.end {
+            return None;
         }
+        debug!(%slot, participation = ready.participation, records = ready.attestations.len(), "Saved PQ proposal proof");
+        duty.ready = Some(ready);
+        // A better single-child replacement does not consume an improvement round.
+        if merged || duty.round == 0 {
+            duty.round = job.round;
+        }
+        duty.depth = job.depth.saturating_add(u64::from(merged));
+        duty.attempted = None;
         self.changed.notify_one();
+        Some(now)
+    }
+
+    pub(super) fn register_measurement(
+        &self,
+        id: u64,
+        now: Duration,
+        committee: Option<((Slot, u64), Window)>,
+        proposal: Option<(Slot, Window)>,
+    ) -> bool {
+        let mut schedule = self.schedule.lock();
+        if schedule.stopped
+            || schedule.unavailable
+            || schedule.measurements_suspended
+            || committee.is_some_and(|(key, window)| {
+                now >= window.start || schedule.committees.contains_key(&key)
+            })
+            || proposal.is_some_and(|(slot, window)| {
+                now >= window.start
+                    || schedule.proposals.contains_key(&slot)
+                    || schedule.snapshots.contains_key(&slot)
+            })
+        {
+            return false;
+        }
+        schedule.generation += 1;
+        let generation = schedule.generation;
+        if let Some((key, window)) = committee {
+            schedule.committees.insert(
+                key,
+                Committee {
+                    window,
+                    generation,
+                    local: true,
+                    learned_late: false,
+                    experiment: Some(id),
+                    priority: 0,
+                    attempted: None,
+                    revision: 0,
+                },
+            );
+        }
+        if let Some((slot, window)) = proposal {
+            schedule.proposals.insert(
+                slot,
+                Proposal {
+                    window,
+                    snapshot_forecast: window.end,
+                    validator: None,
+                    experiment: Some(id),
+                    generation,
+                    round: 0,
+                    depth: 0,
+                    backend_calls: 0,
+                    ready: None,
+                    last_merge: None,
+                    attempted: None,
+                },
+            );
+        }
+        schedule.reservation_revision += 1;
+        self.changed.notify_one();
+        true
+    }
+
+    pub(super) fn measurement_committee_changed(
+        &self,
+        slot: Slot,
+        committee: u64,
+        priority: usize,
+    ) {
+        if let Some(duty) = self.schedule.lock().committees.get_mut(&(slot, committee))
+            && duty.experiment.is_some()
+        {
+            duty.revision += 1;
+            duty.priority = priority;
+            self.changed.notify_one();
+        }
+    }
+
+    pub(super) fn withdraw_measurements(&self) {
+        self.remove_measurements(false);
+    }
+
+    pub(super) fn suspend_measurements(&self) {
+        self.remove_measurements(true);
+    }
+
+    fn remove_measurements(&self, suspend: bool) {
+        let mut schedule = self.schedule.lock();
+        schedule.measurements_suspended |= suspend;
+        let previous = schedule.committees.len() + schedule.proposals.len();
+        schedule
+            .committees
+            .retain(|_, duty| duty.experiment.is_none());
+        schedule
+            .proposals
+            .retain(|_, duty| duty.experiment.is_none());
+        if previous != schedule.committees.len() + schedule.proposals.len() {
+            schedule.reservation_revision += 1;
+            self.changed.notify_one();
+        }
+    }
+
+    pub(super) fn measurement_snapshot(
+        &self,
+        slot: Slot,
+        id: u64,
+        now: Duration,
+    ) -> (
+        Option<Arc<PreparedAttestations<E>>>,
+        u64,
+        u64,
+        u64,
+        Option<(u64, Option<u64>)>,
+    ) {
+        let mut schedule = self.schedule.lock();
+        let active = schedule.active_job;
+        if !schedule
+            .proposals
+            .get(&slot)
+            .is_some_and(|duty| duty.experiment == Some(id) && now >= duty.window.end)
+        {
+            return (None, 0, 0, 0, active);
+        }
+        let ready = schedule.proposals.remove(&slot);
+        schedule.reservation_revision += 1;
+        self.changed.notify_one();
+        ready.map_or((None, 0, 0, 0, active), |duty| {
+            (
+                duty.ready,
+                duty.round,
+                duty.depth,
+                duty.backend_calls,
+                active,
+            )
+        })
+    }
+
+    pub(crate) fn active_job(&self) -> Option<(u64, Option<u64>)> {
+        self.schedule.lock().active_job
+    }
+
+    pub(super) fn is_ready_for_observation(&self) -> bool {
+        !self.is_unavailable()
     }
 
     pub(super) fn start(self: &Arc<Self>, now: Duration, job: Attempt) -> Option<Active<E>> {
@@ -604,6 +869,28 @@ impl<E: EthSpec> ProverScheduler<E> {
             _ => None,
         };
         let reserve_delay = reserved_start.map(|start| now.saturating_sub(start));
+        let next_reservation = schedule.next_reservation(now);
+        let deadline = match job.work {
+            Work::Committee(slot, committee) => schedule
+                .committees
+                .get(&(slot, committee))
+                .map(|duty| duty.window.end),
+            Work::Initial(slot) | Work::Improvement(slot) => schedule
+                .proposals
+                .get(&slot)
+                .map(|duty| duty.snapshot_forecast),
+            Work::Fallback(_) => None,
+        };
+        let estimate = if let Work::Improvement(slot) = job.work {
+            schedule.proposals.get(&slot).and_then(Schedule::estimate)
+        } else {
+            None
+        };
+        if matches!(job.work, Work::Initial(_) | Work::Improvement(_))
+            && let Some(duty) = schedule.proposals.get_mut(&job.work.slot())
+        {
+            duty.backend_calls = duty.backend_calls.saturating_add(1);
+        }
         schedule.active = Some(job.work);
         schedule.mark_attempt(job);
         debug!(work = ?job.work, ?reserve_delay, "Starting scheduled PQ proving work");
@@ -611,6 +898,9 @@ impl<E: EthSpec> ProverScheduler<E> {
             scheduler: Arc::clone(self),
             work: job.work,
             generation: Some(job.generation),
+            next_reservation,
+            deadline,
+            estimate,
             completed: false,
         })
     }
@@ -640,6 +930,9 @@ impl<E: EthSpec> ProverScheduler<E> {
             scheduler: Arc::clone(self),
             work,
             generation: None,
+            next_reservation: schedule.next_reservation(now),
+            deadline: Some(deadline),
+            estimate: None,
             completed: false,
         })
     }
@@ -699,13 +992,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
                 let owner = Arc::clone(&chain);
                 let worker_scheduler = Arc::clone(&scheduler.0);
+                let trace = chain.pq_measurement.job(job, now);
                 chain.task_executor.spawn_blocking(move || {
                     let result = match job.work() {
-                        Work::Committee(slot, committee) => owner.prove_pq_committee(job, slot, committee),
-                        Work::Initial(slot) | Work::Improvement(slot) => owner.prepare_pq_attestations(job, slot),
+                        Work::Committee(slot, committee) => owner.prove_pq_committee(job, slot, committee, &trace),
+                        Work::Initial(slot) | Work::Improvement(slot) => owner.prepare_pq_attestations_with_trace(job, slot, &trace),
                         Work::Fallback(_) => Ok(()),
                     };
                     if let Err(error) = result {
+                        trace.emit("job_outcome", "failed", owner.slot_clock.now_duration().unwrap_or(now), || json!({}));
                         worker_scheduler.skip(job);
                         debug!(work = ?job.work(), ?error, "Unable to finish PQ proving job");
                     }
@@ -721,16 +1016,22 @@ pub(crate) struct Active<E: EthSpec> {
     scheduler: Arc<ProverScheduler<E>>,
     work: Work,
     generation: Option<u64>,
+    next_reservation: Option<Duration>,
+    deadline: Option<Duration>,
+    estimate: Option<Duration>,
     completed: bool,
 }
 
 impl<E: EthSpec> Active<E> {
     pub(super) fn release_unused(mut self) {
-        self.scheduler.schedule.lock().active = None;
+        let mut schedule = self.scheduler.schedule.lock();
+        schedule.active = None;
+        schedule.active_job = None;
         self.completed = true;
         self.scheduler.changed.notify_one();
     }
 
+    #[cfg(test)]
     pub(crate) fn run(
         self,
         backend: impl FnOnce() -> Result<pq_prover::Proof, Error>,
@@ -741,6 +1042,50 @@ impl<E: EthSpec> Active<E> {
         result
     }
 
+    pub(crate) fn run_observed(
+        self,
+        job: &Job<E>,
+        experiment: Option<u64>,
+        clock: impl Fn() -> Option<Duration>,
+        backend: impl FnOnce() -> Result<pq_prover::Proof, Error>,
+    ) -> Result<pq_prover::Proof, Error> {
+        let backend_calls = {
+            let mut schedule = self.scheduler.schedule.lock();
+            schedule.active_job = Some((job.id, experiment));
+            schedule
+                .proposals
+                .get(&self.work.slot())
+                .map(|duty| duty.backend_calls)
+        };
+        let started_wall = clock().unwrap_or_default();
+        let wait = job.queue_wait();
+        job.latency("queue", wait);
+        job.emit("proof_started", "started", started_wall, || {
+            json!({
+                "queue_wait_ns": measurement::ns(wait),
+            "backend_call_count": backend_calls,
+                "estimated_ns": self.estimate.map(measurement::ns),
+                "next_reservation_wall_ns": self.next_reservation.map(measurement::ns),
+                "useful_deadline_wall_ns": self.deadline.map(measurement::ns),
+                "margin_ns": measurement::ns(SAFETY_MARGIN),
+            })
+        });
+        let started = Instant::now();
+        let result = backend();
+        let elapsed = started.elapsed();
+        let finished = clock().unwrap_or(started_wall.saturating_add(elapsed));
+        let deadline = self.deadline;
+        self.complete(&result, elapsed);
+        job.latency("backend", elapsed);
+        job.emit("proof_finished", if result.is_ok() { "success" } else { "failed" }, finished, || json!({
+            "backend_duration_ns": measurement::ns(elapsed),
+            "late": deadline.is_some_and(|end| finished >= end),
+            "proof_bytes": result.as_ref().ok().map(pq_prover::Proof::len),
+            "proof_id": result.as_ref().ok().map(|proof| measurement::proof_id(proof.as_bytes())),
+        }));
+        result
+    }
+
     fn complete(mut self, result: &Result<pq_prover::Proof, Error>, elapsed: Duration) {
         let uncertain = matches!(
             result,
@@ -748,6 +1093,7 @@ impl<E: EthSpec> Active<E> {
         );
         let mut schedule = self.scheduler.schedule.lock();
         schedule.active = None;
+        schedule.active_job = None;
         if matches!(self.work, Work::Committee(..)) {
             schedule.reservation_revision += 1;
         }
@@ -777,6 +1123,7 @@ impl<E: EthSpec> Drop for Active<E> {
         if !self.completed {
             let mut schedule = self.scheduler.schedule.lock();
             schedule.active = None;
+            schedule.active_job = None;
             schedule.unavailable = true;
             warn!("PQ proving operation exited without a completion");
             self.scheduler.changed.notify_one();
@@ -819,6 +1166,51 @@ mod tests {
             single_committee,
             standalone: true,
         })
+    }
+
+    #[test]
+    fn measurement_respects_reservation_and_snapshot_boundary() {
+        let scheduler = Arc::new(Scheduler::default());
+        let committee_slot = Slot::new(1);
+        let window = committee_window(seconds(12), seconds(3), seconds(6));
+        let proposal = Window {
+            start: seconds(8),
+            end: seconds(24),
+        };
+        assert!(scheduler.register_measurement(
+            0,
+            seconds(1),
+            Some(((committee_slot, 0), window)),
+            Some((TARGET, proposal))
+        ));
+        scheduler.replace(seconds(2), BTreeMap::new(), BTreeMap::new(), 0);
+        let initial = scheduler.next(seconds(8)).unwrap();
+        assert_eq!(initial.experiment(), Some(0));
+        assert_eq!(initial.round(), 1);
+        scheduler
+            .save_candidate(|| Some(seconds(8)), initial, 0, candidate(true, 1), false)
+            .unwrap();
+
+        let boundary = seconds(14);
+        let improve = scheduler.next(boundary).unwrap();
+        assert_eq!(improve.round(), 2);
+        assert_eq!(improve.depth(), 0);
+        assert!(
+            scheduler
+                .start(boundary + Duration::from_millis(1), improve)
+                .is_none()
+        );
+
+        let deadline = seconds(24);
+        assert!(
+            scheduler
+                .save_candidate(|| Some(deadline), improve, 0, candidate(true, 2), true)
+                .is_none()
+        );
+        let (ready, round, depth, calls, _) = scheduler.measurement_snapshot(TARGET, 0, deadline);
+        assert_eq!(ready.unwrap().participation, 1);
+        assert_eq!((round, depth, calls), (1, 0, 0));
+        assert!(scheduler.next(deadline).is_none());
     }
 
     #[test]

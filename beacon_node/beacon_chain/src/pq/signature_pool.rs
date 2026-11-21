@@ -1,6 +1,10 @@
-use super::prover_scheduler::{Attempt, committee_window};
+use super::{
+    measurement::{Job, ns, proof_id},
+    prover_scheduler::{Attempt, committee_window},
+};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use operation_pool::CompactIndexedAttestationPq;
+use serde_json::json;
 use slot_clock::SlotClock;
 use ssz::ProgressiveBitList;
 use state_processing::pq;
@@ -20,7 +24,7 @@ const RETAIN_SLOTS: u64 = 3;
 type Key = (Slot, Hash256, u64);
 
 #[derive(Clone)]
-struct CommitteeInputs {
+pub(super) struct CommitteeInputs {
     data: AttestationData,
     committee_index: u64,
     committee_len: usize,
@@ -44,7 +48,7 @@ impl<E: EthSpec> SignaturePool<E> {
         self.closed_committees.retain(|(slot, _)| *slot >= now);
     }
 
-    fn insert(
+    pub(super) fn insert(
         &mut self,
         now: Slot,
         attestation: &SingleAttestationPq,
@@ -95,7 +99,7 @@ impl<E: EthSpec> SignaturePool<E> {
             .map(|(_, inputs)| inputs.signatures.len())
     }
 
-    fn best(&self, slot: Slot, committee: u64) -> Option<(Key, &Arc<CommitteeInputs>)> {
+    pub(super) fn best(&self, slot: Slot, committee: u64) -> Option<(Key, &Arc<CommitteeInputs>)> {
         self.raw
             .range((slot, Hash256::ZERO, 0)..)
             .take_while(|((entry_slot, _, _), _)| *entry_slot == slot)
@@ -173,16 +177,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         job: Attempt,
         slot: Slot,
         committee: u64,
+        trace: &Job<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         let Some(provers) = &self.pq_provers else {
             return Ok(());
         };
-        let input = self
-            .pq_signatures
-            .lock()
-            .best(slot, committee)
-            .map(|(key, inputs)| (key, Arc::clone(inputs)));
+        let input = if job.experiment().is_some() {
+            self.pq_measurement
+                .committee_input(job, slot, committee)
+                .map(|input| (None, input))
+        } else {
+            self.pq_signatures
+                .lock()
+                .best(slot, committee)
+                .map(|(key, inputs)| (Some(key), Arc::clone(inputs)))
+        };
         let Some((key, input)) = input else {
+            trace.emit(
+                "job_outcome",
+                "no_inputs",
+                self.slot_clock.now_duration().unwrap_or_default(),
+                || json!({}),
+            );
             provers.scheduler.skip(job);
             return Ok(());
         };
@@ -195,26 +211,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let Some(active) = provers.scheduler.start(now, job) else {
             return Ok(());
         };
-        let remaining = {
-            let mut pool = self.pq_signatures.lock();
-            if pool.take(key).is_none() {
-                active.release_unused();
-                return Ok(());
-            }
-            pool.best(slot, committee)
-                .map_or(0, |(_, input)| input.signatures.len())
-        };
-        provers
-            .scheduler
-            .committee_changed(slot, committee, remaining);
+        if let Some(key) = key {
+            let remaining = {
+                let mut pool = self.pq_signatures.lock();
+                if pool.take(key).is_none() {
+                    active.release_unused();
+                    return Ok(());
+                }
+                pool.best(slot, committee)
+                    .map_or(0, |(_, input)| input.signatures.len())
+            };
+            provers
+                .scheduler
+                .committee_changed(slot, committee, remaining);
+        }
+        trace.emit("experiment_selected", "selected", now, || {
+            use tree_hash::TreeHash;
+            json!({
+                "committee": committee, "signature_count": signatures.len(),
+                "committee_size": input.committee_len,
+                "unique_claims": statement.pubkeys.len(),
+                "vote_data_root": input.data.tree_hash_root(),
+            })
+        });
         let _timer = metrics::start_timer(&metrics::PQ_PROVE_SECONDS);
         metrics::observe(&metrics::PQ_PROVE_SIGNERS, signatures.len() as f64);
         let proof = active
-            .run(|| {
-                provers
-                    .aggregate
-                    .prove(std::slice::from_ref(&statement), &[signatures])
-            })
+            .run_observed(
+                trace,
+                job.experiment(),
+                || self.slot_clock.now_duration(),
+                || {
+                    provers
+                        .aggregate
+                        .prove(std::slice::from_ref(&statement), &[signatures])
+                },
+            )
             .map_err(BeaconChainError::PqProverError)?;
         metrics::observe(&metrics::PQ_PROOF_BYTES, proof.len() as f64);
         let Some(now) = self.slot_clock.now_duration() else {
@@ -223,6 +255,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !provers.scheduler.committee_result_is_current(now, job) {
             metrics::inc_counter(&metrics::PQ_PROOF_DEADLINE_MISSES);
             debug!(%slot, committee, "Discarded an expired or reassigned PQ committee proof");
+            trace.emit("job_outcome", "expired_or_reassigned", now, || json!({}));
+            return Ok(());
+        }
+        if let Some(experiment) = job.experiment() {
+            let verify_start = std::time::Instant::now();
+            let valid = provers
+                .aggregate
+                .verify(std::slice::from_ref(&statement), &proof)
+                .map_err(BeaconChainError::PqProverError)?;
+            let verification = verify_start.elapsed();
+            trace.latency("verification", verification);
+            let verified_at = self.slot_clock.now_duration().unwrap_or(now);
+            if !valid
+                || !provers
+                    .scheduler
+                    .committee_result_is_current(verified_at, job)
+            {
+                trace.emit(
+                    "job_outcome",
+                    if valid {
+                        "expired_or_reassigned"
+                    } else {
+                        "invalid_proof"
+                    },
+                    verified_at,
+                    || json!({}),
+                );
+                return Ok(());
+            }
+            self.pq_measurement
+                .committee_completed(slot, committee, experiment);
+            trace.emit("candidate_ready", "ready", verified_at, || {
+                json!({
+                    "committee": committee, "private": true, "claims": statement.pubkeys.len(),
+                    "verification_duration_ns": ns(verification),
+                    "proof_id": proof_id(proof.as_bytes()),
+                })
+            });
             return Ok(());
         }
         let aggregate = Arc::new(CompactIndexedAttestationPq {
@@ -237,12 +307,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ) {
             provers.scheduler.aggregate_changed();
         }
-        self.pq_signatures.lock().proven.insert(key, aggregate);
+        if let Some(key) = key {
+            let publication_id = trace.detailed().then(|| proof_id(&aggregate.proof));
+            self.pq_signatures.lock().proven.insert(key, aggregate);
+            trace.emit(
+                "candidate_ready",
+                "ready",
+                self.slot_clock.now_duration().unwrap_or(now),
+                || {
+                    json!({
+                        "committee": committee, "proof_id": publication_id,
+                        "verification_policy": "backend_claims",
+                    })
+                },
+            );
+        }
         Ok(())
     }
 }
 
 impl CommitteeInputs {
+    #[cfg(test)]
+    pub(super) fn signature_count(&self) -> usize {
+        self.signatures.len()
+    }
+
     fn prepare<E: EthSpec>(
         &self,
         state: &BeaconState<E>,

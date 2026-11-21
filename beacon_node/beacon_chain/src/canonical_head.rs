@@ -1205,6 +1205,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(provers) = &self.pq_provers {
             provers.scheduler.head_changed();
+            if self.config.pq_measurement
+                && let Some(now) = self.slot_clock.now_duration()
+            {
+                self.pq_measurement.head_changed(
+                    now,
+                    new_cached_head.clone(),
+                    provers.scheduler.head_revision(),
+                );
+            }
             self.refresh_pq_local_duties();
         }
 

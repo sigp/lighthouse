@@ -69,6 +69,9 @@ use types::{
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
+pub(crate) use batch::{
+    batch_verify_aggregated_attestations_observed, batch_verify_unaggregated_attestations_observed,
+};
 
 /// Returned when an attestation was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -378,6 +381,14 @@ pub struct VerifiedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'_, T> {
     pub fn into_indexed_attestation(self) -> IndexedAttestation<T::EthSpec> {
         self.indexed_attestation
+    }
+
+    pub fn observe_pq_network_signature(&self, chain: &BeaconChain<T>) {
+        if let (SingleAttestation::Pq(single), AttestationRef::Pq(aggregate)) =
+            (self.single_attestation, self.attestation.to_ref())
+        {
+            chain.observe_pq_network_signature(single, &aggregate.aggregation_bits);
+        }
     }
 
     pub fn single_attestation(&self) -> SingleAttestation {

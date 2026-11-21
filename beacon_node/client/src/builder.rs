@@ -843,6 +843,12 @@ where
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
             beacon_chain.start_pq_aggregation();
+            if let Some(network) = &self.network_globals {
+                let network = Arc::clone(network);
+                beacon_chain.start_pq_measurement(move || {
+                    (network.sync_state().is_synced(), network.connected_peers())
+                });
+            }
             start_availability_cache_maintenance_service(
                 runtime_context.executor.clone(),
                 beacon_chain.clone(),

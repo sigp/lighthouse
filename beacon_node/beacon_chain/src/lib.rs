@@ -60,6 +60,7 @@ pub mod persisted_custody;
 mod persisted_fast_confirmation;
 mod persisted_fork_choice;
 mod pq;
+pub use pq::measurement::{GossipKind as PqGossipKind, ValidationOutcome as PqValidationOutcome};
 mod pre_finalization_cache;
 pub mod proposer_preferences_verification;
 pub mod proposer_prep_service;

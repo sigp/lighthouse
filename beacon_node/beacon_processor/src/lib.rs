@@ -323,6 +323,25 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
     }
 }
 
+/// Reports an observed PQ message skipped by the processor's sync gate.
+pub struct GossipSyncDrop(Box<dyn Fn() + Send + Sync>);
+
+impl GossipSyncDrop {
+    pub fn new(report: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(Box::new(report))
+    }
+
+    fn report(&self) {
+        (self.0)();
+    }
+}
+
+impl std::fmt::Debug for GossipSyncDrop {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("GossipSyncDrop")
+    }
+}
+
 /// Items required to verify a batch of unaggregated gossip attestations.
 #[derive(Debug)]
 pub struct GossipAttestationPackage<T> {
@@ -332,6 +351,8 @@ pub struct GossipAttestationPackage<T> {
     pub subnet_id: SubnetId,
     pub should_import: bool,
     pub seen_timestamp: Duration,
+    pub received_at: Option<Instant>,
+    pub on_sync_drop: Option<GossipSyncDrop>,
 }
 
 /// Items required to verify a batch of aggregated gossip attestations.
@@ -342,6 +363,8 @@ pub struct GossipAggregatePackage<E: EthSpec> {
     pub aggregate: Box<SignedAggregateAndProof<E>>,
     pub beacon_block_root: Hash256,
     pub seen_timestamp: Duration,
+    pub received_at: Option<Instant>,
+    pub on_sync_drop: Option<GossipSyncDrop>,
 }
 
 #[derive(Clone)]
@@ -1231,6 +1254,18 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         if self.network_globals.sync_state.read().is_syncing()
                             && drop_during_sync =>
                     {
+                        let on_sync_drop = match &work_event.work {
+                            Work::GossipAttestation { attestation, .. } => {
+                                attestation.on_sync_drop.as_ref()
+                            }
+                            Work::GossipAggregate { aggregate, .. } => {
+                                aggregate.on_sync_drop.as_ref()
+                            }
+                            _ => None,
+                        };
+                        if let Some(report) = on_sync_drop {
+                            report.report();
+                        }
                         let work_id = work_event.work.str_id();
                         metrics::inc_counter_vec(
                             &metrics::BEACON_PROCESSOR_WORK_EVENTS_IGNORED_COUNT,

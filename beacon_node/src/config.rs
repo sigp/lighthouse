@@ -823,6 +823,19 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.pq_prover =
         pq_socket.map(beacon_chain::chain_config::PqProverConfig::Sidecar);
     client_config.chain.pq_aggregate_all = cli_args.get_flag("pq-aggregate-all");
+    client_config.chain.pq_measurement = cli_args.get_flag("pq-measurement");
+    client_config.chain.pq_timing_output =
+        clap_utils::parse_optional(cli_args, "pq-timing-output")?;
+    if client_config.chain.pq_measurement {
+        client_config.network.subscribe_all_subnets = true;
+        client_config
+            .chain
+            .pq_timing_output
+            .get_or_insert_with(|| data_dir_ref.join("pq-timing"));
+    }
+    if client_config.chain.pq_timing_output.is_some() && !spec.is_pq_scheduled() {
+        return Err("PQ timing requires a scheduled PQ fork".into());
+    }
     if spec.fork_name_at_slot::<E>(spec.genesis_slot) == types::ForkName::Pq {
         client_config.chain.enable_light_client_server = false;
         client_config.network.enable_light_client_server = false;

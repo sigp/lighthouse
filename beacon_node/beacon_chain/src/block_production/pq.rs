@@ -1,3 +1,4 @@
+use serde_json::json;
 pub(crate) mod attestation_packing;
 
 use super::{BlockProductionState, gloas::get_execution_payload_gloas};
@@ -113,12 +114,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BlockProductionError::TokioJoin)??;
 
         let ready = self.pq_provers.as_ref().and_then(|provers| {
-            provers.scheduler.snapshot(
+            let now = self.slot_clock.now_duration()?;
+            let ready = provers.scheduler.snapshot(
                 slot,
-                self.slot_clock.now_duration()?,
+                now,
                 self.slot_clock.start_of(slot)?,
                 self.slot_clock.slot_duration(),
-            )
+            );
+            self.pq_measurement.production_snapshot(
+                slot,
+                now,
+                ready.as_deref(),
+                provers.scheduler.active_job(),
+            );
+            ready
         });
         let state = Arc::new(state);
         let parent_bid = state.latest_execution_payload_bid()?;
@@ -321,8 +330,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                     return Ok(Default::default());
                 };
+                let trace = chain.pq_measurement.fallback_job(slot, now, deadline);
+                trace.emit("experiment_selected", "selected", now, || json!({
+                    "available_inputs": candidates.len(), "input_proof_count": packing.children.len(),
+                    "records": packing.attestations.len(), "unique_claims": packing.unique_claims,
+                    "participation": packing.participation, "gain": packing.gained,
+                }));
                 let proof = active
-                    .run(|| merge(provers.aggregate.as_ref(), &packing))
+                    .run_observed(&trace, None, || chain.slot_clock.now_duration(), || merge(provers.aggregate.as_ref(), &packing))
                     .map_err(BeaconChainError::PqProverError)?;
                 PreparedAttestations::finish(packing, proof).map(|bundle| bundle.for_proposal())
             },

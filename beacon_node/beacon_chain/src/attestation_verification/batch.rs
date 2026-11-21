@@ -33,6 +33,18 @@ where
     T: BeaconChainTypes,
     I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
 {
+    batch_verify_aggregated_attestations_observed(aggregates, chain, |_| {})
+}
+
+pub(crate) fn batch_verify_aggregated_attestations_observed<'a, T, I>(
+    aggregates: I,
+    chain: &BeaconChain<T>,
+    mut completed: impl FnMut(usize),
+) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, Error>>, Error>
+where
+    T: BeaconChainTypes,
+    I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
+{
     let aggregates = aggregates.collect::<Vec<_>>();
     if aggregates
         .iter()
@@ -40,7 +52,12 @@ where
     {
         return Ok(aggregates
             .into_iter()
-            .map(|aggregate| VerifiedAggregatedAttestation::verify(aggregate, chain))
+            .enumerate()
+            .map(|(index, aggregate)| {
+                let result = VerifiedAggregatedAttestation::verify(aggregate, chain);
+                completed(index);
+                result
+            })
             .collect());
     }
     let mut num_indexed = 0;
@@ -149,6 +166,18 @@ where
     T: BeaconChainTypes,
     I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
 {
+    batch_verify_unaggregated_attestations_observed(attestations, chain, |_, _| {})
+}
+
+pub(crate) fn batch_verify_unaggregated_attestations_observed<'a, T, I>(
+    attestations: I,
+    chain: &BeaconChain<T>,
+    mut completed: impl FnMut(usize, &Result<VerifiedUnaggregatedAttestation<'a, T>, Error>),
+) -> Result<Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, Error>>, Error>
+where
+    T: BeaconChainTypes,
+    I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
+{
     let attestations = attestations.collect::<Vec<_>>();
     if attestations
         .iter()
@@ -156,8 +185,11 @@ where
     {
         return Ok(attestations
             .into_iter()
-            .map(|(attestation, subnet)| {
-                VerifiedUnaggregatedAttestation::verify(attestation, subnet, chain)
+            .enumerate()
+            .map(|(index, (attestation, subnet))| {
+                let result = VerifiedUnaggregatedAttestation::verify(attestation, subnet, chain);
+                completed(index, &result);
+                result
             })
             .collect());
     }

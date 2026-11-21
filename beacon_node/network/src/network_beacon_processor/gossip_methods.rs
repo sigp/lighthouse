@@ -23,7 +23,8 @@ use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ExitInvalid,
-    ExitValidationError, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
+    ExitValidationError, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer, PqGossipKind,
+    PqValidationOutcome,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -202,10 +203,12 @@ enum FailedAtt<E: EthSpec> {
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
+        received_at: Option<Instant>,
     },
     Aggregate {
         attestation: Box<SignedAggregateAndProof<E>>,
         seen_timestamp: Duration,
+        received_at: Option<Instant>,
     },
 }
 
@@ -226,6 +229,38 @@ impl<E: EthSpec> FailedAtt<E> {
             FailedAtt::Unaggregate { attestation, .. } => attestation.data(),
             FailedAtt::Aggregate { attestation, .. } => attestation.message().aggregate().data(),
         }
+    }
+}
+
+fn validation_stamp() -> (Instant, u64) {
+    let instant = Instant::now();
+    let wall = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    (instant, u64::try_from(wall.as_nanos()).unwrap_or(u64::MAX))
+}
+
+fn pq_validation_outcome(
+    error: Option<&AttnError>,
+    allowance: ReprocessAllowance,
+) -> PqValidationOutcome {
+    match error {
+        None => PqValidationOutcome::Accepted,
+        Some(
+            AttnError::AggregatorAlreadyKnown(_)
+            | AttnError::PriorAttestationKnown { .. }
+            | AttnError::AttestationSupersetKnown(_),
+        ) => PqValidationOutcome::Duplicate,
+        Some(AttnError::UnknownHeadBlock { .. }) if allowance.allows_block() => {
+            PqValidationOutcome::Deferred
+        }
+        Some(AttnError::UnknownPayloadEnvelope { .. }) if allowance.allows_payload() => {
+            PqValidationOutcome::Deferred
+        }
+        Some(AttnError::UnknownHeadBlock { .. } | AttnError::UnknownPayloadEnvelope { .. }) => {
+            PqValidationOutcome::Ignored
+        }
+        Some(_) => PqValidationOutcome::Rejected,
     }
 }
 
@@ -293,12 +328,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         should_import: bool,
         reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
+        received_at: Option<Instant>,
     ) {
-        let result = match self
+        let verified = self
             .chain
-            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
-        {
+            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
+        if matches!(attestation.as_ref(), SingleAttestation::Pq(_)) {
+            let (completed, wall) = validation_stamp();
+            self.chain.record_pq_gossip_validation(
+                PqGossipKind::Individual,
+                || message_id.to_string(),
+                attestation.data().slot,
+                received_at,
+                completed,
+                wall,
+                pq_validation_outcome(verified.as_ref().err(), reprocess_allowance),
+            );
+        }
+        let result = match verified {
             Ok(verified_attestation) => {
+                verified_attestation.observe_pq_network_signature(&self.chain);
                 let attestation =
                     Box::new(verified_attestation.attestation().clone_as_attestation());
                 Ok(VerifiedUnaggregate {
@@ -317,6 +366,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             reprocess_allowance,
             should_import,
             seen_timestamp,
+            received_at,
         );
     }
 
@@ -329,10 +379,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .iter()
             .map(|package| (package.attestation.as_ref(), Some(package.subnet_id)));
 
+        let mut stamps = Vec::new();
         let results = match self
             .chain
-            .batch_verify_unaggregated_attestations_for_gossip(attestations_and_subnets)
-        {
+            .batch_verify_unaggregated_attestations_for_gossip_observed(
+                attestations_and_subnets,
+                |index, result| {
+                    stamps.push((index, validation_stamp()));
+                    if let Ok(verified) = result {
+                        verified.observe_pq_network_signature(&self.chain);
+                    }
+                },
+            ) {
             Ok(results) => results,
             Err(e) => {
                 error!(
@@ -352,6 +410,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 packages = packages.len(),
                 "Batch attestation result mismatch"
             );
+        }
+
+        for ((index, (completed, wall)), (result, package)) in
+            stamps.into_iter().zip(results.iter().zip(&packages))
+        {
+            debug_assert!(index < packages.len());
+            if matches!(package.attestation.as_ref(), SingleAttestation::Pq(_)) {
+                self.chain.record_pq_gossip_validation(
+                    PqGossipKind::Individual,
+                    || package.message_id.to_string(),
+                    package.attestation.data().slot,
+                    package.received_at,
+                    completed,
+                    wall,
+                    pq_validation_outcome(result.as_ref().err(), reprocess_allowance),
+                );
+            }
         }
 
         // Map the results into a new `Vec` so that `results` no longer holds a reference to
@@ -387,6 +462,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 reprocess_allowance,
                 package.should_import,
                 package.seen_timestamp,
+                package.received_at,
             );
         }
     }
@@ -403,6 +479,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_allowance: ReprocessAllowance,
         should_import: bool,
         seen_timestamp: Duration,
+        received_at: Option<Instant>,
     ) {
         match result {
             Ok(verified_attestation) => {
@@ -483,6 +560,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         subnet_id,
                         should_import,
                         seen_timestamp,
+                        received_at,
                     },
                     reprocess_allowance,
                     error,
@@ -506,13 +584,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
         reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
+        received_at: Option<Instant>,
     ) {
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
 
-        let result = match self
+        let verified = self
             .chain
-            .verify_aggregated_attestation_for_gossip(&aggregate)
-        {
+            .verify_aggregated_attestation_for_gossip(&aggregate);
+        if matches!(aggregate.as_ref(), SignedAggregateAndProof::Pq(_)) {
+            let (completed, wall) = validation_stamp();
+            self.chain.record_pq_gossip_validation(
+                PqGossipKind::Aggregate,
+                || message_id.to_string(),
+                aggregate.message().aggregate().data().slot,
+                received_at,
+                completed,
+                wall,
+                pq_validation_outcome(verified.as_ref().err(), reprocess_allowance),
+            );
+        }
+        let result = match verified {
             Ok(verified_aggregate) => {
                 let (indexed_attestation, pq_statement) = verified_aggregate.into_verified_parts();
                 Ok(VerifiedAggregate {
@@ -534,6 +625,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             peer_id,
             reprocess_allowance,
             seen_timestamp,
+            received_at,
         );
     }
 
@@ -544,10 +636,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
 
+        let mut stamps = Vec::new();
         let results = match self
             .chain
-            .batch_verify_aggregated_attestations_for_gossip(aggregates)
-        {
+            .batch_verify_aggregated_attestations_for_gossip_observed(aggregates, |index| {
+                stamps.push((index, validation_stamp()));
+            }) {
             Ok(results) => results,
             Err(e) => {
                 error!(
@@ -567,6 +661,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 packages = packages.len(),
                 "Batch agg. attestation result mismatch"
             );
+        }
+
+        for ((index, (completed, wall)), (result, package)) in
+            stamps.into_iter().zip(results.iter().zip(&packages))
+        {
+            debug_assert!(index < packages.len());
+            if matches!(package.aggregate.as_ref(), SignedAggregateAndProof::Pq(_)) {
+                self.chain.record_pq_gossip_validation(
+                    PqGossipKind::Aggregate,
+                    || package.message_id.to_string(),
+                    package.aggregate.message().aggregate().data().slot,
+                    package.received_at,
+                    completed,
+                    wall,
+                    pq_validation_outcome(result.as_ref().err(), reprocess_allowance),
+                );
+            }
         }
 
         // Map the results into a new `Vec` so that `results` no longer holds a reference to
@@ -601,6 +712,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.peer_id,
                 reprocess_allowance,
                 package.seen_timestamp,
+                package.received_at,
             );
         }
     }
@@ -613,11 +725,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
+        received_at: Option<Instant>,
     ) {
         match result {
             Ok(verified_aggregate) => {
                 let aggregate = &verified_aggregate.signed_aggregate;
                 let indexed_attestation = &verified_aggregate.indexed_attestation;
+
+                let pq_gossip_id = verified_aggregate
+                    .pq_statement
+                    .is_some()
+                    .then(|| message_id.clone());
 
                 // If the attestation is still timely, propagate it.
                 self.propagate_attestation_if_timely(
@@ -666,7 +784,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
 
-                if let Err(e) = self.chain.add_to_block_inclusion_pool(verified_aggregate) {
+                if let Err(e) =
+                    self.chain
+                        .add_gossip_to_block_inclusion_pool(verified_aggregate, || {
+                            pq_gossip_id
+                                .as_ref()
+                                .map_or_else(String::new, ToString::to_string)
+                        })
+                {
                     debug!(
                         reason = ?e,
                         %peer_id,
@@ -690,6 +815,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     FailedAtt::Aggregate {
                         attestation: signed_aggregate,
                         seen_timestamp,
+                        received_at,
                     },
                     reprocess_allowance,
                     error,
@@ -2943,6 +3069,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         FailedAtt::Aggregate {
                             attestation,
                             seen_timestamp,
+                            received_at,
                         } => {
                             metrics::inc_counter(
                                 &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
@@ -2957,6 +3084,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         attestation,
                                         reprocess_allowance.next_requeue(),
                                         seen_timestamp,
+                                        received_at,
                                     )
                                 }),
                             })
@@ -2966,6 +3094,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             subnet_id,
                             should_import,
                             seen_timestamp,
+                            received_at,
                         } => {
                             metrics::inc_counter(
                                 &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
@@ -2982,6 +3111,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         should_import,
                                         reprocess_allowance.next_requeue(),
                                         seen_timestamp,
+                                        received_at,
                                     )
                                 }),
                             })
@@ -3029,6 +3159,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         FailedAtt::Aggregate {
                             attestation,
                             seen_timestamp,
+                            received_at,
                         } => {
                             metrics::inc_counter(
                                 &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
@@ -3043,6 +3174,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         attestation,
                                         reprocess_allowance.next_requeue(),
                                         seen_timestamp,
+                                        received_at,
                                     )
                                 }),
                             })
@@ -3052,6 +3184,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             subnet_id,
                             should_import,
                             seen_timestamp,
+                            received_at,
                         } => {
                             metrics::inc_counter(
                                 &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
@@ -3068,6 +3201,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         should_import,
                                         reprocess_allowance.next_requeue(),
                                         seen_timestamp,
+                                        received_at,
                                     )
                                 }),
                             })

@@ -45,7 +45,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, info, trace, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
@@ -108,6 +108,9 @@ pub enum NetworkEvent<E: EthSpec> {
         topic: TopicHash,
         /// The message itself.
         message: PubsubMessage<E>,
+        received_at: Instant,
+        received_wall: SystemTime,
+        decoded_bytes: usize,
     },
     /// A partial data column sidecar received via gossipsub partial protocol.
     PartialDataColumnSidecar {
@@ -1386,6 +1389,9 @@ impl<E: EthSpec> Network<E> {
             } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
+                let received_at = Instant::now();
+                let received_wall = SystemTime::now();
+                let decoded_bytes = gs_msg.data.len();
                 match PubsubMessage::decode(&gs_msg.topic, &gs_msg.data, &self.fork_context) {
                     Err(e) => {
                         debug!(topic = ?gs_msg.topic, error = e, "Could not decode gossipsub message");
@@ -1403,6 +1409,9 @@ impl<E: EthSpec> Network<E> {
                             source: propagation_source,
                             topic: gs_msg.topic,
                             message: msg,
+                            received_at,
+                            received_wall,
+                            decoded_bytes,
                         });
                     }
                 }

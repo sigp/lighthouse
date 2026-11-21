@@ -1,7 +1,6 @@
 use crate::attestation_verification::{
     Error as AttestationError, VerifiedAggregatedAttestation, VerifiedAttestation,
-    VerifiedUnaggregatedAttestation, batch_verify_aggregated_attestations,
-    batch_verify_unaggregated_attestations,
+    VerifiedUnaggregatedAttestation,
 };
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::{BeaconProposerCache, EpochBlockProposers};
@@ -406,6 +405,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Configuration for `BeaconChain` runtime behaviour.
     pub config: ChainConfig,
     pub(crate) pq_provers: Option<crate::pq::Provers<T::EthSpec>>,
+    pub(crate) pq_measurement: Arc<crate::pq::measurement::Measurement<T::EthSpec>>,
     pub(crate) pq_signatures: Mutex<crate::pq::signature_pool::SignaturePool<T::EthSpec>>,
     pub(crate) pq_proposer_preferences:
         Mutex<HashMap<(Slot, Hash256), Arc<SignedProposerPreferencesPq>>>,
@@ -2315,7 +2315,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
     {
-        let results = batch_verify_unaggregated_attestations(attestations, self)?;
+        self.batch_verify_unaggregated_attestations_for_gossip_observed(attestations, |_, _| {})
+    }
+
+    pub fn batch_verify_unaggregated_attestations_for_gossip_observed<'a, I>(
+        &self,
+        attestations: I,
+        completed: impl FnMut(usize, &Result<VerifiedUnaggregatedAttestation<'a, T>, AttestationError>),
+    ) -> Result<
+        Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, AttestationError>>,
+        AttestationError,
+    >
+    where
+        I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
+    {
+        let results =
+            crate::attestation_verification::batch_verify_unaggregated_attestations_observed(
+                attestations,
+                self,
+                completed,
+            )?;
         for verified_attestation in results.iter().flatten() {
             self.register_unaggregated_attestation_events(verified_attestation);
         }
@@ -2368,7 +2387,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
     {
-        let results = batch_verify_aggregated_attestations(aggregates, self)?;
+        self.batch_verify_aggregated_attestations_for_gossip_observed(aggregates, |_| {})
+    }
+
+    pub fn batch_verify_aggregated_attestations_for_gossip_observed<'a, I>(
+        &self,
+        aggregates: I,
+        completed: impl FnMut(usize),
+    ) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, AttestationError>>, AttestationError>
+    where
+        I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
+    {
+        let results =
+            crate::attestation_verification::batch_verify_aggregated_attestations_observed(
+                aggregates, self, completed,
+            )?;
         for verified_aggregate in results.iter().flatten() {
             self.register_aggregated_attestation_event(verified_aggregate);
         }
@@ -2742,25 +2775,62 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         A: VerifiedAttestation<T>,
     {
+        self.add_to_block_inclusion_pool_with_origin(verified_attestation, None)
+    }
+
+    pub fn add_gossip_to_block_inclusion_pool<A>(
+        &self,
+        verified_attestation: A,
+        gossip_id: impl Fn() -> String,
+    ) -> Result<(), AttestationError>
+    where
+        A: VerifiedAttestation<T>,
+    {
+        self.add_to_block_inclusion_pool_with_origin(verified_attestation, Some(&gossip_id))
+    }
+
+    fn add_to_block_inclusion_pool_with_origin<A>(
+        &self,
+        verified_attestation: A,
+        gossip_id: Option<&dyn Fn() -> String>,
+    ) -> Result<(), AttestationError>
+    where
+        A: VerifiedAttestation<T>,
+    {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
 
         if let (AttestationRef::Pq(attestation), IndexedAttestation::Pq(indexed)) = (
             verified_attestation.attestation(),
             verified_attestation.indexed_attestation(),
         ) {
-            if let Some(statement) = verified_attestation.pq_statement()
-                && self.op_pool.insert_pq_attestation(
-                    self.epoch()?,
-                    Arc::new(operation_pool::CompactIndexedAttestationPq {
-                        attestation: attestation.clone(),
-                        attesting_indices: indexed.attesting_indices.iter().copied().collect(),
-                        proof: indexed.proof.clone(),
-                        statement: statement.clone(),
-                    }),
-                )
-                && let Some(provers) = &self.pq_provers
-            {
-                provers.scheduler.aggregate_changed();
+            if let Some(statement) = verified_attestation.pq_statement() {
+                let epoch = self.epoch()?;
+                let entry = Arc::new(operation_pool::CompactIndexedAttestationPq {
+                    attestation: attestation.clone(),
+                    attesting_indices: indexed.attesting_indices.iter().copied().collect(),
+                    proof: indexed.proof.clone(),
+                    statement: statement.clone(),
+                });
+                let changed = self
+                    .op_pool
+                    .insert_pq_attestation(epoch, Arc::clone(&entry));
+                let from_network = gossip_id.is_some_and(|id| {
+                    let inserted =
+                        self.pq_measurement
+                            .insert_network(epoch, Arc::clone(&entry), || {
+                                self.slot_clock.now_duration()
+                            });
+                    self.record_pq_network_candidate(id, &entry, inserted);
+                    inserted
+                });
+                if let Some(provers) = &self.pq_provers {
+                    if changed {
+                        provers.scheduler.aggregate_changed();
+                    }
+                    if from_network {
+                        provers.scheduler.measurement_aggregate_changed();
+                    }
+                }
             }
             return Ok(());
         }

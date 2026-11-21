@@ -496,6 +496,7 @@ impl<E: EthSpec> GossipTester<E> {
                 true,
                 ReprocessAllowance::None,
                 seen_timestamp,
+                None,
             );
         Ok(())
     }
@@ -521,6 +522,7 @@ impl<E: EthSpec> GossipTester<E> {
                 Box::new(aggregate),
                 ReprocessAllowance::None,
                 seen_timestamp,
+                None,
             );
         Ok(())
     }

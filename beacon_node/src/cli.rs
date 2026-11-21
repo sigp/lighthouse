@@ -448,6 +448,21 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("pq-measurement")
+                .long("pq-measurement")
+                .help("Run PQ observer timing experiments using live gossip on all attestation subnets.")
+                .conflicts_with_all(["pq-aggregate-all", "proposer-only"])
+                .action(ArgAction::SetTrue)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("pq-timing-output")
+                .long("pq-timing-output")
+                .value_name("DIR")
+                .help("Export local PQ timing events. Observer mode defaults to pq-timing under the beacon data directory.")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("genesis-backfill")
                 .long("genesis-backfill")
                 .help("Attempts to download blocks all the way back to genesis when checkpoint syncing.")

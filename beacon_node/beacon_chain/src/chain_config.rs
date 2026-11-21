@@ -37,6 +37,12 @@ pub struct ChainConfig {
     /// Keep raw PQ signatures even without a local VC aggregation subscription.
     #[serde(default)]
     pub pq_aggregate_all: bool,
+    /// Run synthetic PQ duties on a receiving beacon node.
+    #[serde(default)]
+    pub pq_measurement: bool,
+    /// Optional root for versioned local PQ timing runs.
+    #[serde(default)]
+    pub pq_timing_output: Option<PathBuf>,
     /// Maximum number of slots to skip when importing an attestation.
     ///
     /// If `None`, there is no limit.
@@ -164,6 +170,8 @@ impl Default for ChainConfig {
         Self {
             pq_prover: None,
             pq_aggregate_all: false,
+            pq_measurement: false,
+            pq_timing_output: None,
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
             archive: false,

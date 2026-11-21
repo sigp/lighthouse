@@ -47,6 +47,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .attesters
             .lock()
             .insert((slot.epoch(slots_per_epoch), validator_index));
+        provers.scheduler.suspend_measurements();
         self.refresh_pq_local_duties();
     }
 
@@ -100,6 +101,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return;
                 };
                 loop {
+                    if chain.config.pq_measurement && chain.has_pq_local_validators().await {
+                        provers.scheduler.suspend_measurements();
+                    }
                     let owner = Arc::clone(&chain);
                     let Some(work) = chain.task_executor.spawn_blocking_handle(
                         move || owner.discover_pq_duties(),

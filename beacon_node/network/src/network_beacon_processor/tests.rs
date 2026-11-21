@@ -628,6 +628,7 @@ impl TestRig {
                 subnet_id,
                 true,
                 Duration::from_secs(0),
+                None,
             )
             .unwrap();
     }
@@ -672,6 +673,7 @@ impl TestRig {
                 subnet_id,
                 true,
                 Duration::from_secs(0),
+                None,
             )
             .unwrap();
     }
@@ -688,6 +690,7 @@ impl TestRig {
                 junk_peer_id(),
                 aggregate,
                 Duration::from_secs(0),
+                None,
             )
             .unwrap();
     }
@@ -1869,6 +1872,7 @@ async fn verified_pq_gossip_aggregates_reach_proposal_pool() {
                 sign(corrupt),
                 ReprocessAllowance::BlockAndPayload,
                 seen,
+                None,
             );
             assert!(
                 harness
@@ -1897,6 +1901,8 @@ async fn verified_pq_gossip_aggregates_reach_proposal_pool() {
                     aggregate: signed,
                     beacon_block_root: block_root,
                     seen_timestamp: seen,
+                    received_at: None,
+                    on_sync_drop: None,
                 }],
                 ReprocessAllowance::BlockAndPayload,
             );
@@ -1907,6 +1913,7 @@ async fn verified_pq_gossip_aggregates_reach_proposal_pool() {
                 signed,
                 ReprocessAllowance::BlockAndPayload,
                 seen,
+                None,
             );
         }
         if let Some(block) = missing_block {

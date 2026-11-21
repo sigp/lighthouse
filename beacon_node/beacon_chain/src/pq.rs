@@ -6,6 +6,7 @@ use types::EthSpec;
 
 pub(crate) mod attestation_preparation;
 pub(crate) mod duties;
+pub(crate) mod measurement;
 pub(crate) mod prover_scheduler;
 pub(crate) mod signature_pool;
 

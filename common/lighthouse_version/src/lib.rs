@@ -15,6 +15,9 @@ pub const VERSION: &str = env!("GIT_VERSION");
 /// for reporting the client version to the execution engine.
 pub const COMMIT_PREFIX: &str = env!("GIT_COMMIT_PREFIX");
 
+/// Full commit identifier, or an empty value for builds without Git metadata.
+pub const COMMIT: &str = env!("GIT_COMMIT_FULL");
+
 /// Returns `VERSION`, but with platform information appended to the end.
 ///
 /// ## Example

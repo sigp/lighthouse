@@ -1005,10 +1005,20 @@ where
             .as_ref()
             .map(crate::pq::Provers::connect)
             .transpose()?;
+        let pq_measurement = crate::pq::measurement::Measurement::new(
+            self.chain_config.pq_timing_output.as_deref(),
+            self.chain_config.pq_measurement,
+            genesis_time,
+            genesis_validators_root,
+            self.spec.config_name.as_deref(),
+            canonical_head.cached_head(),
+            &self.spec,
+        )?;
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
             pq_provers,
+            pq_measurement,
             pq_signatures: <_>::default(),
             pq_proposer_preferences: <_>::default(),
             store: store.clone(),

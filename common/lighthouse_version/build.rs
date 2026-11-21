@@ -53,6 +53,7 @@ fn main() {
 
     println!("cargo:rustc-env=GIT_VERSION={}", version);
     println!("cargo:rustc-env=GIT_COMMIT_PREFIX={}", commit_prefix);
+    println!("cargo:rustc-env=GIT_COMMIT_FULL={}", get_git_hash(40));
     println!("cargo:rustc-env=CLIENT_NAME={}", CLIENT_NAME);
     println!("cargo:rustc-env=SEMANTIC_VERSION={}", semantic_version);
 }

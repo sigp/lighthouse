@@ -37,7 +37,12 @@ use lighthouse_network::{
 use logging::{TimeLatch, crit};
 use slot_clock::SlotClock;
 use std::collections::BTreeSet;
-use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    pin::Pin,
+    sync::Arc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 use store::HotColdDB;
 use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
@@ -560,6 +565,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 id,
                 source,
                 message,
+                received_at,
+                received_wall,
+                decoded_bytes,
                 ..
             } => {
                 match message {
@@ -573,11 +581,27 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                             Subnet::Attestation(subnet_id),
                             attestation.data(),
                         );
-                        self.handle_gossip(id, source, message, should_process);
+                        self.handle_gossip(
+                            id,
+                            source,
+                            message,
+                            should_process,
+                            received_at,
+                            received_wall,
+                            decoded_bytes,
+                        );
                     }
                     _ => {
                         // all else is handled by the router
-                        self.handle_gossip(id, source, message, true);
+                        self.handle_gossip(
+                            id,
+                            source,
+                            message,
+                            true,
+                            received_at,
+                            received_wall,
+                            decoded_bytes,
+                        );
                     }
                 }
             }
@@ -1419,33 +1443,110 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         peer_id: PeerId,
         gossip_message: PubsubMessage<T::EthSpec>,
         should_process: bool,
+        received_at: Instant,
+        received_wall: SystemTime,
+        decoded_bytes: usize,
     ) {
+        use beacon_chain::{PqGossipKind, PqValidationOutcome};
         let seen_timestamp = self
             .beacon_chain
             .slot_clock
             .now_duration()
             .unwrap_or_default();
+        let wall = received_wall.duration_since(UNIX_EPOCH).unwrap_or_default();
+        let wall_ns = u64::try_from(wall.as_nanos()).unwrap_or(u64::MAX);
         match gossip_message {
-            PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => self
-                .handle_beacon_processor_send_result(
-                    self.network_beacon_processor.send_aggregated_attestation(
-                        message_id,
-                        peer_id,
-                        *aggregate_and_proof,
-                        seen_timestamp,
-                    ),
-                ),
-            PubsubMessage::Attestation(subnet_attestation) => self
-                .handle_beacon_processor_send_result(
-                    self.network_beacon_processor.send_unaggregated_attestation(
-                        message_id,
-                        peer_id,
-                        subnet_attestation.1,
-                        subnet_attestation.0,
-                        should_process,
-                        seen_timestamp,
-                    ),
-                ),
+            PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
+                let pq = matches!(
+                    aggregate_and_proof.as_ref(),
+                    types::SignedAggregateAndProof::Pq(_)
+                );
+                let aggregate = aggregate_and_proof.message().aggregate();
+                let slot = aggregate.data().slot;
+                if let types::AttestationRef::Pq(bits) = aggregate {
+                    self.beacon_chain.record_pq_gossip_receive(
+                        PqGossipKind::Aggregate,
+                        || message_id.to_string(),
+                        aggregate.data(),
+                        aggregate.committee_index(),
+                        None,
+                        bits.aggregation_bits.iter().filter(|bit| *bit).count(),
+                        decoded_bytes,
+                        wall_ns,
+                        received_at,
+                    );
+                }
+                let result = self.network_beacon_processor.send_aggregated_attestation(
+                    message_id.clone(),
+                    peer_id,
+                    *aggregate_and_proof,
+                    seen_timestamp,
+                    pq.then_some(received_at),
+                );
+                if pq && result.is_err() {
+                    self.beacon_chain.record_pq_gossip_validation(
+                        PqGossipKind::Aggregate,
+                        || message_id.to_string(),
+                        slot,
+                        Some(received_at),
+                        Instant::now(),
+                        u64::try_from(
+                            SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_nanos(),
+                        )
+                        .unwrap_or(u64::MAX),
+                        PqValidationOutcome::QueueDropped,
+                    );
+                }
+                self.handle_beacon_processor_send_result(result);
+            }
+            PubsubMessage::Attestation(subnet_attestation) => {
+                let (subnet, attestation) = *subnet_attestation;
+                let pq = matches!(attestation, types::SingleAttestation::Pq(_));
+                let slot = attestation.data().slot;
+                if pq {
+                    self.beacon_chain.record_pq_gossip_receive(
+                        PqGossipKind::Individual,
+                        || message_id.to_string(),
+                        attestation.data(),
+                        Some(attestation.committee_index()),
+                        Some(u64::from(subnet)),
+                        1,
+                        decoded_bytes,
+                        wall_ns,
+                        received_at,
+                    );
+                }
+                let result = self.network_beacon_processor.send_unaggregated_attestation(
+                    message_id.clone(),
+                    peer_id,
+                    attestation,
+                    subnet,
+                    should_process,
+                    seen_timestamp,
+                    pq.then_some(received_at),
+                );
+                if pq && result.is_err() {
+                    self.beacon_chain.record_pq_gossip_validation(
+                        PqGossipKind::Individual,
+                        || message_id.to_string(),
+                        slot,
+                        Some(received_at),
+                        Instant::now(),
+                        u64::try_from(
+                            SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_nanos(),
+                        )
+                        .unwrap_or(u64::MAX),
+                        PqValidationOutcome::QueueDropped,
+                    );
+                }
+                self.handle_beacon_processor_send_result(result);
+            }
             PubsubMessage::BeaconBlock(block) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_gossip_beacon_block(
                     message_id,
