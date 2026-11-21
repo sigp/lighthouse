@@ -158,12 +158,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                 published_preferences.prune(current_slot);
                 self.inner.request_auth_cache.prune(current_slot);
 
-                let duration_to_next_slot = self
-                    .inner
-                    .slot_clock
-                    .duration_to_next_slot()
-                    .unwrap_or(slot_duration);
-                sleep(duration_to_next_slot).await;
+                if !self.inner.slot_clock.sleep_until_next_slot().await {
+                    sleep(slot_duration).await;
+                }
             }
         };
 

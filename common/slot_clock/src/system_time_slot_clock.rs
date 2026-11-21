@@ -1,4 +1,5 @@
 use super::{ManualSlotClock, SlotClock};
+use std::future::Future;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::Slot;
 
@@ -62,6 +63,13 @@ impl SlotClock for SystemTimeSlotClock {
 
     fn genesis_duration(&self) -> Duration {
         *self.clock.genesis_duration()
+    }
+
+    fn sleep_until(&self, deadline: Duration) -> impl Future<Output = ()> + Send + use<> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        tokio::time::sleep(deadline.saturating_sub(now))
     }
 }
 

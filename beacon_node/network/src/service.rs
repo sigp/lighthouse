@@ -37,12 +37,11 @@ use lighthouse_network::{
 use logging::{TimeLatch, crit};
 use slot_clock::SlotClock;
 use std::collections::BTreeSet;
-use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
-use tokio::time::Sleep;
 use tracing::{Span, debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
@@ -220,11 +219,11 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// A delay that expires when the fork digest changes.
-    next_digest_update: Pin<Box<OptionFuture<Sleep>>>,
+    next_digest_update: Pin<Box<OptionFuture<SlotClockSleep>>>,
     /// A delay that expires when we need to subscribe to a new set of topics.
-    next_topic_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
+    next_topic_subscriptions: Pin<Box<OptionFuture<SlotClockSleep>>>,
     /// A delay that expires when we need to unsubscribe from old topics.
-    next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
+    next_unsubscribe: Pin<Box<OptionFuture<SlotClockSleep>>>,
     /// Shutdown beacon node after sync is complete.
     shutdown_after_sync: bool,
     /// Whether metrics are enabled or not.
@@ -287,9 +286,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // topics change when the fork digest changes. If we start inside the subscribe window,
         // `SubscribeCoreTopics` handles it.
         let next_topic_subscriptions = Box::pin(
-            duration_to_next_topic_subscriptions(&beacon_chain)
-                .filter(|duration| !duration.is_zero())
-                .map(tokio::time::sleep)
+            next_topic_subscriptions_time(&beacon_chain)
+                .filter(|time| Some(*time) > beacon_chain.slot_clock.now_duration())
+                .map(|time| slot_clock_sleep(&beacon_chain, time))
                 .into(),
         );
         let next_unsubscribe = Box::pin(None.into());
@@ -928,11 +927,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             // Update the `next_topic_subscriptions` timer if the next change in the fork digest is known.
             // A zero delay subscribes right away.
             self.next_topic_subscriptions = Box::pin(
-                duration_to_next_topic_subscriptions(&self.beacon_chain)
-                    .map(tokio::time::sleep)
+                next_topic_subscriptions_time(&self.beacon_chain)
+                    .map(|time| slot_clock_sleep(&self.beacon_chain, time))
                     .into(),
             );
-            self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
+            self.next_unsubscribe = Box::pin(
+                self.beacon_chain
+                    .slot_clock
+                    .now_duration()
+                    .map(|now| slot_clock_sleep(&self.beacon_chain, now + unsubscribe_delay))
+                    .into(),
+            );
             info!(
                 remaining_epochs = UNSUBSCRIBE_DELAY_EPOCHS,
                 "Network will unsubscribe from old fork gossip topics in a few epochs"
@@ -1658,25 +1663,42 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 }
 
-/// Returns a `Sleep` that triggers after the next change in the fork digest.
-/// If there is no scheduled fork, `None` is returned.
-fn next_digest_delay<T: BeaconChainTypes>(
+/// A wait on the beacon chain's slot clock.
+type SlotClockSleep = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// Returns a future that completes when the slot clock reaches `time`, a duration since the UNIX
+/// epoch.
+fn slot_clock_sleep<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
-) -> Option<tokio::time::Sleep> {
-    beacon_chain
-        .duration_to_next_digest()
-        .map(|(_, until_epoch)| tokio::time::sleep(until_epoch))
+    time: Duration,
+) -> SlotClockSleep {
+    Box::pin(beacon_chain.slot_clock.sleep_until(time))
 }
 
-/// Time until we subscribe to the next fork digest topics. Zero if that time has passed. `None` if
+/// Returns when the next change in the fork digest happens, as a duration since the UNIX epoch.
+/// If there is no scheduled fork, `None` is returned.
+fn next_digest_start<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> Option<Duration> {
+    let (epoch, _) = beacon_chain.duration_to_next_digest()?;
+    beacon_chain
+        .slot_clock
+        .start_of(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+}
+
+/// Returns a delay that triggers after the next change in the fork digest.
+/// If there is no scheduled fork, `None` is returned.
+fn next_digest_delay<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> Option<SlotClockSleep> {
+    next_digest_start(beacon_chain).map(|start| slot_clock_sleep(beacon_chain, start))
+}
+
+/// When we subscribe to the next fork digest topics, as a duration since the UNIX epoch. `None` if
 /// no fork digest change is scheduled.
-fn duration_to_next_topic_subscriptions<T: BeaconChainTypes>(
+fn next_topic_subscriptions_time<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<Duration> {
-    let (_, duration_to_digest) = beacon_chain.duration_to_next_digest()?;
+    let digest_start = next_digest_start(beacon_chain)?;
     let subscribe_delay = beacon_chain.spec.get_slot_duration()
         * (SUBSCRIBE_DELAY_EPOCHS * T::EthSpec::slots_per_epoch()) as u32;
-    Some(duration_to_digest.saturating_sub(subscribe_delay))
+    Some(digest_start.saturating_sub(subscribe_delay))
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {

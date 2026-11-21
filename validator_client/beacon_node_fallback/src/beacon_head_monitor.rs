@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, broadcast};
-use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use types::EthSpec;
 
@@ -57,16 +56,17 @@ async fn poll_for_current_slot_head<T: SlotClock>(
     }
 }
 
-/// Wait for a head event for the current slot, or until `deadline` has elapsed.
+/// Wait for a head event for the current slot, or until `slot_clock` reaches `deadline`, a
+/// duration since the UNIX epoch.
 ///
 /// Returns `None` when the deadline fires. If the head event channel closes, head monitoring
 /// is disabled by clearing `head_monitor_rx` and the deadline is awaited as usual.
-pub async fn head_event_or_deadline<T: SlotClock>(
+pub async fn head_event_until<T: SlotClock>(
     head_monitor_rx: &mut Option<broadcast::Receiver<HeadEvent>>,
     slot_clock: &T,
     deadline: Duration,
 ) -> Option<HeadEvent> {
-    let deadline = sleep(deadline);
+    let deadline = slot_clock.sleep_until(deadline);
     tokio::pin!(deadline);
     if let Some(receiver) = head_monitor_rx {
         tokio::select! {
@@ -324,6 +324,7 @@ pub async fn poll_payload_available_event_from_beacon_nodes<E: EthSpec, T: SlotC
 mod tests {
     use super::*;
     use bls::FixedBytesExtended;
+    use futures::FutureExt;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
     use tokio::time::Instant;
@@ -527,46 +528,57 @@ mod tests {
         sender.send(head_event(0, 1)).unwrap();
 
         let start = Instant::now();
-        let event =
-            head_event_or_deadline(&mut head_monitor_rx, &slot_clock, Duration::from_secs(4))
-                .await
-                .unwrap();
+        let event = head_event_until(&mut head_monitor_rx, &slot_clock, Duration::from_secs(4))
+            .await
+            .unwrap();
 
         assert_eq!(event.beacon_block_root, Hash256::from_low_u64_be(1));
         assert_eq!(start.elapsed(), Duration::ZERO);
         assert!(head_monitor_rx.is_some());
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn test_deadline_keeps_head_monitoring_enabled() {
+    /// Polls `head_event_until` with a deadline of 4s, and checks it completes when the slot
+    /// clock reaches the deadline and not before.
+    async fn wait_for_deadline(
+        head_monitor_rx: &mut Option<broadcast::Receiver<HeadEvent>>,
+    ) -> Option<HeadEvent> {
         let slot_clock =
             ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
+        let wait = head_event_until(head_monitor_rx, &slot_clock, Duration::from_secs(4));
+        tokio::pin!(wait);
+        assert!(wait.as_mut().now_or_never().is_none());
+
+        slot_clock.set_current_time(Duration::from_millis(3_999));
+        assert!(
+            wait.as_mut().now_or_never().is_none(),
+            "should wait until the deadline"
+        );
+
+        slot_clock.set_current_time(Duration::from_secs(4));
+        wait.now_or_never()
+            .expect("should complete at the deadline")
+    }
+
+    #[tokio::test]
+    async fn test_deadline_keeps_head_monitoring_enabled() {
         let (_sender, receiver) = broadcast::channel::<HeadEvent>(1);
         let mut head_monitor_rx = Some(receiver);
 
-        let start = Instant::now();
-        let event =
-            head_event_or_deadline(&mut head_monitor_rx, &slot_clock, Duration::from_secs(4)).await;
+        let event = wait_for_deadline(&mut head_monitor_rx).await;
 
         assert!(event.is_none());
-        assert_eq!(start.elapsed(), Duration::from_secs(4));
         assert!(head_monitor_rx.is_some());
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn test_closed_channel_disables_head_monitoring_and_awaits_deadline() {
-        let slot_clock =
-            ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
         let (sender, receiver) = broadcast::channel::<HeadEvent>(1);
         let mut head_monitor_rx = Some(receiver);
         drop(sender);
 
-        let start = Instant::now();
-        let event =
-            head_event_or_deadline(&mut head_monitor_rx, &slot_clock, Duration::from_secs(4)).await;
+        let event = wait_for_deadline(&mut head_monitor_rx).await;
 
         assert!(event.is_none());
-        assert_eq!(start.elapsed(), Duration::from_secs(4));
         assert!(head_monitor_rx.is_none());
     }
 

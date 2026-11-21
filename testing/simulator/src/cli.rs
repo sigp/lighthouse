@@ -40,14 +40,6 @@ pub fn cli_app() -> Command {
                         .help("Number of validators"),
                 )
                 .arg(
-                    Arg::new("speed-up-factor")
-                        .short('s')
-                        .long("speed-up-factor")
-                        .action(ArgAction::Set)
-                        .default_value("2")
-                        .help("Speed up factor. Please use a divisor of 6."),
-                )
-                .arg(
                     Arg::new("debug-level")
                         .short('d')
                         .long("debug-level")
@@ -109,14 +101,6 @@ pub fn cli_app() -> Command {
                         .action(ArgAction::Set)
                         .default_value("20")
                         .help("Number of validators per client."),
-                )
-                .arg(
-                    Arg::new("speed-up-factor")
-                        .short('s')
-                        .long("speed-up-factor")
-                        .action(ArgAction::Set)
-                        .default_value("2")
-                        .help("Speed up factor. Please use a divisor of 6."),
                 )
                 .arg(
                     Arg::new("debug-level")

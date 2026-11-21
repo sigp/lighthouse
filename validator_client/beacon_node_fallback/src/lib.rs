@@ -89,12 +89,13 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                 {
                     warn!(error, "Head service failed retrying starting next slot");
 
-                    let sleep_time = beacon_nodes_ref
-                        .slot_clock
-                        .as_ref()
-                        .and_then(|slot_clock| slot_clock.duration_to_next_slot())
-                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
-                    sleep(sleep_time).await
+                    if let Some(slot_clock) = &beacon_nodes_ref.slot_clock
+                        && let Some(next_slot_start) = slot_clock.start_of_next_slot()
+                    {
+                        slot_clock.sleep_until(next_slot_start).await
+                    } else {
+                        sleep(beacon_nodes_ref.spec.get_slot_duration()).await
+                    }
                 }
             }
         };
@@ -114,10 +115,10 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                 .now()
                 .is_none_or(|current_slot| current_slot < gloas_fork_slot)
             {
-                let sleep_time = slot_clock
-                    .duration_to_slot(gloas_fork_slot)
-                    .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
-                sleep(sleep_time).await;
+                match slot_clock.start_of(gloas_fork_slot) {
+                    Some(gloas_fork_start) => slot_clock.sleep_until(gloas_fork_start).await,
+                    None => sleep(beacon_nodes_ref.spec.get_slot_duration()).await,
+                }
             }
             loop {
                 if let Err(error) =
@@ -128,10 +129,9 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                         error,
                         "payload_available service failed, retrying next slot"
                     );
-                    let sleep_time = slot_clock
-                        .duration_to_next_slot()
-                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
-                    sleep(sleep_time).await;
+                    if !slot_clock.sleep_until_next_slot().await {
+                        sleep(beacon_nodes_ref.spec.get_slot_duration()).await;
+                    }
                 }
             }
         };
@@ -143,18 +143,18 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
         loop {
             beacon_nodes.update_all_candidates::<E>().await;
 
-            let sleep_time = beacon_nodes
-                .slot_clock
-                .as_ref()
-                .and_then(|slot_clock| {
-                    let slot = slot_clock.now()?;
-                    let till_next_slot = slot_clock.duration_to_slot(slot + 1)?;
+            let wake_time = beacon_nodes.slot_clock.as_ref().and_then(|slot_clock| {
+                let slot = slot_clock.now()?;
+                let next_slot_start = slot_clock.start_of(slot + 1)?;
+                // Inside the lookahead window, fall back to the short retry below.
+                let wake_time = next_slot_start.checked_sub(SLOT_LOOKAHEAD)?;
+                (Some(wake_time) > slot_clock.now_duration()).then_some((slot_clock, wake_time))
+            });
 
-                    till_next_slot.checked_sub(SLOT_LOOKAHEAD)
-                })
-                .unwrap_or_else(|| Duration::from_secs(1));
-
-            sleep(sleep_time).await
+            match wake_time {
+                Some((slot_clock, wake_time)) => slot_clock.sleep_until(wake_time).await,
+                None => sleep(Duration::from_secs(1)).await,
+            }
         }
     };
 

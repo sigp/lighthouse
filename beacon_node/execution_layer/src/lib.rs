@@ -743,11 +743,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let preparation_cleaner = |el: ExecutionLayer<E>| async move {
             // Start the loop to periodically clean proposer preparation cache.
             loop {
-                if let Some(duration_to_next_epoch) =
-                    slot_clock.duration_to_next_epoch(E::slots_per_epoch())
+                if let Some(next_epoch_start) = slot_clock.start_of_next_epoch(E::slots_per_epoch())
                 {
                     // Wait for next epoch
-                    sleep(duration_to_next_epoch).await;
+                    slot_clock.sleep_until(next_epoch_start).await;
 
                     match slot_clock
                         .now()

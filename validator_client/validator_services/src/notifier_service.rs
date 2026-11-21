@@ -18,8 +18,11 @@ pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
 
     let interval_fut = async move {
         loop {
-            if let Some(duration_to_next_slot) = duties_service.slot_clock.duration_to_next_slot() {
-                sleep(duration_to_next_slot + slot_duration / 2).await;
+            if let Some(next_slot_start) = duties_service.slot_clock.start_of_next_slot() {
+                duties_service
+                    .slot_clock
+                    .sleep_until(next_slot_start + slot_duration / 2)
+                    .await;
                 notify(&duties_service).await;
             } else {
                 error!("Failed to read slot clock");

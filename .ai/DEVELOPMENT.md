@@ -135,6 +135,10 @@ async fn handler() {
 - Keep lock scopes narrow
 - Seek detailed review for lock-related changes
 
+### Slot-Timed Waits
+
+Wait on the slot clock for anything timed by slots: `slot_clock.sleep_until(slot_clock.start_of(slot)? + due)`, or `start_of_next_slot()` / `start_of_next_epoch()`. Don't sleep for a duration computed from the slot clock with `tokio::time::sleep`. The simulator runs every node on one `ManualSlotClock` that it moves forward, so a tokio sleep there fires at the wrong time. Keep `tokio::time` for retries and timeouts that aren't tied to slots.
+
 ### Rayon Thread Pools
 
 Avoid using the rayon global thread pool - it causes CPU oversubscription when beacon processor has fully allocated all CPUs to workers. Use scoped rayon pools started by beacon processor for computationally intensive tasks.

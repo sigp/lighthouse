@@ -13,6 +13,7 @@
 mod basic_sim;
 mod checks;
 mod cli;
+mod driver;
 mod fallback_sim;
 mod local_network;
 mod retry;

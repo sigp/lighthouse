@@ -1,65 +1,11 @@
 use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
-use std::time::Duration;
-use typenum::Unsigned;
 use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot};
-
-/// Checks that all of the validators have on-boarded by the start of the second eth1 voting
-/// period.
-pub async fn verify_initial_validator_count<E: EthSpec>(
-    network: LocalNetwork<E>,
-    slot_duration: Duration,
-    initial_validator_count: usize,
-) -> Result<(), String> {
-    slot_delay(Slot::new(1), slot_duration).await;
-    verify_validator_count(network, initial_validator_count).await?;
-    Ok(())
-}
-
-/// Checks that all of the validators have on-boarded by the start of the second eth1 voting
-/// period.
-pub async fn verify_validator_onboarding<E: EthSpec>(
-    network: LocalNetwork<E>,
-    slot_duration: Duration,
-    expected_validator_count: usize,
-) -> Result<(), String> {
-    slot_delay(
-        Slot::new(E::SlotsPerEth1VotingPeriod::to_u64()),
-        slot_duration,
-    )
-    .await;
-    verify_validator_count(network, expected_validator_count).await?;
-    Ok(())
-}
-
-/// Checks that the chain has made the first possible finalization.
-///
-/// Intended to be run as soon as chain starts.
-pub async fn verify_first_finalization<E: EthSpec>(
-    network: LocalNetwork<E>,
-    slot_duration: Duration,
-) -> Result<(), String> {
-    epoch_delay(Epoch::new(4), slot_duration, E::slots_per_epoch()).await;
-    verify_all_finalized_at(network, Epoch::new(2)).await?;
-    Ok(())
-}
-
-/// Delays for `epochs`, plus half a slot extra.
-pub async fn epoch_delay(epochs: Epoch, slot_duration: Duration, slots_per_epoch: u64) {
-    let duration = slot_duration * (epochs.as_u64() * slots_per_epoch) as u32 + slot_duration / 2;
-    tokio::time::sleep(duration).await
-}
-
-/// Delays for `slots`, plus half a slot extra.
-async fn slot_delay(slots: Slot, slot_duration: Duration) {
-    let duration = slot_duration * slots.as_u64() as u32 + slot_duration / 2;
-    tokio::time::sleep(duration).await;
-}
 
 /// Verifies that all beacon nodes in the given network have a head state that has a finalized
 /// epoch of `epoch`.
 pub async fn verify_all_finalized_at<E: EthSpec>(
-    network: LocalNetwork<E>,
+    network: &LocalNetwork<E>,
     epoch: Epoch,
 ) -> Result<(), String> {
     let epochs = {
@@ -88,8 +34,8 @@ pub async fn verify_all_finalized_at<E: EthSpec>(
 
 /// Verifies that all beacon nodes in the given `network` have a head state that contains
 /// `expected_count` validators.
-async fn verify_validator_count<E: EthSpec>(
-    network: LocalNetwork<E>,
+pub async fn verify_validator_count<E: EthSpec>(
+    network: &LocalNetwork<E>,
     expected_count: usize,
 ) -> Result<(), String> {
     let validator_counts = {
@@ -121,12 +67,10 @@ async fn verify_validator_count<E: EthSpec>(
 }
 
 /// Verifies that there's been a block produced at every slot up to and including `slot`.
-pub async fn verify_full_block_production_up_to<E: EthSpec>(
-    network: LocalNetwork<E>,
+pub fn verify_full_block_production_up_to<E: EthSpec>(
+    network: &LocalNetwork<E>,
     slot: Slot,
-    slot_duration: Duration,
 ) -> Result<(), String> {
-    slot_delay(slot, slot_duration).await;
     let beacon_nodes = network.beacon_nodes.read();
     let beacon_chain = beacon_nodes[0].client.beacon_chain().unwrap();
     let block_slots = beacon_chain
@@ -151,14 +95,11 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     Ok(())
 }
 
-/// Verify that all nodes have the correct fork version after the `fork_epoch`.
+/// Verify that all nodes have the given fork version at their head.
 pub async fn verify_fork_version<E: EthSpec>(
-    network: LocalNetwork<E>,
-    fork_epoch: Epoch,
-    slot_duration: Duration,
+    network: &LocalNetwork<E>,
     fork_version: [u8; 4],
 ) -> Result<(), String> {
-    epoch_delay(fork_epoch, slot_duration, E::slots_per_epoch()).await;
     for remote_node in network.remote_nodes()? {
         let remote_fork_version = remote_node
             .get_beacon_states_fork(StateId::Head)
@@ -167,7 +108,7 @@ pub async fn verify_fork_version<E: EthSpec>(
             .map_err(|e| format!("Failed to get fork from beacon node: {:?}", e))?;
         if fork_version != remote_fork_version {
             return Err(format!(
-                "Fork version after FORK_EPOCH is incorrect, got: {:?}, expected: {:?}",
+                "Fork version at head is incorrect, got: {:?}, expected: {:?}",
                 remote_fork_version, fork_version,
             ));
         }
@@ -175,23 +116,14 @@ pub async fn verify_fork_version<E: EthSpec>(
     Ok(())
 }
 
-/// A late block makes the sync committee sign the grandparent root, so the next block's
-/// aggregate comes out empty rather than partial. Tolerate a few of those. A partial aggregate
-/// means contributions were actually lost, and is never tolerated.
-const MAX_EMPTY_SYNC_AGGREGATES: usize = 3;
-
-/// Verify that the sync aggregates from `sync_committee_start_slot` until `upto_slot` are full,
-/// allowing up to `MAX_EMPTY_SYNC_AGGREGATES` empty ones caused by late blocks.
+/// Verify that the sync aggregates from `sync_committee_start_slot` until `upto_slot` are full.
 pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
-    network: LocalNetwork<E>,
+    network: &LocalNetwork<E>,
     sync_committee_start_slot: Slot,
     upto_slot: Slot,
-    slot_duration: Duration,
 ) -> Result<(), String> {
-    slot_delay(upto_slot, slot_duration).await;
     let remote_nodes = network.remote_nodes()?;
     let remote_node = remote_nodes.first().unwrap();
-    let mut empty_aggregate_slots = vec![];
 
     for slot in sync_committee_start_slot.as_u64()..=upto_slot.as_u64() {
         let sync_aggregate_count = remote_node
@@ -213,9 +145,7 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
             .map_err(|e| format!("Error while getting beacon block: {:?}", e))?
             .map_err(|_| format!("Altair block {} should have sync aggregate", slot))?;
 
-        if sync_aggregate_count == 0 {
-            empty_aggregate_slots.push(slot);
-        } else if sync_aggregate_count != E::sync_committee_size() {
+        if sync_aggregate_count != E::sync_committee_size() {
             return Err(format!(
                 "Sync aggregate at slot {} was partial, got: {}, expected: {}",
                 slot,
@@ -225,15 +155,6 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
         }
     }
 
-    if empty_aggregate_slots.len() > MAX_EMPTY_SYNC_AGGREGATES {
-        return Err(format!(
-            "{} empty sync aggregates, expected at most {}. Slots: {:?}",
-            empty_aggregate_slots.len(),
-            MAX_EMPTY_SYNC_AGGREGATES,
-            empty_aggregate_slots
-        ));
-    }
-
     Ok(())
 }
 
@@ -241,15 +162,8 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
 
 /// Verify that the first merged PoS block got finalized.
 pub async fn verify_transition_block_finalized<E: EthSpec>(
-    network: LocalNetwork<E>,
-    transition_epoch: Epoch,
-    slot_duration: Duration,
-    should_verify: bool,
+    network: &LocalNetwork<E>,
 ) -> Result<(), String> {
-    if !should_verify {
-        return Ok(());
-    }
-    epoch_delay(transition_epoch + 2, slot_duration, E::slots_per_epoch()).await;
     let mut block_hashes = Vec::new();
     for remote_node in network.remote_nodes()?.iter() {
         let execution_block_hash: ExecutionBlockHash = remote_node
@@ -275,24 +189,24 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
     }
 }
 
-pub(crate) async fn verify_light_client_updates<E: EthSpec>(
-    network: LocalNetwork<E>,
-    start_slot: Slot,
-    end_slot: Slot,
-    slot_duration: Duration,
-) -> Result<(), String> {
-    slot_delay(start_slot, slot_duration).await;
+/// Checks the light client updates served by the first node, one slot at a time.
+#[derive(Default)]
+pub struct LightClientUpdateChecker {
+    have_seen_block: bool,
+    have_achieved_finality: bool,
+}
 
-    // Tolerance of 2 slot allows for 1 single missed slot.
-    let light_client_update_slot_tolerance = Slot::new(2);
-    let remote_nodes = network.remote_nodes()?;
-    let client = remote_nodes.first().unwrap();
-    let mut have_seen_block = false;
-    let mut have_achieved_finality = false;
-
-    for slot in start_slot.as_u64()..=end_slot.as_u64() {
-        slot_delay(Slot::new(1), slot_duration).await;
-        let slot = Slot::new(slot);
+impl LightClientUpdateChecker {
+    /// Checks the light client updates once `slot` is done.
+    pub async fn check_slot<E: EthSpec>(
+        &mut self,
+        network: &LocalNetwork<E>,
+        slot: Slot,
+    ) -> Result<(), String> {
+        // Tolerance of 2 slot allows for 1 single missed slot.
+        let light_client_update_slot_tolerance = Slot::new(2);
+        let remote_nodes = network.remote_nodes()?;
+        let client = remote_nodes.first().unwrap();
         let previous_slot = slot - 1;
 
         let sync_committee_period = slot
@@ -308,18 +222,18 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             })?;
         let previous_slot_has_block = previous_slot_block.is_some();
 
-        if !have_seen_block {
+        if !self.have_seen_block {
             // Make sure we have seen the first block in Altair, to make sure we have sync aggregates available.
             if previous_slot_has_block {
-                have_seen_block = true;
+                self.have_seen_block = true;
             }
             // Wait for another slot before we check the first update to avoid race condition.
-            continue;
+            return Ok(());
         }
 
         // Make sure previous slot has a block, otherwise skip checking for the signature slot distance
         if !previous_slot_has_block {
-            continue;
+            return Ok(());
         }
 
         // Verify light client optimistic update. `signature_slot_distance` should be 1 in the ideal scenario.
@@ -341,7 +255,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         // NOTE: Currently finality updates are produced as long as the finalized block is known, even if the finalized header
         // sync committee period does not match the signature slot committee period.
         // TODO: This complies with the current spec, but we should check if this is a bug.
-        if !have_achieved_finality {
+        if !self.have_achieved_finality {
             let FinalityCheckpointsData { finalized, .. } = client
                 .get_beacon_states_finality_checkpoints(StateId::Head)
                 .await
@@ -350,9 +264,9 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
                 .data;
             if !finalized.root.is_zero() {
                 // Wait for another slot before we check the first finality update to avoid race condition.
-                have_achieved_finality = true;
+                self.have_achieved_finality = true;
             }
-            continue;
+            return Ok(());
         }
         let signature_slot = client
             .get_beacon_light_client_finality_update::<E>()
@@ -381,20 +295,18 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
                 light_client_updates.len()
             ));
         }
-    }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Checks that a node is synced with the network.
 /// Useful for ensuring that a node which started after genesis is able to sync to the head.
 pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
-    network: LocalNetwork<E>,
+    network: &LocalNetwork<E>,
     node_index: usize,
     upto_slot: Slot,
-    slot_duration: Duration,
 ) -> Result<(), String> {
-    slot_delay(upto_slot, slot_duration).await;
     let node = &network
         .remote_nodes()?
         .get(node_index)
@@ -423,12 +335,10 @@ pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
 /// Verifies that there's been blobs produced at every slot with a block from `blob_start_slot` up
 /// to and including `upto_slot`.
 pub async fn verify_full_blob_production_up_to<E: EthSpec>(
-    network: LocalNetwork<E>,
+    network: &LocalNetwork<E>,
     blob_start_slot: Slot,
     upto_slot: Slot,
-    slot_duration: Duration,
 ) -> Result<(), String> {
-    slot_delay(upto_slot, slot_duration).await;
     let remote_nodes = network.remote_nodes()?;
     let remote_node = remote_nodes.first().unwrap();
 
@@ -455,8 +365,8 @@ pub async fn verify_full_blob_production_up_to<E: EthSpec>(
 }
 
 // Causes the beacon node at `node_index` to disconnect from the execution layer.
-pub async fn disconnect_from_execution_layer<E: EthSpec>(
-    network: LocalNetwork<E>,
+pub fn disconnect_from_execution_layer<E: EthSpec>(
+    network: &LocalNetwork<E>,
     node_index: usize,
 ) -> Result<(), String> {
     eprintln!("Disabling Execution Node {node_index}");
@@ -468,34 +378,18 @@ pub async fn disconnect_from_execution_layer<E: EthSpec>(
     Ok(())
 }
 
-// Causes the beacon node at `node_index` to reconnect from the execution layer.
-pub async fn reconnect_to_execution_layer<E: EthSpec>(
-    network: LocalNetwork<E>,
-    node_index: usize,
-) -> Result<(), String> {
-    network.execution_nodes.read()[node_index]
-        .server
-        .all_payloads_valid();
-
-    eprintln!("Enabling Execution Node {node_index}");
-    Ok(())
-}
-
 /// Ensure all validators have attested correctly.
 ///
 /// Checks attestation rewards for head, target, and source.
 /// A positive reward indicates a correct vote.
 pub async fn check_attestation_correctness<E: EthSpec>(
-    network: LocalNetwork<E>,
+    network: &LocalNetwork<E>,
     start_epoch: u64,
     upto_epoch: u64,
-    slot_duration: Duration,
     // Select which node to query. Will use this node to determine the global network performance.
     node_index: usize,
     acceptable_attestation_performance: f64,
 ) -> Result<(), String> {
-    epoch_delay(Epoch::new(upto_epoch), slot_duration, E::slots_per_epoch()).await;
-
     let remote_node = &network.remote_nodes()?[node_index];
 
     let mut head_successes: f64 = 0.0;

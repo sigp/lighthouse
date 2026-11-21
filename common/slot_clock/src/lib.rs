@@ -2,6 +2,7 @@ mod manual_slot_clock;
 mod metrics;
 mod system_time_slot_clock;
 
+use std::future::Future;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
@@ -64,6 +65,54 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
 
     /// Returns the `Duration` from `UNIX_EPOCH` to the genesis time.
     fn genesis_duration(&self) -> Duration;
+
+    /// Returns a future that completes once this clock reads `deadline` or later, where
+    /// `deadline` is a duration since the UNIX epoch.
+    ///
+    /// Use this, not `tokio::time::sleep`, for any wait that is timed by this clock. A manual
+    /// clock can then control when the wait ends.
+    fn sleep_until(&self, deadline: Duration) -> impl Future<Output = ()> + Send + use<Self>;
+
+    /// Returns the start of the slot after the current one, or the genesis time if genesis hasn't
+    /// happened yet, as a duration since the UNIX epoch.
+    fn start_of_next_slot(&self) -> Option<Duration> {
+        let now = self.now_duration()?;
+        if now < self.genesis_duration() {
+            Some(self.genesis_duration())
+        } else {
+            self.start_of(self.slot_of(now)?.saturating_add(1u64))
+        }
+    }
+
+    /// Waits until the start of the next slot, or the genesis time if genesis hasn't happened
+    /// yet. Returns `false` without waiting if the clock can't be read.
+    fn sleep_until_next_slot(&self) -> impl Future<Output = bool> + Send + use<Self> {
+        let sleep = self.start_of_next_slot().map(|time| self.sleep_until(time));
+        async move {
+            match sleep {
+                Some(sleep) => {
+                    sleep.await;
+                    true
+                }
+                None => false,
+            }
+        }
+    }
+
+    /// Returns the start of the first slot of the next epoch, or the genesis time if genesis
+    /// hasn't happened yet, as a duration since the UNIX epoch.
+    fn start_of_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration> {
+        let now = self.now_duration()?;
+        if now < self.genesis_duration() {
+            Some(self.genesis_duration())
+        } else {
+            let next_epoch = self
+                .slot_of(now)?
+                .epoch(slots_per_epoch)
+                .saturating_add(1u64);
+            self.start_of(next_epoch.start_slot(slots_per_epoch))
+        }
+    }
 
     /// Returns the slot if the internal clock were advanced by `duration`.
     fn now_with_future_tolerance(&self, tolerance: Duration) -> Option<Slot> {
