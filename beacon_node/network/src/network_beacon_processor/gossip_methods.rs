@@ -42,6 +42,7 @@ use lighthouse_network::{
 };
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
+use pq_prover::Statement;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use std::fs;
@@ -162,6 +163,7 @@ struct RejectedUnaggregate {
 struct VerifiedAggregate<T: BeaconChainTypes> {
     signed_aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
+    pq_statement: Option<Statement>,
 }
 
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
@@ -173,6 +175,10 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
+    }
+
+    fn pq_statement(&self) -> Option<&Statement> {
+        self.pq_statement.as_ref()
     }
 
     /// Efficient clone-free implementation that moves out of the `Box`.
@@ -507,10 +513,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .verify_aggregated_attestation_for_gossip(&aggregate)
         {
-            Ok(verified_aggregate) => Ok(VerifiedAggregate {
-                indexed_attestation: verified_aggregate.into_indexed_attestation(),
-                signed_aggregate: aggregate,
-            }),
+            Ok(verified_aggregate) => {
+                let (indexed_attestation, pq_statement) = verified_aggregate.into_verified_parts();
+                Ok(VerifiedAggregate {
+                    indexed_attestation,
+                    pq_statement,
+                    signed_aggregate: aggregate,
+                })
+            }
             Err(error) => Err(RejectedAggregate {
                 signed_aggregate: aggregate,
                 error,
@@ -564,13 +574,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         #[allow(clippy::needless_collect)] // The clippy suggestion fails the borrow checker.
         let results = results
             .into_iter()
-            .map(|result| result.map(|verified| verified.into_indexed_attestation()))
+            .map(|result| {
+                result.map(
+                    attestation_verification::VerifiedAggregatedAttestation::into_verified_parts,
+                )
+            })
             .collect::<Vec<_>>();
 
         for (result, package) in results.into_iter().zip(packages) {
             let result = match result {
-                Ok(indexed_attestation) => Ok(VerifiedAggregate {
+                Ok((indexed_attestation, pq_statement)) => Ok(VerifiedAggregate {
                     indexed_attestation,
+                    pq_statement,
                     signed_aggregate: package.aggregate,
                 }),
                 Err(error) => Err(RejectedAggregate {

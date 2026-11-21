@@ -358,8 +358,11 @@ pub struct VerifiedAggregatedAttestation<'a, T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<'_, T> {
-    pub fn into_indexed_attestation(self) -> IndexedAttestation<T::EthSpec> {
-        self.indexed_attestation
+    /// Detach the verification result from the borrowed gossip message.
+    pub fn into_verified_parts(
+        self,
+    ) -> (IndexedAttestation<T::EthSpec>, Option<pq_prover::Statement>) {
+        (self.indexed_attestation, self.pq_statement)
     }
 }
 

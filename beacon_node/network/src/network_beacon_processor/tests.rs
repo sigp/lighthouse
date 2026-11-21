@@ -1757,6 +1757,201 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     );
 }
 
+#[cfg(feature = "spec-minimal")]
+#[tokio::test]
+async fn verified_pq_gossip_aggregates_reach_proposal_pool() {
+    use super::gossip_methods::ReprocessAllowance;
+    use pq_prover::{ProverBackend, ReferenceBackend};
+    use state_processing::pq::{self, LEAF_OFFSET_AGGREGATE_AND_PROOF};
+    use std::borrow::Cow;
+    use tree_hash::TreeHash;
+    use types::{
+        AggregateAndProofPq, Attestation, ForkName, MinimalEthSpec, SignedAggregateAndProofPq,
+    };
+
+    type PqSpec = MinimalEthSpec;
+    let spec = Arc::new(ForkName::Pq.make_genesis_spec(PqSpec::default_spec()));
+    let harness = BeaconChainHarness::<EphemeralHarnessType<PqSpec>>::builder(PqSpec::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(PqSpec::slots_per_epoch() as usize)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let network_globals = Arc::new(NetworkGlobals::new_test_globals(
+        vec![],
+        Arc::new(NetworkConfig::default()),
+        spec.clone(),
+    ));
+    let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
+    let (processor, mut work_rx, mut network_rx) =
+        NetworkBeaconProcessor::null_for_testing_with_network_receiver(
+            network_globals,
+            sync_tx,
+            harness.chain.clone(),
+            harness.runtime.task_executor.clone(),
+        );
+    let processor = Arc::new(processor);
+    let mut state = harness.get_current_state();
+    let peer = junk_peer_id();
+
+    // Exercise the individual and batch conversions, then the actual reprocessing callback.
+    for slot in (1..=3).map(Slot::new) {
+        harness.set_current_slot(slot);
+        let (block, next_state) = harness.make_pq_block(state, slot, &[]).await;
+        state = next_state;
+        let block_root = block.0.canonical_root();
+        let Attestation::Pq(mut attestation) = harness
+            .produce_unaggregated_attestation_for_block(
+                slot,
+                0,
+                block_root,
+                Cow::Borrowed(&state),
+                block.0.state_root(),
+                Some(false),
+            )
+            .unwrap()
+        else {
+            panic!("expected a PQ attestation");
+        };
+        let committee = state.get_beacon_committee(slot, 0).unwrap();
+        let validator = *committee.committee.first().unwrap();
+        attestation.aggregation_bits.set(0, true).unwrap();
+        let statement =
+            pq::attestation_statement(&state, &attestation.data, &[validator as u64], &spec)
+                .unwrap();
+        let signature = harness.sign_pq_test_message(
+            validator,
+            statement.leaf_index,
+            Hash256::from(statement.message),
+        );
+        let proof = ReferenceBackend
+            .prove(std::slice::from_ref(&statement), &[vec![signature]])
+            .unwrap();
+        let aggregate = AggregateAndProofPq {
+            aggregator_index: validator as u64,
+            aggregate: attestation,
+            proof: proof.into_bytes().try_into().unwrap(),
+        };
+        let domain = spec.get_domain(
+            state.current_epoch(),
+            Domain::AggregateAndProof,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let leaf = pq::slot_leaf_index(slot, LEAF_OFFSET_AGGREGATE_AND_PROOF).unwrap();
+        let sign = |message: AggregateAndProofPq<PqSpec>| {
+            let signature = harness.sign_pq_test_message(
+                validator,
+                leaf,
+                message.tree_hash_root().signing_root(domain),
+            );
+            Box::new(SignedAggregateAndProof::Pq(SignedAggregateAndProofPq {
+                message,
+                signature,
+            }))
+        };
+        let message_id = MessageId::new(&slot.as_u64().to_le_bytes());
+        let seen = harness.chain.slot_clock.now_duration().unwrap();
+        let mut missing_block = Some(block);
+        if slot < Slot::new(3) {
+            harness
+                .process_block(slot, block_root, missing_block.take().unwrap())
+                .await
+                .unwrap();
+        }
+        if slot == Slot::new(1) {
+            let mut corrupt = aggregate.clone();
+            corrupt.proof[0] ^= 1;
+            let bad_id = MessageId::new(b"bad-pq-proof");
+            processor.clone().process_gossip_aggregate(
+                bad_id.clone(),
+                peer,
+                sign(corrupt),
+                ReprocessAllowance::BlockAndPayload,
+                seen,
+            );
+            assert!(
+                harness
+                    .chain
+                    .op_pool
+                    .pq_attestation_candidates(slot)
+                    .is_empty()
+            );
+            assert!(
+                std::iter::from_fn(|| network_rx.try_recv().ok()).any(|event| {
+                    matches!(event, NetworkMessage::ValidationResult {
+                    message_id,
+                    validation_result: MessageAcceptance::Reject,
+                    ..
+                } if message_id == bad_id)
+                })
+            );
+        }
+
+        let signed = sign(aggregate.clone());
+        if slot == Slot::new(2) {
+            processor.clone().process_gossip_aggregate_batch(
+                vec![GossipAggregatePackage {
+                    message_id: message_id.clone(),
+                    peer_id: peer,
+                    aggregate: signed,
+                    beacon_block_root: block_root,
+                    seen_timestamp: seen,
+                }],
+                ReprocessAllowance::BlockAndPayload,
+            );
+        } else {
+            processor.clone().process_gossip_aggregate(
+                message_id.clone(),
+                peer,
+                signed,
+                ReprocessAllowance::BlockAndPayload,
+                seen,
+            );
+        }
+        if let Some(block) = missing_block {
+            assert!(
+                harness
+                    .chain
+                    .op_pool
+                    .pq_attestation_candidates(slot)
+                    .iter()
+                    .all(|candidate| candidate.attestation.data.slot != slot)
+            );
+            let Work::Reprocess(ReprocessQueueMessage::UnknownBlockAggregate(queued)) =
+                work_rx.try_recv().unwrap().work
+            else {
+                panic!("expected an aggregate deferred until block import");
+            };
+            assert_eq!(queued.beacon_block_root, block_root);
+            harness
+                .process_block(slot, block_root, block)
+                .await
+                .unwrap();
+            (queued.process_fn)();
+        }
+
+        let candidates = harness.chain.op_pool.pq_attestation_candidates(slot);
+        let candidate = candidates
+            .iter()
+            .find(|candidate| candidate.attestation.data.slot == slot)
+            .expect("verified PQ gossip should be a proposal candidate");
+        assert_eq!(candidate.statement, statement);
+        assert_eq!(candidate.attestation, aggregate.aggregate);
+        assert_eq!(candidate.proof, aggregate.proof);
+        assert_eq!(candidate.attesting_indices, vec![validator as u64]);
+        assert!(
+            std::iter::from_fn(|| network_rx.try_recv().ok()).any(|event| {
+                matches!(event, NetworkMessage::ValidationResult {
+                message_id: accepted_id,
+                validation_result: MessageAcceptance::Accept,
+                ..
+            } if accepted_id == message_id)
+            })
+        );
+    }
+}
+
 #[tokio::test]
 async fn aggregate_attestation_to_unknown_block_processed_after_gossip_block() {
     aggregate_attestation_to_unknown_block(BlockImportMethod::Gossip).await

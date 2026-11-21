@@ -38,6 +38,7 @@ lru_cache = { workspace = true }
 metrics = { workspace = true }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
+pq_prover = { workspace = true }
 rand = { workspace = true }
 slot_clock = { workspace = true }
 smallvec = { workspace = true }
@@ -67,6 +68,7 @@ rand_08 = { package = "rand", version = "0.8.5" }
 rand_chacha = "0.9.0"
 rand_chacha_03 = { package = "rand_chacha", version = "0.3.1" }
 serde_json = { workspace = true }
+state_processing = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tree_hash = { workspace = true }
 types = { workspace = true, features = ["arbitrary"] }
