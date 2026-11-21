@@ -56,7 +56,8 @@ pub struct SimDriver<E: EthSpec> {
     network: LocalNetwork<E>,
     spec: Arc<ChainSpec>,
     /// Beacon nodes, by index into `network.beacon_nodes`, that the driver doesn't check, e.g. a
-    /// node that is still syncing or has lost its execution layer.
+    /// node that is still syncing. No validator client may use an excluded node, as the driver
+    /// doesn't wait for it to have the messages they would aggregate.
     excluded_beacon_nodes: parking_lot::RwLock<HashSet<usize>>,
 }
 
@@ -74,15 +75,19 @@ impl<E: EthSpec> SimDriver<E> {
         self.excluded_beacon_nodes.write().insert(index);
     }
 
-    /// Moves the clock to the start of the genesis slot once every beacon node is connected to
-    /// every other one and every validator client knows the indices of all its validators, then
-    /// waits for every validator client to start.
+    /// Moves the clock to the start of the genesis slot once the beacon nodes are connected and
+    /// every validator client knows the indices of all its validators, then waits for every
+    /// validator client to start.
     pub async fn start_at_genesis(
         &self,
         validator_client_count: usize,
         validator_count: usize,
     ) -> Result<(), String> {
+        // Two nodes can fail to connect to each other at startup. With every node connected to
+        // at least half of the nodes the network still can't be split in two, so gossip reaches
+        // everyone.
         let node_count = self.network.beacon_node_count() + self.network.proposer_node_count();
+        let min_peers = node_count / 2;
         self.wait_for(
             "beacon nodes to connect to each other",
             SETTLE_TIMEOUT,
@@ -94,10 +99,9 @@ impl<E: EthSpec> SimDriver<E> {
                         .map_err(|e| format!("Unable to get peer count of node {index}: {e:?}"))?
                         .data
                         .connected;
-                    if (peer_count as usize) < node_count - 1 {
+                    if (peer_count as usize) < min_peers {
                         return Err(format!(
-                            "node {index} has {peer_count} of {} peers",
-                            node_count - 1
+                            "node {index} has {peer_count} peers, needs {min_peers}"
                         ));
                     }
                 }

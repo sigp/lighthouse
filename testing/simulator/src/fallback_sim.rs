@@ -262,12 +262,12 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         for slot in (0..=end_slot.as_u64()).map(Slot::new) {
             if slot == disconnection_slot {
                 // Disconnect all BNs but the last node for each VC until the end of the
-                // simulation. The driver stops waiting for them while they can't import blocks.
+                // simulation. They still import blocks optimistically, and the VCs keep using
+                // them until their next health check, so the driver keeps checking them.
                 for i in 0..vc_count {
                     for j in 0..(bns_per_vc - 1) {
                         let node_index = bns_per_vc * i + j;
                         checks::disconnect_from_execution_layer(&network, node_index)?;
-                        driver.exclude_beacon_node(node_index);
                     }
                 }
             }
