@@ -16,6 +16,7 @@ execution_layer = { workspace = true }
 futures = { workspace = true }
 kzg = { workspace = true }
 logging = { workspace = true }
+network_utils = { workspace = true }
 node_test_rig = { path = "../node_test_rig" }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
