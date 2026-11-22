@@ -190,17 +190,26 @@ test-debug:
 # is converted.
 test-spec-minimal:
 	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" \
+		-p beacon_node_fallback \
 		-p beacon_processor \
 		-p builder_client \
+		-p deposit_contract \
+		-p doppelganger_service \
+		-p eth2 \
 		-p execution_layer \
 		-p fast_confirmation \
 		-p genesis \
 		-p http_metrics \
 		-p lighthouse_network \
+		-p lighthouse_validator_store \
 		-p proto_array \
+		-p signing_method \
+		-p slasher \
 		-p state_processing \
 		-p store \
-		-p types
+		-p types \
+		-p validator_dir \
+		-p validator_services
 
 # Runs cargo-fmt (linter).
 cargo-fmt:

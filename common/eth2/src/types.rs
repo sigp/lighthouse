@@ -1996,7 +1996,7 @@ mod tests {
 
     #[test]
     fn ssz_signed_block_contents_pre_deneb() {
-        type E = MainnetEthSpec;
+        type E = Spec;
         let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
         let block: PublishBlockRequest<E> = Arc::new(SignedBeaconBlock::from_block(
@@ -2014,7 +2014,7 @@ mod tests {
 
     #[test]
     fn ssz_signed_block_contents_with_blobs() {
-        type E = MainnetEthSpec;
+        type E = Spec;
         let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
 
         let block = SignedBeaconBlock::from_block(
@@ -2889,13 +2889,12 @@ mod test {
 
     #[test]
     fn test_publish_block_request_context_deserialize() {
-        let round_trip_test = |request: PublishBlockRequest<MainnetEthSpec>| {
+        let round_trip_test = |request: PublishBlockRequest<Spec>| {
             let fork_name = request.signed_block().fork_name_unchecked();
             let json_str = serde_json::to_string(&request).unwrap();
             let mut de = serde_json::Deserializer::from_str(&json_str);
             let deserialized_request =
-                PublishBlockRequest::<MainnetEthSpec>::context_deserialize(&mut de, fork_name)
-                    .unwrap();
+                PublishBlockRequest::<Spec>::context_deserialize(&mut de, fork_name).unwrap();
             assert_eq!(request, deserialized_request);
         };
 
@@ -2907,8 +2906,8 @@ mod test {
                 <_>::arbitrary(&mut u).unwrap()
             );
             let request = if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
-                let kzg_proofs = KzgProofs::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
-                let blobs = BlobsList::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+                let kzg_proofs = KzgProofs::<Spec>::arbitrary(&mut u).unwrap();
+                let blobs = BlobsList::<Spec>::arbitrary(&mut u).unwrap();
                 let block_contents = SignedBlockContents {
                     signed_block: Arc::new(signed_beacon_block),
                     kzg_proofs,
@@ -2925,13 +2924,12 @@ mod test {
 
     #[test]
     fn test_signed_block_contents_context_deserialize() {
-        let round_trip_test = |contents: SignedBlockContents<MainnetEthSpec>| {
+        let round_trip_test = |contents: SignedBlockContents<Spec>| {
             let fork_name = contents.signed_block.fork_name_unchecked();
             let json_str = serde_json::to_string(&contents).unwrap();
             let mut de = serde_json::Deserializer::from_str(&json_str);
             let deserialized_contents =
-                SignedBlockContents::<MainnetEthSpec>::context_deserialize(&mut de, fork_name)
-                    .unwrap();
+                SignedBlockContents::<Spec>::context_deserialize(&mut de, fork_name).unwrap();
             assert_eq!(contents, deserialized_contents);
         };
 
@@ -2943,8 +2941,8 @@ mod test {
                 SignedBeaconBlock,
                 <_>::arbitrary(&mut u).unwrap()
             );
-            let kzg_proofs = KzgProofs::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
-            let blobs = BlobsList::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+            let kzg_proofs = KzgProofs::<Spec>::arbitrary(&mut u).unwrap();
+            let blobs = BlobsList::<Spec>::arbitrary(&mut u).unwrap();
             let block_contents = SignedBlockContents {
                 signed_block: Arc::new(signed_beacon_block),
                 kzg_proofs,
@@ -2966,26 +2964,14 @@ mod test {
 
         let payloads = [
             ExecutionPayload::Bellatrix(
-                ExecutionPayloadBellatrix::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                ExecutionPayloadBellatrix::<Spec>::arbitrary(&mut u).unwrap(),
             ),
-            ExecutionPayload::Capella(
-                ExecutionPayloadCapella::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
-            ),
-            ExecutionPayload::Deneb(
-                ExecutionPayloadDeneb::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
-            ),
-            ExecutionPayload::Electra(
-                ExecutionPayloadElectra::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
-            ),
-            ExecutionPayload::Fulu(
-                ExecutionPayloadFulu::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
-            ),
-            ExecutionPayload::Gloas(
-                ExecutionPayloadGloas::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
-            ),
-            ExecutionPayload::Heze(
-                ExecutionPayloadHeze::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
-            ),
+            ExecutionPayload::Capella(ExecutionPayloadCapella::<Spec>::arbitrary(&mut u).unwrap()),
+            ExecutionPayload::Deneb(ExecutionPayloadDeneb::<Spec>::arbitrary(&mut u).unwrap()),
+            ExecutionPayload::Electra(ExecutionPayloadElectra::<Spec>::arbitrary(&mut u).unwrap()),
+            ExecutionPayload::Fulu(ExecutionPayloadFulu::<Spec>::arbitrary(&mut u).unwrap()),
+            ExecutionPayload::Gloas(ExecutionPayloadGloas::<Spec>::arbitrary(&mut u).unwrap()),
+            ExecutionPayload::Heze(ExecutionPayloadHeze::<Spec>::arbitrary(&mut u).unwrap()),
         ];
         let merged_forks = &ForkName::list_all()[2..];
         assert_eq!(
@@ -3009,9 +2995,9 @@ mod test {
         let payloads = [
             {
                 let execution_payload = ExecutionPayload::Deneb(
-                    ExecutionPayloadDeneb::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                    ExecutionPayloadDeneb::<Spec>::arbitrary(&mut u).unwrap(),
                 );
-                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+                let blobs_bundle = BlobsBundle::<Spec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,
@@ -3019,9 +3005,9 @@ mod test {
             },
             {
                 let execution_payload = ExecutionPayload::Electra(
-                    ExecutionPayloadElectra::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                    ExecutionPayloadElectra::<Spec>::arbitrary(&mut u).unwrap(),
                 );
-                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+                let blobs_bundle = BlobsBundle::<Spec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,
@@ -3029,9 +3015,9 @@ mod test {
             },
             {
                 let execution_payload = ExecutionPayload::Fulu(
-                    ExecutionPayloadFulu::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                    ExecutionPayloadFulu::<Spec>::arbitrary(&mut u).unwrap(),
                 );
-                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+                let blobs_bundle = BlobsBundle::<Spec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,
@@ -3039,9 +3025,9 @@ mod test {
             },
             {
                 let execution_payload = ExecutionPayload::Gloas(
-                    ExecutionPayloadGloas::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                    ExecutionPayloadGloas::<Spec>::arbitrary(&mut u).unwrap(),
                 );
-                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+                let blobs_bundle = BlobsBundle::<Spec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,
@@ -3049,9 +3035,9 @@ mod test {
             },
             {
                 let execution_payload = ExecutionPayload::Heze(
-                    ExecutionPayloadHeze::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                    ExecutionPayloadHeze::<Spec>::arbitrary(&mut u).unwrap(),
                 );
-                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+                let blobs_bundle = BlobsBundle::<Spec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,

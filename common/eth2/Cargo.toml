@@ -9,6 +9,7 @@ default = []
 lighthouse = ["proto_array", "eth2_keystore", "eip_3076", "zeroize"]
 events = ["reqwest-eventsource", "futures", "futures-util"]
 network = ["dep:libp2p", "enr"]
+spec-minimal = ["types/spec-minimal"]
 
 [dependencies]
 bls = { workspace = true }
