@@ -1,4 +1,5 @@
 use crate::checks::epoch_delay;
+use crate::retry::with_retry_if;
 use beacon_chain::custody_context::NodeCustodyType;
 use kzg::trusted_setup::get_trusted_setup;
 use node_test_rig::{
@@ -11,6 +12,7 @@ use node_test_rig::{
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use std::{
+    collections::HashSet,
     net::Ipv4Addr,
     ops::Deref,
     sync::Arc,
@@ -18,8 +20,56 @@ use std::{
 };
 use types::{ChainSpec, Epoch, EthSpec};
 
-const BOOTNODE_PORT: u16 = 42424;
-const QUIC_PORT: u16 = 43424;
+// Allocate fresh ports per node so a node never fails to start because its fixed port is
+// already in use, either by the OS handing it out as an ephemeral port or by another
+// simulator run on the same machine.
+struct NodeListeningPorts {
+    libp2p_tcp: u16,
+    discv5_udp: u16,
+    quic_udp: u16,
+}
+
+const MAX_PORT_ALLOCATION_ATTEMPTS: usize = 64;
+const MAX_BEACON_NODE_START_RETRIES: usize = 4;
+
+#[cfg(test)]
+fn unused_node_listening_ports() -> Result<NodeListeningPorts, String> {
+    unused_node_listening_ports_excluding(&HashSet::new())
+}
+
+fn unused_node_listening_ports_excluding(
+    excluded: &HashSet<u16>,
+) -> Result<NodeListeningPorts, String> {
+    let mut seen = excluded.clone();
+    Ok(NodeListeningPorts {
+        libp2p_tcp: unused_port_not_in(&mut seen, network_utils::unused_port::unused_tcp4_port)?,
+        discv5_udp: unused_port_not_in(&mut seen, network_utils::unused_port::unused_udp4_port)?,
+        quic_udp: unused_port_not_in(&mut seen, network_utils::unused_port::unused_udp4_port)?,
+    })
+}
+
+fn unused_port_not_in(
+    seen: &mut HashSet<u16>,
+    probe: fn() -> Result<u16, String>,
+) -> Result<u16, String> {
+    for _ in 0..MAX_PORT_ALLOCATION_ATTEMPTS {
+        let port = probe()?;
+        if seen.insert(port) {
+            return Ok(port);
+        }
+    }
+    Err(format!(
+        "could not find an unused port after {MAX_PORT_ALLOCATION_ATTEMPTS} attempts"
+    ))
+}
+
+fn is_addr_in_use(error: &str) -> bool {
+    error.contains("AddrInUse")
+        || error.contains("Address already in use")
+        // NetworkService::start drops the underlying listen error and reports only this
+        // sentence, so a taken libp2p/QUIC port never surfaces as AddrInUse.
+        || error.contains("unable to listen on the given listen address")
+}
 
 pub const EXECUTION_PORT: u16 = 4000;
 
@@ -124,6 +174,7 @@ pub struct Inner<E: EthSpec> {
     pub proposer_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
     pub validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
     pub execution_nodes: RwLock<Vec<LocalExecutionNode<E>>>,
+    pub allocated_ports: RwLock<HashSet<u16>>,
 }
 
 /// Represents a set of interconnected `LocalBeaconNode` and `LocalValidatorClient`.
@@ -181,6 +232,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                 proposer_nodes: RwLock::new(vec![]),
                 execution_nodes: RwLock::new(vec![]),
                 validator_clients: RwLock::new(vec![]),
+                allocated_ports: RwLock::new(HashSet::new()),
             }),
         };
 
@@ -211,20 +263,70 @@ impl<E: EthSpec> LocalNetwork<E> {
         self.validator_clients.read().len()
     }
 
+    // Allocates listening ports for a node that this network has not handed out before, so a
+    // node added long after an earlier one cannot be given a port the earlier node still
+    // holds once the shared probe cache has expired.
+    fn allocate_node_listening_ports(&self) -> Result<NodeListeningPorts, String> {
+        let mut allocated_ports = self.allocated_ports.write();
+        let ports = unused_node_listening_ports_excluding(&allocated_ports)?;
+        allocated_ports.insert(ports.libp2p_tcp);
+        allocated_ports.insert(ports.discv5_udp);
+        allocated_ports.insert(ports.quic_udp);
+        Ok(ports)
+    }
+
+    fn release_node_listening_ports(&self, ports: &NodeListeningPorts) {
+        let mut allocated_ports = self.allocated_ports.write();
+        allocated_ports.remove(&ports.libp2p_tcp);
+        allocated_ports.remove(&ports.discv5_udp);
+        allocated_ports.remove(&ports.quic_udp);
+    }
+
+    // Starts a beacon node, retrying with freshly allocated ports if the probed ports were
+    // taken between probing and binding. Other startup failures are returned immediately.
+    async fn start_beacon_node(
+        &self,
+        beacon_config: ClientConfig,
+    ) -> Result<LocalBeaconNode<E>, String> {
+        let network = self.clone();
+        let context = self.context.clone();
+        with_retry_if(
+            MAX_BEACON_NODE_START_RETRIES,
+            |error: &String| is_addr_in_use(error),
+            || {
+                let network = network.clone();
+                let context = context.clone();
+                let mut beacon_config = beacon_config.clone();
+                Box::pin(async move {
+                    let ports = network.allocate_node_listening_ports()?;
+                    beacon_config.network.set_ipv4_listening_address(
+                        std::net::Ipv4Addr::UNSPECIFIED,
+                        ports.libp2p_tcp,
+                        ports.discv5_udp,
+                        ports.quic_udp,
+                    );
+                    beacon_config.network.enr_udp4_port =
+                        Some(ports.discv5_udp.try_into().expect("non zero"));
+                    beacon_config.network.enr_tcp4_port =
+                        Some(ports.libp2p_tcp.try_into().expect("non zero"));
+                    match LocalBeaconNode::production(context, beacon_config).await {
+                        Ok(node) => Ok(node),
+                        Err(error) => {
+                            network.release_node_listening_ports(&ports);
+                            Err(error)
+                        }
+                    }
+                })
+            },
+        )
+        .await
+    }
+
     async fn construct_boot_node(
         &self,
         mut beacon_config: ClientConfig,
         mock_execution_config: MockExecutionConfig,
     ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
-        beacon_config.network.set_ipv4_listening_address(
-            std::net::Ipv4Addr::UNSPECIFIED,
-            BOOTNODE_PORT,
-            BOOTNODE_PORT,
-            QUIC_PORT,
-        );
-
-        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
-        beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.discv5_config.table_filter = |_| true;
 
         let execution_node = LocalExecutionNode::new(self.context.clone(), mock_execution_config);
@@ -236,7 +338,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             ..Default::default()
         });
 
-        let beacon_node = LocalBeaconNode::production(self.context.clone(), beacon_config).await?;
+        let beacon_node = self.start_beacon_node(beacon_config).await?;
 
         Ok((beacon_node, execution_node))
     }
@@ -250,16 +352,6 @@ impl<E: EthSpec> LocalNetwork<E> {
         let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
 
         // Set config.
-        let libp2p_tcp_port = BOOTNODE_PORT + count;
-        let discv5_port = BOOTNODE_PORT + count;
-        beacon_config.network.set_ipv4_listening_address(
-            std::net::Ipv4Addr::UNSPECIFIED,
-            libp2p_tcp_port,
-            discv5_port,
-            QUIC_PORT + count,
-        );
-        beacon_config.network.enr_udp4_port = Some(discv5_port.try_into().unwrap());
-        beacon_config.network.enr_tcp4_port = Some(libp2p_tcp_port.try_into().unwrap());
         beacon_config.network.discv5_config.table_filter = |_| true;
         beacon_config.network.proposer_only = is_proposer;
 
@@ -277,7 +369,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         });
 
         // Construct beacon node using the config,
-        let beacon_node = LocalBeaconNode::production(self.context.clone(), beacon_config).await?;
+        let beacon_node = self.start_beacon_node(beacon_config).await?;
 
         Ok((beacon_node, execution_node))
     }
@@ -481,5 +573,93 @@ impl<E: EthSpec> LocalNetwork<E> {
             "The genesis time has already passed since all nodes started. The node startup time \
             may have regressed, and the current `GENESIS_DELAY` is no longer sufficient.",
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        MAX_BEACON_NODE_START_RETRIES, is_addr_in_use, unused_node_listening_ports,
+        unused_node_listening_ports_excluding,
+    };
+    use crate::retry::with_retry_if;
+    use std::collections::HashSet;
+    use std::net::{TcpListener, UdpSocket};
+
+    #[test]
+    fn node_listening_ports_are_distinct_across_nodes() {
+        let mut tcp_ports = HashSet::new();
+        let mut udp_ports = HashSet::new();
+
+        for _ in 0..32 {
+            let ports = unused_node_listening_ports().expect("free ports must be available");
+            assert_ne!(ports.libp2p_tcp, 0);
+            assert_ne!(ports.discv5_udp, 0);
+            assert_ne!(ports.quic_udp, 0);
+            assert!(tcp_ports.insert(ports.libp2p_tcp));
+            assert!(udp_ports.insert(ports.discv5_udp));
+            assert!(udp_ports.insert(ports.quic_udp));
+        }
+    }
+
+    #[test]
+    fn node_listening_ports_are_bindable() {
+        let ports = unused_node_listening_ports().expect("free ports must be available");
+        let tcp_listener =
+            TcpListener::bind(("127.0.0.1", ports.libp2p_tcp)).expect("TCP port must be bindable");
+        let discv5_socket =
+            UdpSocket::bind(("127.0.0.1", ports.discv5_udp)).expect("discv5 port must be bindable");
+        let quic_socket =
+            UdpSocket::bind(("127.0.0.1", ports.quic_udp)).expect("QUIC port must be bindable");
+        assert_eq!(tcp_listener.local_addr().unwrap().port(), ports.libp2p_tcp);
+        assert_eq!(discv5_socket.local_addr().unwrap().port(), ports.discv5_udp);
+        assert_eq!(quic_socket.local_addr().unwrap().port(), ports.quic_udp);
+    }
+
+    #[test]
+    fn node_listening_ports_skip_already_allocated() {
+        let ports = unused_node_listening_ports().expect("free ports must be available");
+        let allocated = HashSet::from([ports.libp2p_tcp, ports.discv5_udp, ports.quic_udp]);
+        let next = unused_node_listening_ports_excluding(&allocated)
+            .expect("free ports must be available");
+        assert!(!allocated.contains(&next.libp2p_tcp));
+        assert!(!allocated.contains(&next.discv5_udp));
+        assert!(!allocated.contains(&next.quic_udp));
+    }
+
+    #[test]
+    fn addr_in_use_error_is_detected() {
+        assert!(is_addr_in_use(
+            "Failed to start network: \"Libp2p was unable to listen on the given listen address.\""
+        ));
+        assert!(is_addr_in_use(
+            "Failed to start network: Os { code: 98, kind: AddrInUse, message: \"Address already in use\" }"
+        ));
+        assert!(is_addr_in_use("Address already in use (os error 98)"));
+        assert!(!is_addr_in_use("Beacon node startup timed out after 60s"));
+        assert!(!is_addr_in_use(
+            "Failed to start network: connection refused"
+        ));
+    }
+
+    #[tokio::test]
+    async fn libp2p_listen_failure_is_retried() {
+        let mut attempts = 0;
+        let result = with_retry_if(
+            MAX_BEACON_NODE_START_RETRIES,
+            |error: &String| is_addr_in_use(error),
+            || {
+                attempts += 1;
+                let result = if attempts < 3 {
+                    Err("Failed to start network: \"Libp2p was unable to listen on the given listen address.\"".to_string())
+                } else {
+                    Ok(())
+                };
+                Box::pin(async move { result })
+            },
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(attempts, 3);
     }
 }

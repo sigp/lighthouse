@@ -9315,6 +9315,7 @@ dependencies = [
  "futures",
  "kzg",
  "logging",
+ "network_utils",
  "node_test_rig",
  "parking_lot",
  "rayon",
