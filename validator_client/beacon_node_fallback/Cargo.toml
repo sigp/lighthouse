@@ -8,6 +8,9 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 name = "beacon_node_fallback"
 path = "src/lib.rs"
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 bls = { workspace = true }
 clap = { workspace = true }

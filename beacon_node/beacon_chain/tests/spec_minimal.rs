@@ -1,4 +1,5 @@
 mod block_production;
+mod circuit_breaker;
 mod envelope_verification;
 mod events;
 mod fast_confirmation_restart;
