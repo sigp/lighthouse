@@ -461,6 +461,27 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.executor.clone(),
         ));
 
+        if config.validator_store.xmss_cache_url.is_some()
+            && context.eth2_config.spec.is_pq_scheduled()
+        {
+            let result = async {
+                let network = context
+                    .eth2_network_config
+                    .as_ref()
+                    .filter(|network| network.genesis_state_bytes.is_some())
+                    .ok_or("no local genesis state")?;
+                let state = network
+                    .genesis_state::<E>(None, Duration::from_secs(5))
+                    .await?
+                    .ok_or("no local genesis state")?;
+                validator_store.set_pq_cache_registry(state)
+            }
+            .await;
+            if let Err(error) = result {
+                warn!(%error, "Unable to authenticate distributed PQ XMSS caches from local genesis");
+            }
+        }
+
         // Ensure all validators are registered in doppelganger protection.
         validator_store.register_all_in_doppelganger_protection_if_enabled()?;
 

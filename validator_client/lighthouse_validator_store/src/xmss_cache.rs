@@ -1,6 +1,6 @@
 //! On-disk accelerator for local XMSS signing trees. Leaf reservations are in slashing protection.
 
-use super::xmss_cache_source::{self, CacheIdentity, ImportedCache};
+use super::xmss_cache_source::ImportedCache;
 use bls::{PublicKeyBytes, SecretKey};
 use genesis::pq::xmss_seed_from_bls;
 use parking_lot::Mutex;
@@ -86,8 +86,8 @@ impl CacheLoader {
         Err(Self { seed, disk })
     }
 
-    pub(super) fn identity(&self, derivation_index: Option<u32>) -> Option<CacheIdentity> {
-        xmss_cache_source::identify(&self.seed, derivation_index)
+    pub(super) fn public_parameter(&self) -> Option<[u8; 16]> {
+        XmssSecretKey::public_parameter(&self.seed)
     }
 
     pub(super) fn finish(
@@ -96,10 +96,8 @@ impl CacheLoader {
         imported: Option<ImportedCache>,
     ) -> CachedSigner {
         let started = Instant::now();
-        if let Some(ImportedCache { identity, bytes }) = imported {
-            if let Some(key) =
-                XmssSecretKey::from_cache_bytes(&self.seed, identity.public_key, &bytes)
-            {
+        if let Some(ImportedCache { public_key, bytes }) = imported {
+            if let Some(key) = XmssSecretKey::from_cache_bytes(&self.seed, public_key, &bytes) {
                 info!(
                     ?pubkey,
                     elapsed_ms = started.elapsed().as_millis(),
@@ -209,6 +207,8 @@ impl DiskCache {
 #[cfg(all(test, not(debug_assertions)))]
 mod tests {
     use super::*;
+    use crate::xmss_cache_source::{self, RegisteredKey, Registry};
+    use types::Hash256;
 
     // The published devnet-0 testing mnemonic, voting-key derivation index 0.
     const INDEX_ZERO_BLS: [u8; 32] = [
@@ -234,16 +234,18 @@ mod tests {
         tokio::fs::write(&path, bytes).await.unwrap();
         let source = xmss_cache_source::Source::new(path.to_str().unwrap()).unwrap();
 
+        let public_key =
+            XmssPublicKey::from(*include_bytes!("xmss_cache_source/devnet0_index0.pub"));
+        let registered = RegisteredKey {
+            public_key,
+            vrf_root: Hash256::ZERO,
+        };
         let loader = open(Some(dir.path()));
-        let identity = loader.identity(None).unwrap();
-        assert_eq!(loader.identity(Some(0)), Some(identity));
-        assert_eq!(loader.identity(Some(1)), None);
-        assert!(xmss_cache_source::identify(&[1; 32], None).is_none());
-        let imported = source.fetch(identity).await.unwrap();
+        let imported = source.fetch(registered, Some(0), None).await.unwrap();
         let started = Instant::now();
         let signer = loader.finish(pubkey, Some(imported));
         eprintln!("pregenerated cache import took {:?}", started.elapsed());
-        assert_eq!(signer.key.public_key(), identity.public_key);
+        assert_eq!(signer.key.public_key(), public_key);
         assert_eq!(
             cache_tree_indices(&signer.key.cache_to_bytes().unwrap()).unwrap(),
             [0, 24_576]
@@ -252,12 +254,7 @@ mod tests {
         for leaf in [32_768, 1_610_645_504] {
             signer.key.prepare(leaf).unwrap();
             let signature = signer.key.sign(&[3; 32], leaf).unwrap();
-            assert!(xmss::verify(
-                &identity.public_key,
-                leaf,
-                &[3; 32],
-                &signature
-            ));
+            assert!(xmss::verify(&public_key, leaf, &[3; 32], &signature));
         }
         signer.persist(pubkey);
         let restarted = CachedSigner::load(&bls_key, pubkey, Some(dir.path()));
@@ -269,13 +266,145 @@ mod tests {
         let mut corrupt = *bytes;
         corrupt[0] ^= 1;
         tokio::fs::write(&path, corrupt).await.unwrap();
-        let imported = source.fetch(identity).await.unwrap();
+        let imported = source.fetch(registered, Some(0), None).await.unwrap();
         let rebuilt = open(None).finish(pubkey, Some(imported));
-        assert_eq!(rebuilt.key.public_key(), identity.public_key);
+        assert_eq!(rebuilt.key.public_key(), public_key);
         assert!(
             cache_tree_indices(&rebuilt.key.cache_to_bytes().unwrap())
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn xmss_cache_matches_custom_keys_in_artifact_order() {
+        if xmss::FAKE_CRYPTO {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let bls_key = SecretKey::deserialize(&[1; 32]).unwrap();
+        let pubkey = PublicKeyBytes::deserialize(&bls_key.public_key().serialize()).unwrap();
+        let seed = xmss_seed_from_bls(&bls_key);
+        let key = XmssSecretKey::from_seed(&seed);
+        for leaf in [32_768, 1_610_645_504] {
+            key.prepare(leaf).unwrap();
+        }
+        let bytes = key.cache_to_bytes().unwrap();
+        let registered = RegisteredKey {
+            public_key: key.public_key(),
+            vrf_root: Hash256::repeat_byte(1),
+        };
+        let other = RegisteredKey {
+            public_key: XmssPublicKey::from(*include_bytes!(
+                "xmss_cache_source/devnet0_index0.pub"
+            )),
+            vrf_root: Hash256::repeat_byte(2),
+        };
+        let registry = Registry::new([registered, other]);
+        let open = |dir: Option<&Path>| match CacheLoader::open(&bls_key, pubkey, dir) {
+            Ok(_) => panic!("expected a cold disk cache"),
+            Err(loader) => loader,
+        };
+        let parameter = open(None).public_parameter().unwrap();
+        let custom = registry.identify(parameter).unwrap();
+        assert_eq!(custom.public_key, registered.public_key);
+        assert!(
+            Registry::new([registered, registered])
+                .identify(parameter)
+                .is_none()
+        );
+        let path = dir.path().join("custom.xmss");
+        let mut artifact = xmss_cache_source::INDEX_ZERO_CACHE.to_vec();
+        artifact.extend_from_slice(&bytes);
+        tokio::fs::write(&path, &artifact).await.unwrap();
+        let mut metadata = Vec::new();
+        // Registry order is the reverse of the artifact's order.
+        for entry in [other, registered] {
+            metadata.extend_from_slice(entry.public_key.as_bytes());
+            metadata.extend_from_slice(entry.vrf_root.as_slice());
+        }
+        tokio::fs::write(path.with_extension("bin"), &metadata)
+            .await
+            .unwrap();
+        let source = xmss_cache_source::Source::new(path.to_str().unwrap()).unwrap();
+
+        for index in [Some(1), None] {
+            let imported = source.fetch(custom, index, None).await.unwrap();
+            let signer = open(None).finish(pubkey, Some(imported));
+            assert_eq!(signer.key.cache_to_bytes().unwrap(), bytes);
+            let signature = signer.key.sign(&[3; 32], 32_768).unwrap();
+            assert!(xmss::verify(
+                &key.public_key(),
+                32_768,
+                &[3; 32],
+                &signature
+            ));
+        }
+
+        // Losing the metadata is recoverable when the slot-zero VRF artifact is available.
+        tokio::fs::remove_file(path.with_extension("bin"))
+            .await
+            .unwrap();
+        let vrf_path = dir.path().join("custom.vrf");
+        let mut vrf = vec![0; 2 * crate::vrf_state::RECORD_SIZE];
+        vrf[..32].copy_from_slice(other.vrf_root.as_slice());
+        vrf[crate::vrf_state::RECORD_SIZE..][..32].copy_from_slice(custom.vrf_root.as_slice());
+        tokio::fs::write(&vrf_path, vrf).await.unwrap();
+        let vrf_source = crate::vrf_state::Source::new(vrf_path.to_str().unwrap()).unwrap();
+        let source = xmss_cache_source::Source::new(path.to_str().unwrap()).unwrap();
+        let imported = source.fetch(custom, None, Some(&vrf_source)).await.unwrap();
+        let signer = open(Some(dir.path())).finish(pubkey, Some(imported));
+        signer.persist(pubkey);
+        let restarted = CachedSigner::load(&bls_key, pubkey, Some(dir.path()));
+        assert_eq!(restarted.key.cache_to_bytes().unwrap(), bytes);
+
+        let wrong_index = source.fetch(custom, Some(0), None).await.unwrap();
+        let rebuilt = open(None).finish(pubkey, Some(wrong_index));
+        assert_eq!(rebuilt.key.public_key(), custom.public_key);
+        assert!(
+            cache_tree_indices(&rebuilt.key.cache_to_bytes().unwrap())
+                .unwrap()
+                .is_empty()
+        );
+
+        // A fabricated `.bin` entry cannot authorize a record for a different key.
+        for record in metadata.chunks_exact_mut(64) {
+            record[..32].copy_from_slice(custom.public_key.as_bytes());
+        }
+        tokio::fs::write(path.with_extension("bin"), &metadata[..64])
+            .await
+            .unwrap();
+        let source = xmss_cache_source::Source::new(path.to_str().unwrap()).unwrap();
+        let imported = source.fetch(custom, None, None).await.unwrap();
+        let rebuilt = open(None).finish(pubkey, Some(imported));
+        assert_eq!(rebuilt.key.public_key(), custom.public_key);
+        assert!(
+            cache_tree_indices(&rebuilt.key.cache_to_bytes().unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        tokio::fs::write(path.with_extension("bin"), metadata)
+            .await
+            .unwrap();
+        let source = xmss_cache_source::Source::new(path.to_str().unwrap()).unwrap();
+        assert!(
+            source
+                .fetch(custom, None, None)
+                .await
+                .err()
+                .unwrap()
+                .contains("ambiguous")
+        );
+
+        artifact.pop();
+        tokio::fs::write(path, artifact).await.unwrap();
+        assert!(
+            source
+                .fetch(custom, Some(1), None)
+                .await
+                .err()
+                .unwrap()
+                .contains("incomplete")
         );
     }
 

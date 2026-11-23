@@ -260,7 +260,7 @@ impl<E: EthSpec> Measurement<E> {
                         "lighthouse_version": lighthouse_version::version_with_platform(),
                         "lighthouse_commit": (!lighthouse_version::COMMIT.is_empty()).then_some(lighthouse_version::COMMIT),
                         "leanvm_revision": pq_prover::LEANVM_REV,
-                        "leanvm_bindings_version": (pq_prover::LEANVM_REV == "c5ee9d239e42d0bc8113eb4aee3e2cae5faf1764").then_some("0.15.0"),
+                        "leanvm_bindings_version": (pq_prover::LEANVM_REV == "241b009a61ba5fde797d1213b5bf76310f0d5060").then_some("0.16.0"),
                         "prover_backend": "leanvm-sidecar",
                         "prover_log_inv_rate": 2,
                         "prover_cpu_profile": Value::Null,

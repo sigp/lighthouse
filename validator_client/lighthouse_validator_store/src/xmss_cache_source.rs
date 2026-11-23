@@ -1,75 +1,66 @@
 //! Optional, bounded reads of the little-endian leanVM devnet-0 cache artifact.
 
 use reqwest::{Client, StatusCode, Url, header};
-use std::{collections::HashMap, path::PathBuf, sync::LazyLock, time::Duration};
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use xmss::{
-    CACHE_BOTTOM_TREE_SIZE, CACHE_TOP_TREE_SIZE, XMSS_SECRET_KEY_BYTES_LEN, XmssPublicKey,
-    XmssSecretKey,
+use std::{collections::HashMap, path::PathBuf, time::Duration};
+use tokio::{
+    io::{AsyncReadExt, AsyncSeekExt},
+    sync::OnceCell,
 };
+use types::Hash256;
+use xmss::{CACHE_BOTTOM_TREE_SIZE, CACHE_TOP_TREE_SIZE, XmssPublicKey};
 
 const RECORD_SIZE: usize = CACHE_TOP_TREE_SIZE + 2 * CACHE_BOTTOM_TREE_SIZE;
 const KEY_COUNT: usize = 10_000;
+const METADATA_RECORD_SIZE: usize = 64;
+const MAX_METADATA_SIZE: usize = KEY_COUNT * METADATA_RECORD_SIZE;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
-// First 32 bytes of each 64-byte key/VRF-root record in the immutable devnet-0 genesis artifact.
-// ethereum-package d4c9a8ace9dd80ca4f9938885345f8f40a646fd0:static_files/xmss-keys/b9dec4e1daa17dfe.bin
-// Original Git blob de3e27e434edfad1e222ed45a2ebfab1057eacab. See pq-genesis/README.md.
-const DEVNET_KEYS: &[u8; 32 * KEY_COUNT] =
-    include_bytes!("xmss_cache_source/devnet0_xmss_pubkeys.bin");
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct CacheIdentity {
-    index: u32,
+#[derive(Clone, Copy)]
+pub(super) struct RegisteredKey {
     pub(super) public_key: XmssPublicKey,
+    pub(super) vrf_root: Hash256,
 }
 
-static DEVNET_IDENTITIES: LazyLock<HashMap<[u8; 16], Option<CacheIdentity>>> =
-    LazyLock::new(|| {
-        DEVNET_KEYS.as_chunks::<32>().0.iter().zip(0..).fold(
-            HashMap::with_capacity(KEY_COUNT),
-            |mut keys, (key, index)| {
-                if let Some(parameter) = key.last_chunk::<16>() {
-                    keys.entry(*parameter)
-                        .and_modify(|entry| *entry = None)
-                        .or_insert(Some(CacheIdentity {
-                            index,
-                            public_key: XmssPublicKey::from(*key),
-                        }));
-                }
-                keys
-            },
-        )
-    });
+pub(super) struct Registry(HashMap<[u8; 16], Option<RegisteredKey>>);
 
-pub(super) fn identify(
-    seed: &[u8; XMSS_SECRET_KEY_BYTES_LEN],
-    derivation_index: Option<u32>,
-) -> Option<CacheIdentity> {
-    // The public parameter is seed-derived and cheap to compute. Look it up in independently
-    // pinned genesis material, then require the full trusted key in the upstream cache decoder.
-    let parameter = XmssSecretKey::public_parameter(seed)?;
-    let identity = (*DEVNET_IDENTITIES.get(&parameter)?)?;
-    if derivation_index.is_some_and(|index| index != identity.index) {
-        return None;
+impl Registry {
+    pub(super) fn new(keys: impl IntoIterator<Item = RegisteredKey>) -> Self {
+        let mut registry = HashMap::new();
+        for key in keys {
+            if let Some(parameter) = key.public_key.as_bytes().last_chunk::<16>() {
+                registry
+                    .entry(*parameter)
+                    .and_modify(|entry| *entry = None)
+                    .or_insert(Some(key));
+            }
+        }
+        Self(registry)
     }
-    Some(identity)
+
+    pub(super) fn identify(&self, parameter: [u8; 16]) -> Option<RegisteredKey> {
+        *self.0.get(&parameter)?
+    }
 }
 
 pub(super) struct ImportedCache {
-    pub(super) identity: CacheIdentity,
+    pub(super) public_key: XmssPublicKey,
     pub(super) bytes: Vec<u8>,
 }
 
-pub(super) enum Source {
+pub(super) struct Source {
+    location: Location,
+    metadata: OnceCell<Result<HashMap<XmssPublicKey, Option<u32>>, String>>,
+}
+
+enum Location {
     File(PathBuf),
     Http { url: Url, client: Client },
 }
 
 impl Source {
     pub(super) fn new(value: &str) -> Result<Self, String> {
-        match Url::parse(value) {
-            Ok(url) if matches!(url.scheme(), "http" | "https") => Ok(Self::Http {
+        let location = match Url::parse(value) {
+            Ok(url) if matches!(url.scheme(), "http" | "https") => Ok(Location::Http {
                 url,
                 client: Client::builder()
                     .timeout(REQUEST_TIMEOUT)
@@ -78,27 +69,128 @@ impl Source {
             }),
             Ok(url) if url.scheme() == "file" => url
                 .to_file_path()
-                .map(Self::File)
-                .map_err(|_| "invalid --xmss-cache-url file URI".into()),
-            Ok(_) => Err("--xmss-cache-url requires HTTP, HTTPS or a local file".into()),
-            Err(_) if !value.is_empty() && !value.contains("://") => Ok(Self::File(value.into())),
-            Err(_) => Err("invalid --xmss-cache-url".into()),
-        }
+                .map(Location::File)
+                .map_err(|_| "invalid --xmss-cache-url file URI"),
+            Ok(_) => Err("--xmss-cache-url requires HTTP, HTTPS or a local file"),
+            Err(_) if !value.is_empty() && !value.contains("://") => {
+                Ok(Location::File(value.into()))
+            }
+            Err(_) => Err("invalid --xmss-cache-url"),
+        }?;
+        Ok(Self {
+            location,
+            metadata: OnceCell::new(),
+        })
     }
 
-    pub(super) async fn fetch(&self, identity: CacheIdentity) -> Result<ImportedCache, String> {
-        let bytes = self.record(identity.index).await?;
+    pub(super) async fn fetch(
+        &self,
+        key: RegisteredKey,
+        derivation_index: Option<u32>,
+        vrf: Option<&super::vrf_state::Source>,
+    ) -> Result<ImportedCache, String> {
+        let index = match derivation_index {
+            Some(index) => index,
+            None => match self.index_for_key(key.public_key).await {
+                Ok(index) => index,
+                Err(error) => match vrf {
+                    Some(vrf) => vrf
+                        .index_for_root(key.vrf_root)
+                        .await
+                        .map_err(|vrf_error| {
+                            format!(
+                                "{error}. Unable to locate XMSS cache via VRF state: {vrf_error}"
+                            )
+                        })?,
+                    None => return Err(error),
+                },
+            },
+        };
+        let bytes = self.record(index).await?;
         if xmss::cache_tree_indices(&bytes).as_deref() != Some(&[0, 24_576]) {
             return Err("unexpected bottom trees in pregenerated XMSS cache".into());
         }
-        Ok(ImportedCache { identity, bytes })
+        Ok(ImportedCache {
+            public_key: key.public_key,
+            bytes,
+        })
+    }
+
+    async fn index_for_key(&self, public_key: XmssPublicKey) -> Result<u32, String> {
+        let metadata = self.metadata.get_or_init(|| self.read_metadata()).await;
+        match metadata.as_ref().map_err(Clone::clone)?.get(&public_key) {
+            Some(Some(index)) => Ok(*index),
+            Some(None) => Err("ambiguous XMSS public key in cache metadata".into()),
+            None => Err("registered XMSS public key missing from cache metadata".into()),
+        }
+    }
+
+    async fn read_metadata(&self) -> Result<HashMap<XmssPublicKey, Option<u32>>, String> {
+        // Companion genesis metadata is only an index hint. The cache decoder uses the full key
+        // from the configured genesis, never one supplied by the cache publisher.
+        let bytes = match &self.location {
+            Location::File(path) => {
+                let path = path.with_extension("bin");
+                if !tokio::fs::metadata(&path)
+                    .await
+                    .is_ok_and(|meta| meta.is_file())
+                {
+                    return Err("XMSS cache has no companion metadata file".into());
+                }
+                let mut data = Vec::new();
+                tokio::fs::File::open(path)
+                    .await
+                    .map_err(|error| error.to_string())?
+                    .take((MAX_METADATA_SIZE + 1) as u64)
+                    .read_to_end(&mut data)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                data
+            }
+            Location::Http { url, client } => {
+                let mut url = url.clone();
+                let path = std::path::Path::new(url.path()).with_extension("bin");
+                let path = path
+                    .to_str()
+                    .ok_or("invalid XMSS cache metadata path")?
+                    .to_owned();
+                url.set_path(&path);
+                let response = client
+                    .get(url)
+                    .header(header::ACCEPT_ENCODING, "identity")
+                    .send()
+                    .await
+                    .map_err(|error| error.without_url().to_string())?;
+                if response.status() != StatusCode::OK {
+                    return Err(format!(
+                        "XMSS cache metadata request returned HTTP {}",
+                        response.status()
+                    ));
+                }
+                super::vrf_state::read_response(response, MAX_METADATA_SIZE).await?
+            }
+        };
+        let (records, remainder) = bytes.as_chunks::<METADATA_RECORD_SIZE>();
+        if records.is_empty() || !remainder.is_empty() || bytes.len() > MAX_METADATA_SIZE {
+            return Err("invalid XMSS cache metadata length".into());
+        }
+        let mut indices = HashMap::with_capacity(records.len());
+        for (record, index) in records.iter().zip(0..) {
+            if let Some(key) = record.first_chunk::<32>() {
+                indices
+                    .entry(XmssPublicKey::from(*key))
+                    .and_modify(|entry| *entry = None)
+                    .or_insert(Some(index));
+            }
+        }
+        Ok(indices)
     }
 
     async fn record(&self, index: u32) -> Result<Vec<u8>, String> {
         let start = u64::from(index) * RECORD_SIZE as u64;
         let end = start + RECORD_SIZE as u64 - 1;
-        match self {
-            Self::File(path) => {
+        match &self.location {
+            Location::File(path) => {
                 if !tokio::fs::metadata(path)
                     .await
                     .map_err(|e| e.to_string())?
@@ -124,7 +216,7 @@ impl Source {
                     .map_err(|e| e.to_string())?;
                 Ok(bytes)
             }
-            Self::Http { url, client } => {
+            Location::Http { url, client } => {
                 let response = client
                     .get(url.clone())
                     .header(header::RANGE, format!("bytes={start}-{end}"))

@@ -117,8 +117,8 @@ impl Source {
         }
     }
 
-    pub async fn record_for_root(&self, root: Hash256) -> Result<Vec<u8>, String> {
-        let artifact = match self {
+    async fn artifact(&self) -> Result<&Artifact, String> {
+        match self {
             Self::File(path, artifact) => {
                 artifact
                     .get_or_try_init(|| async {
@@ -132,11 +132,34 @@ impl Source {
                             .map_err(|e| e.to_string())?;
                         Artifact::new(bytes)
                     })
-                    .await?
+                    .await
             }
-            Self::Http(http) => http.download().await?,
-        };
-        artifact.record_for_root(root)
+            Self::Http(http) => http.download().await,
+        }
+    }
+
+    pub async fn record_for_root(&self, root: Hash256) -> Result<Vec<u8>, String> {
+        let artifact = self.artifact().await?;
+        slice_record(&artifact.bytes, artifact.offset_for_root(root)?)
+    }
+
+    pub(super) async fn record_for_validator(
+        &self,
+        index: Option<u32>,
+        root: Hash256,
+    ) -> Result<Vec<u8>, String> {
+        if let Some(index) = index
+            && let Ok(bytes) = self.record(index).await
+            && Record::decode(&bytes, root).is_ok()
+        {
+            return Ok(bytes);
+        }
+        self.record_for_root(root).await
+    }
+
+    pub(super) async fn index_for_root(&self, root: Hash256) -> Result<u32, String> {
+        let offset = self.artifact().await?.offset_for_root(root)?;
+        u32::try_from(offset / RECORD_SIZE as u64).map_err(|_| "VRF record index overflow".into())
     }
 }
 
@@ -161,9 +184,9 @@ impl Artifact {
         Ok(Self { bytes, roots })
     }
 
-    fn record_for_root(&self, root: Hash256) -> Result<Vec<u8>, String> {
+    fn offset_for_root(&self, root: Hash256) -> Result<u64, String> {
         match self.roots.get(&root) {
-            Some(Some(offset)) => slice_record(&self.bytes, *offset),
+            Some(Some(offset)) => Ok(*offset),
             Some(None) => Err(format!("ambiguous registered VRF root {root} in artifact")),
             None => Err(format!("registered VRF root {root} missing from artifact")),
         }
@@ -348,6 +371,14 @@ mod tests {
         assert_eq!(record, VECTOR);
         let root = Hash256::from_slice(&VECTOR[..32]);
         assert_eq!(source.record_for_root(root).await.unwrap(), VECTOR);
+        assert_eq!(source.index_for_root(root).await.unwrap(), 5);
+        // Registry order can differ and different mnemonics can use the same derivation path.
+        for index in [None, Some(0), Some(5), Some(6)] {
+            assert_eq!(
+                source.record_for_validator(index, root).await.unwrap(),
+                VECTOR
+            );
+        }
         assert!(
             source
                 .record_for_root(Hash256::ZERO)

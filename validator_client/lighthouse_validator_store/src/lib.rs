@@ -64,7 +64,7 @@ pub struct Config {
     pub vrf_state_cache_dir: Option<std::path::PathBuf>,
     /// Directory for the local XMSS signing tree cache.
     pub xmss_cache_dir: Option<std::path::PathBuf>,
-    /// Optional pregenerated leanXMSS tree cache artifact for the devnet genesis keys.
+    /// Optional pregenerated leanXMSS tree cache artifact for the configured genesis keys.
     pub xmss_cache_url: Option<String>,
 }
 

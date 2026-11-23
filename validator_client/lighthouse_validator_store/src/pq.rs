@@ -2,7 +2,7 @@ use super::{
     Config, Error, LighthouseValidatorStore,
     vrf_state::{self, Record, Source},
     xmss_cache::{CacheLoader, CachedSigner},
-    xmss_cache_source,
+    xmss_cache_source::{self, RegisteredKey, Registry},
 };
 use bls::{Keypair, PublicKeyBytes};
 use futures::{StreamExt, stream};
@@ -26,9 +26,10 @@ use tokio::{
 };
 use tracing::{debug, info, warn};
 use types::{
-    AggregateAndProof, AggregateAndProofPq, Attestation, AttestationData, AttestationProof, Domain,
-    EthSpec, ForkName, Hash256, SignedAggregateAndProof, SignedAggregateAndProofPq, SignedRoot,
-    SingleAttestation, SingleAttestationPq, Slot, VrfProof, XmssPublicKey, XmssSignature,
+    AggregateAndProof, AggregateAndProofPq, Attestation, AttestationData, AttestationProof,
+    BeaconState, Domain, EthSpec, ForkName, Hash256, SignedAggregateAndProof,
+    SignedAggregateAndProofPq, SignedRoot, SingleAttestation, SingleAttestationPq, Slot, VrfProof,
+    XmssPublicKey, XmssSignature,
 };
 use validator_store::{AttestationToSign, DoppelgangerStatus, ValidatorStore};
 use xmss::{LeafIndex, SUBTREE_LEAVES};
@@ -99,7 +100,7 @@ impl Key {
 pub(super) struct Keys {
     entries: Mutex<HashMap<PublicKeyBytes, Arc<Key>>>,
     permits: Arc<Semaphore>,
-    indices: Mutex<HashMap<PublicKeyBytes, Result<Option<u32>, String>>>,
+    xmss_registry: OnceLock<Registry>,
     source: Result<Option<Source>, String>,
     vrf_cache_dir: Option<PathBuf>,
     xmss_cache_dir: Option<PathBuf>,
@@ -124,7 +125,7 @@ impl Keys {
         Self {
             entries: Mutex::default(),
             permits: Arc::new(Semaphore::new(PQ_WORKERS)),
-            indices: Mutex::default(),
+            xmss_registry: OnceLock::new(),
             source: config.vrf_state_url.as_deref().map(Source::new).transpose(),
             vrf_cache_dir: config.vrf_state_cache_dir.clone(),
             xmss_cache_dir: config.xmss_cache_dir.clone(),
@@ -135,6 +136,31 @@ impl Keys {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
+    /// Use the trusted local PQ genesis registry to authenticate distributed XMSS caches.
+    pub fn set_pq_cache_registry(&self, mut state: BeaconState<E>) -> Result<(), String> {
+        if self.pq_keys.xmss_cache_source.is_none() {
+            return Ok(());
+        }
+        let expected_root = self.genesis_validators_root;
+        if !matches!(state, BeaconState::Pq(_))
+            || state.genesis_validators_root() != expected_root
+            || state
+                .update_validators_tree_hash_cache()
+                .map_err(|error| format!("{error:?}"))?
+                != expected_root
+        {
+            return Err("PQ XMSS cache requires a matching genesis validator registry".into());
+        }
+        let registry = Registry::new(state.validators().iter().map(|validator| RegisteredKey {
+            public_key: validator.pubkey,
+            vrf_root: validator.vrf_root,
+        }));
+        self.pq_keys
+            .xmss_registry
+            .set(registry)
+            .map_err(|_| "PQ XMSS cache registry already initialized".into())
+    }
+
     async fn with_local_pq_key<R: Send + 'static>(
         &self,
         pubkey: PublicKeyBytes,
@@ -184,7 +210,10 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         slot: Slot,
     ) -> Result<(), Error> {
         let cache_dir = self.pq_keys.xmss_cache_dir.clone();
-        let (loader, imported) = if let Some(source) = &self.pq_keys.xmss_cache_source {
+        let (loader, imported) = if let (Some(source), Some(registry)) = (
+            &self.pq_keys.xmss_cache_source,
+            self.pq_keys.xmss_registry.get(),
+        ) {
             let dir = cache_dir.clone();
             let loader = self
                 .with_local_pq_key(pubkey, Arc::clone(&signing_method), move |key, bls| {
@@ -206,27 +235,28 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                     voting_keystore, ..
                 } = &*signing_method
             {
-                match vrf_state::derivation_index(voting_keystore.path().as_deref()) {
-                    Ok(index) => {
-                        if let Some(identity) = loader.identity(index) {
-                            match source.fetch(identity).await {
-                                Ok(record) => imported = Some(record),
-                                Err(error) => warn!(
-                                    ?pubkey, %error,
-                                    "Unable to read pregenerated PQ XMSS cache, building locally"
-                                ),
-                            }
-                        } else {
-                            debug!(
-                                ?pubkey,
-                                "Validator does not match a pregenerated PQ XMSS key"
-                            );
-                        }
+                let index = vrf_state::derivation_index(voting_keystore.path().as_deref())
+                    .unwrap_or_else(|error| {
+                        debug!(?pubkey, %error, "Looking up PQ XMSS cache by registered identity");
+                        None
+                    });
+                if let Some(key) = loader
+                    .public_parameter()
+                    .and_then(|parameter| registry.identify(parameter))
+                {
+                    let vrf_source = self.pq_keys.source.as_ref().ok().and_then(Option::as_ref);
+                    match source.fetch(key, index, vrf_source).await {
+                        Ok(record) => imported = Some(record),
+                        Err(error) => warn!(
+                            ?pubkey, %error,
+                            "Unable to read pregenerated PQ XMSS cache, building locally"
+                        ),
                     }
-                    Err(error) => warn!(
-                        ?pubkey, %error,
-                        "Unable to identify pregenerated PQ XMSS cache, building locally"
-                    ),
+                } else {
+                    debug!(
+                        ?pubkey,
+                        "Validator does not match a unique genesis PQ XMSS key"
+                    );
                 }
             }
             (loader, imported)
@@ -259,20 +289,6 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     }
 
     pub(super) async fn load_pq_keys(&self, pubkeys: Vec<PublicKeyBytes>) {
-        if matches!(self.pq_keys.source, Ok(Some(_))) {
-            let validators = self.validators.read();
-            let indices = pubkeys.iter().map(|&pubkey| {
-                let method = validators.signing_method(&pubkey);
-                let index = match method.as_deref() {
-                    Some(SigningMethod::LocalKeystore {
-                        voting_keystore, ..
-                    }) => vrf_state::derivation_index(voting_keystore.path().as_deref()),
-                    _ => Err("PQ VRF requires a local voting keystore".into()),
-                };
-                (pubkey, index)
-            });
-            *self.pq_keys.indices.lock() = checked_vrf_indices(indices);
-        }
         if pubkeys.iter().all(|pubkey| self.local_pq_key_ready(pubkey)) {
             return;
         }
@@ -498,14 +514,20 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             .map_err(|error| Error::Middleware(error.clone()))?
             .as_ref()
             .ok_or_else(|| Error::Middleware("PQ proposals require --vrf-state-url".into()))?;
-        let index = self
-            .pq_keys
-            .indices
-            .lock()
-            .get(&pubkey)
-            .cloned()
-            .ok_or_else(|| Error::Middleware("PQ VRF keystore index has not been resolved".into()))?
-            .map_err(Error::Middleware)?;
+        let SigningMethod::LocalKeystore {
+            voting_keystore, ..
+        } = &*signing_method
+        else {
+            return Err(Error::Middleware(
+                "PQ VRF requires a local voting keystore".into(),
+            ));
+        };
+        let index = vrf_state::derivation_index(voting_keystore.path().as_deref()).unwrap_or_else(
+            |error| {
+                debug!(?pubkey, %error, "Looking up PQ VRF state by registered root");
+                None
+            },
+        );
         let key = self
             .pq_keys
             .entries
@@ -537,11 +559,10 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                         }
                     }
                 }
-                let bytes = match index {
-                    Some(index) => source.record(index).await,
-                    None => source.record_for_root(root).await,
-                }
-                .map_err(Error::Middleware)?;
+                let bytes = source
+                    .record_for_validator(index, root)
+                    .await
+                    .map_err(Error::Middleware)?;
                 let tree = self
                     .validate_vrf_record(pubkey, signing_method, root, &bytes)
                     .await?;
@@ -751,29 +772,6 @@ pub(super) fn pq_leaf_error(error: impl std::fmt::Debug) -> Error {
     Error::Middleware(format!("PQ signature leaf: {error:?}"))
 }
 
-fn checked_vrf_indices(
-    entries: impl IntoIterator<Item = (PublicKeyBytes, Result<Option<u32>, String>)>,
-) -> HashMap<PublicKeyBytes, Result<Option<u32>, String>> {
-    let mut indices = HashMap::new();
-    let mut owners = HashMap::new();
-    for (pubkey, index) in entries {
-        let index = index.and_then(|index| {
-            let Some(index) = index else {
-                return Ok(None);
-            };
-            if let Some(previous) = owners.insert(index, pubkey) {
-                let error = format!("ambiguous VRF derivation index {index} in enabled keystores");
-                indices.insert(previous, Err(error.clone()));
-                Err(error)
-            } else {
-                Ok(Some(index))
-            }
-        });
-        indices.insert(pubkey, index);
-    }
-    indices
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -823,20 +821,5 @@ mod tests {
                 .leaves()
                 .any(|leaf| leaf == current.attestation_tree)
         );
-    }
-
-    #[test]
-    fn vrf_rejects_all_owners_of_duplicate_derivation_index() {
-        let first = PublicKeyBytes::deserialize(&[1; 48]).unwrap();
-        let second = PublicKeyBytes::deserialize(&[2; 48]).unwrap();
-        let third = PublicKeyBytes::deserialize(&[3; 48]).unwrap();
-        let indices = checked_vrf_indices([
-            (first, Ok(Some(5))),
-            (second, Ok(Some(5))),
-            (third, Ok(Some(8))),
-        ]);
-        assert!(indices[&first].is_err());
-        assert!(indices[&second].is_err());
-        assert_eq!(indices[&third], Ok(Some(8)));
     }
 }
