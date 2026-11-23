@@ -1114,7 +1114,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return;
         };
 
-        if block.payload_received {
+        if block.payload_received || block.execution_status.is_invalid() {
             return;
         }
 
