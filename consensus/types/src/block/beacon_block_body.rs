@@ -11,6 +11,7 @@ use ssz_types::{FixedVector, ProgressiveVariableList, VariableList};
 use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use typenum::U0;
 
 use crate::{
     ListRef, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
@@ -174,8 +175,11 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         partial_getter(rename = "deposits_basic")
     )]
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
+    /// [Modified in Gloas] Legacy deposits are no longer processed, and `process_operations`
+    /// asserts `len(body.deposits) == 0`. The `U0` limit enforces this in the type, so the list
+    /// is always empty.
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "deposits_progressive"))]
-    pub deposits: ProgressiveVariableList<Deposit, E::MaxDeposits>,
+    pub deposits: ProgressiveVariableList<Deposit, U0>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         partial_getter(rename = "voluntary_exits_basic")
@@ -258,7 +262,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBody<E, Payload> {
         self.to_ref().proposer_slashings()
     }
 
-    pub fn deposits(&self) -> ListRef<'_, Deposit, E::MaxDeposits> {
+    pub fn deposits(&self) -> &[Deposit] {
         self.to_ref().deposits()
     }
 
@@ -524,10 +528,14 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         })
     }
 
-    pub fn deposits(&self) -> ListRef<'a, Deposit, E::MaxDeposits> {
+    /// The block's legacy deposits.
+    ///
+    /// This is a slice because the list's limit differs by fork: it is `MaxDeposits` pre-Gloas
+    /// and zero from Gloas onwards.
+    pub fn deposits(&self) -> &'a [Deposit] {
         map_beacon_block_body_ref!(&'a _, self, |inner, cons| {
             cons(inner);
-            ListRef::from(&inner.deposits)
+            &inner.deposits[..]
         })
     }
 

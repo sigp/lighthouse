@@ -47,7 +47,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         ctxt,
         spec,
     )?;
-    process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
+    process_deposits(state, block_body.deposits(), spec)?;
     process_exits(
         state,
         &block_body.voluntary_exits().to_cow_slice(),
