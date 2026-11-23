@@ -417,7 +417,7 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
 mod tests {
     use super::GossipKind::*;
     use super::*;
-    use types::{Epoch, MainnetEthSpec as E};
+    use types::{Epoch, Spec as E};
 
     const GOOD_FORK_DIGEST: &str = "e1925f3b";
     const BAD_PREFIX: &str = "tezos";

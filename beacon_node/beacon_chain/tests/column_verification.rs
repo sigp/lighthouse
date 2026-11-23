@@ -85,7 +85,7 @@ async fn rpc_columns_with_invalid_header_signature() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(signed_block.clone()),
+            LookupBlock::new(block_root, signed_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -243,7 +243,7 @@ async fn verify_header_signature_fork_block_bug() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(signed_block.clone()),
+            LookupBlock::new(block_root, signed_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

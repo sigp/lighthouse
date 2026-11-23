@@ -19,7 +19,7 @@ use beacon_chain::{
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
-use builder_client::{BuilderHttpClient, Builders};
+use builder_client::{BidStreams, BuilderHttpClient, Builders};
 use environment::RuntimeContext;
 use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
@@ -199,6 +199,16 @@ where
             })
             .transpose()?;
 
+        // Clap enforces this on the CLI, but `ClientConfig` is also built directly.
+        if execution_layer.is_none() && proof_engine.is_none() {
+            return Err(
+                "A beacon node needs something to verify execution payloads with. Set \
+                 --execution-endpoint, or --proof-engine-endpoint to let EIP-8025 proofs decide \
+                 payload validity."
+                    .to_string(),
+            );
+        }
+
         // Construct the Gloas builder handle (Builder API client) when the Gloas fork is scheduled.
         // The client is stateless w.r.t. the target builder — each request carries its own URL — but
         // still honors the same `--builder-user-agent` / `--builder-disable-ssz` flags as the
@@ -216,7 +226,16 @@ where
                 .unwrap_or((None, false));
             let client = BuilderHttpClient::new(user_agent, disable_ssz)
                 .map_err(|e| format!("unable to start builder client: {:?}", e))?;
-            Some(Arc::new(Builders::new(Arc::new(client))))
+            let user_agent = client.get_user_agent().to_string();
+            let mut builders = Builders::new(Arc::new(client));
+            if config.chain.builder_bid_streaming {
+                builders = builders.with_bid_streams(Arc::new(BidStreams::new(
+                    context.executor.clone(),
+                    &user_agent,
+                )?));
+                info!("Builder bid streams enabled");
+            }
+            Some(Arc::new(builders))
         } else {
             None
         };
@@ -288,7 +307,7 @@ where
                 || matches!(client_genesis, ClientGenesis::CheckpointSyncUrl { .. })
             {
                 info!(
-                    msg = "database already exists, use --purge-db to force checkpoint sync",
+                    msg = "database already exists, use --purge-db-force to force checkpoint sync",
                     "Refusing to checkpoint sync"
                 );
             }
@@ -875,7 +894,7 @@ where
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
-        if chain.execution_layer.is_none() && chain.execution_proofs_enabled() {
+        if chain.execution_layer.is_none() {
             // Blocks at or below finality are never imported.
             let finalized_epoch = chain
                 .canonical_head

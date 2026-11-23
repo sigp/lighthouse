@@ -33,6 +33,7 @@ igd-next = { version = "0.17", features = ["aio_tokio"] }
 itertools = { workspace = true }
 lighthouse_network = { workspace = true }
 logging = { workspace = true }
+lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
 operation_pool = { workspace = true }

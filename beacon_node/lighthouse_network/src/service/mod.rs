@@ -26,7 +26,7 @@ use crate::types::{
     core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
 };
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
-use api_types::{AppRequestId, Response};
+use api_types::{Response, SyncRequestId};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
 use libp2p::gossipsub::{
@@ -46,7 +46,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, trace, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
     PartialDataColumnRef, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
@@ -75,8 +75,8 @@ pub enum NetworkEvent<E: EthSpec> {
     PeerDisconnected(PeerId),
     /// An RPC Request that was sent failed.
     RPCFailed {
-        /// The id of the failed request.
-        app_request_id: AppRequestId,
+        /// The sync instance id of the failed request, if it was tracked by sync.
+        sync_request_id: Option<SyncRequestId>,
         /// The peer to which this request was sent.
         peer_id: PeerId,
         /// The error of the failed request.
@@ -93,8 +93,9 @@ pub enum NetworkEvent<E: EthSpec> {
     ResponseReceived {
         /// Peer that sent the response.
         peer_id: PeerId,
-        /// Id of the request to which the peer is responding.
-        app_request_id: AppRequestId,
+        /// The sync instance id of the request the peer is responding to, if it was tracked by
+        /// sync.
+        sync_request_id: Option<SyncRequestId>,
         /// Response the peer sent.
         response: Response<E>,
     },
@@ -147,7 +148,7 @@ where
     /// The peer manager that keeps track of peer's reputation and status.
     pub peer_manager: PeerManager<E>,
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub eth2_rpc: RPC<AppRequestId, E>,
+    pub eth2_rpc: RPC<Option<SyncRequestId>, E>,
     /// Discv5 Discovery protocol.
     pub discovery: Discovery<E>,
     /// Keep regular connection to peers and disconnect if absent.
@@ -654,7 +655,7 @@ impl<E: EthSpec> Network<E> {
         &mut self.swarm.behaviour_mut().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<AppRequestId, E> {
+    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<Option<SyncRequestId>, E> {
         &mut self.swarm.behaviour_mut().eth2_rpc
     }
     /// Discv5 Discovery protocol.
@@ -675,7 +676,7 @@ impl<E: EthSpec> Network<E> {
         &self.swarm.behaviour().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub fn eth2_rpc(&self) -> &RPC<AppRequestId, E> {
+    pub fn eth2_rpc(&self) -> &RPC<Option<SyncRequestId>, E> {
         &self.swarm.behaviour().eth2_rpc
     }
     /// Discv5 Discovery protocol.
@@ -1083,16 +1084,16 @@ impl<E: EthSpec> Network<E> {
     pub fn send_request(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         request: RequestType<E>,
-    ) -> Result<(), (AppRequestId, RPCError)> {
+    ) -> Result<(), (Option<SyncRequestId>, RPCError)> {
         // Check if the peer is connected before sending an RPC request
         if !self.swarm.is_connected(&peer_id) {
-            return Err((app_request_id, RPCError::Disconnected));
+            return Err((sync_request_id, RPCError::Disconnected));
         }
 
         self.eth2_rpc_mut()
-            .send_request(peer_id, app_request_id, request);
+            .send_request(peer_id, sync_request_id, request);
         Ok(())
     }
 
@@ -1108,9 +1109,15 @@ impl<E: EthSpec> Network<E> {
             .send_response(inbound_request_id, response.into())
             && self.network_globals.peers.read().is_connected(&peer_id)
         {
-            error!(%peer_id, ?inbound_request_id, %response,
-                "Request not found in RPC active requests"
-            );
+            if matches!(response, RpcResponse::StreamTermination(_)) {
+                debug!(%peer_id, ?inbound_request_id, %response,
+                    "Request not found in RPC active requests for stream termination"
+                );
+            } else {
+                warn!(%peer_id, ?inbound_request_id, %response,
+                    "Request not found in RPC active requests"
+                );
+            }
         }
     }
 
@@ -1295,7 +1302,7 @@ impl<E: EthSpec> Network<E> {
 
     /// Sends a Ping request to the peer.
     fn ping(&mut self, peer_id: PeerId) {
-        self.eth2_rpc_mut().ping(peer_id, AppRequestId::Internal);
+        self.eth2_rpc_mut().ping(peer_id, None);
     }
 
     /// Sends a METADATA request to a peer.
@@ -1308,27 +1315,22 @@ impl<E: EthSpec> Network<E> {
             // We always prefer sending V2 requests otherwise
             RequestType::MetaData(MetadataRequest::new_v2())
         };
-        self.eth2_rpc_mut()
-            .send_request(peer_id, AppRequestId::Internal, event);
+        self.eth2_rpc_mut().send_request(peer_id, None, event);
     }
 
-    /// Sends a METADATA response to a peer.
     // RPC Propagation methods
-    /// Queues the response to be sent upwards as long at it was requested outside the Behaviour.
+    /// Builds the event that surfaces a response to the application.
     #[must_use = "return the response"]
     fn build_response(
-        &mut self,
-        app_request_id: AppRequestId,
+        &self,
+        sync_request_id: Option<SyncRequestId>,
         peer_id: PeerId,
         response: Response<E>,
-    ) -> Option<NetworkEvent<E>> {
-        match app_request_id {
-            AppRequestId::Internal => None,
-            _ => Some(NetworkEvent::ResponseReceived {
-                peer_id,
-                app_request_id,
-                response,
-            }),
+    ) -> NetworkEvent<E> {
+        NetworkEvent::ResponseReceived {
+            peer_id,
+            sync_request_id,
+            response,
         }
     }
 
@@ -1568,7 +1570,10 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Handle an RPC event.
-    fn inject_rpc_event(&mut self, event: RPCMessage<AppRequestId, E>) -> Option<NetworkEvent<E>> {
+    fn inject_rpc_event(
+        &mut self,
+        event: RPCMessage<Option<SyncRequestId>, E>,
+    ) -> Option<NetworkEvent<E>> {
         let peer_id = event.peer_id;
 
         // Do not permit Inbound events from peers that are being disconnected or RPC requests,
@@ -1609,15 +1614,16 @@ impl<E: EthSpec> Network<E> {
                             &error,
                             ConnectionDirection::Outgoing,
                         );
-                        // inform failures of requests coming outside the behaviour
-                        if let AppRequestId::Internal = id {
-                            None
-                        } else {
-                            Some(NetworkEvent::RPCFailed {
+                        // inform failures of requests coming outside the behaviour. Failures of
+                        // behaviour managed protocols are filtered by protocol: their id is never
+                        // surfaced.
+                        match proto {
+                            Protocol::Ping | Protocol::MetaData | Protocol::Goodbye => None,
+                            _ => Some(NetworkEvent::RPCFailed {
                                 peer_id,
-                                app_request_id: id,
+                                sync_request_id: id,
                                 error,
-                            })
+                            }),
                         }
                     }
                 }
@@ -1829,58 +1835,68 @@ impl<E: EthSpec> Network<E> {
                         // inform the peer manager that we have received a status from a peer
                         self.peer_manager_mut().peer_statusd(&peer_id);
                         // propagate the STATUS message upwards
-                        self.build_response(id, peer_id, Response::Status(msg))
+                        Some(self.build_response(id, peer_id, Response::Status(msg)))
                     }
                     RpcSuccessResponse::BlocksByRange(resp) => {
-                        self.build_response(id, peer_id, Response::BlocksByRange(Some(resp)))
+                        Some(self.build_response(id, peer_id, Response::BlocksByRange(Some(resp))))
                     }
                     RpcSuccessResponse::BlobsByRange(resp) => {
-                        self.build_response(id, peer_id, Response::BlobsByRange(Some(resp)))
+                        Some(self.build_response(id, peer_id, Response::BlobsByRange(Some(resp))))
                     }
                     RpcSuccessResponse::BlocksByRoot(resp) => {
-                        self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
+                        Some(self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp))))
                     }
                     RpcSuccessResponse::BlocksByHead(resp) => {
-                        self.build_response(id, peer_id, Response::BlocksByHead(Some(resp)))
+                        Some(self.build_response(id, peer_id, Response::BlocksByHead(Some(resp))))
                     }
-                    RpcSuccessResponse::PayloadEnvelopesByRange(resp) => self.build_response(
+                    RpcSuccessResponse::PayloadEnvelopesByRange(resp) => Some(self.build_response(
                         id,
                         peer_id,
                         Response::PayloadEnvelopesByRange(Some(resp)),
-                    ),
-                    RpcSuccessResponse::PayloadEnvelopesByRoot(resp) => self.build_response(
+                    )),
+                    RpcSuccessResponse::PayloadEnvelopesByRoot(resp) => Some(self.build_response(
                         id,
                         peer_id,
                         Response::PayloadEnvelopesByRoot(Some(resp)),
-                    ),
+                    )),
                     RpcSuccessResponse::BlobsByRoot(resp) => {
-                        self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
+                        Some(self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp))))
                     }
-                    RpcSuccessResponse::DataColumnsByRoot(resp) => {
-                        self.build_response(id, peer_id, Response::DataColumnsByRoot(Some(resp)))
-                    }
-                    RpcSuccessResponse::DataColumnsByRange(resp) => {
-                        self.build_response(id, peer_id, Response::DataColumnsByRange(Some(resp)))
-                    }
+                    RpcSuccessResponse::DataColumnsByRoot(resp) => Some(self.build_response(
+                        id,
+                        peer_id,
+                        Response::DataColumnsByRoot(Some(resp)),
+                    )),
+                    RpcSuccessResponse::DataColumnsByRange(resp) => Some(self.build_response(
+                        id,
+                        peer_id,
+                        Response::DataColumnsByRange(Some(resp)),
+                    )),
                     // Should never be reached
-                    RpcSuccessResponse::LightClientBootstrap(bootstrap) => {
-                        self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
+                    RpcSuccessResponse::LightClientBootstrap(bootstrap) => Some(
+                        self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap)),
+                    ),
+                    RpcSuccessResponse::LightClientOptimisticUpdate(update) => {
+                        Some(self.build_response(
+                            id,
+                            peer_id,
+                            Response::LightClientOptimisticUpdate(update),
+                        ))
                     }
-                    RpcSuccessResponse::LightClientOptimisticUpdate(update) => self.build_response(
-                        id,
-                        peer_id,
-                        Response::LightClientOptimisticUpdate(update),
-                    ),
-                    RpcSuccessResponse::LightClientFinalityUpdate(update) => self.build_response(
-                        id,
-                        peer_id,
-                        Response::LightClientFinalityUpdate(update),
-                    ),
-                    RpcSuccessResponse::LightClientUpdatesByRange(update) => self.build_response(
-                        id,
-                        peer_id,
-                        Response::LightClientUpdatesByRange(Some(update)),
-                    ),
+                    RpcSuccessResponse::LightClientFinalityUpdate(update) => {
+                        Some(self.build_response(
+                            id,
+                            peer_id,
+                            Response::LightClientFinalityUpdate(update),
+                        ))
+                    }
+                    RpcSuccessResponse::LightClientUpdatesByRange(update) => {
+                        Some(self.build_response(
+                            id,
+                            peer_id,
+                            Response::LightClientUpdatesByRange(Some(update)),
+                        ))
+                    }
                 }
             }
             Ok(RPCReceived::EndOfStream(id, termination)) => {
@@ -1902,7 +1918,7 @@ impl<E: EthSpec> Network<E> {
                         Response::LightClientUpdatesByRange(None)
                     }
                 };
-                self.build_response(id, peer_id, response)
+                Some(self.build_response(id, peer_id, response))
             }
         }
     }
@@ -1976,8 +1992,7 @@ impl<E: EthSpec> Network<E> {
             PeerManagerEvent::DisconnectPeer(peer_id, reason) => {
                 debug!(%peer_id, %reason, "Peer Manager disconnecting peer");
                 // send one goodbye
-                self.eth2_rpc_mut()
-                    .shutdown(peer_id, AppRequestId::Internal, reason);
+                self.eth2_rpc_mut().shutdown(peer_id, None, reason);
                 None
             }
         }

@@ -10,10 +10,10 @@ use http_api::test_utils::InteractiveTester;
 use http_api::{Config, ProvenancedBlock, publish_block};
 use reqwest::{Response, StatusCode};
 use std::collections::HashSet;
-use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
+use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, Slot, Spec};
 use warp_utils::reject::CustomBadRequest;
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 /*
  * We have the following test cases, which are duplicated for the blinded variant of the route:
@@ -210,7 +210,7 @@ pub async fn gossip_full_pass_ssz() {
     let validator_count = 64;
     let num_initial: u64 = 31;
     // Deneb epoch set ahead of block slot, to test fork-based decoding
-    let mut spec = ForkName::Capella.make_genesis_spec(MainnetEthSpec::default_spec());
+    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
     spec.deneb_fork_epoch = Some(Epoch::new(4));
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 

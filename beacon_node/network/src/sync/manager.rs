@@ -63,17 +63,19 @@ use lighthouse_network::service::api_types::{
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
+use lru::LruCache;
 use lru_cache::LRUTimeCache;
 use slot_clock::SlotClock;
+use std::num::NonZeroUsize;
 use std::ops::Sub;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use strum::IntoStaticStr;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ExecutionBlockHash, ForkContext, Hash256,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, new_non_zero_usize,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -85,10 +87,18 @@ use types::{
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 
-/// Suppress duplicated `UnknownBlockHashFromAttestation` events for some duration of time. In
+/// Suppress repeated unknown-root reports from attestations and peer status messages. In
 /// practice peers are likely to send the same root during a single slot. 30 seconds is a rather
 /// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
 const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
+
+const MAX_PENDING_UNKNOWN_ROOTS: NonZeroUsize = new_non_zero_usize(1_024);
+
+/// An unknown root awaiting corroboration from `unknown_root_min_peers` distinct peers.
+struct PendingUnknownRoot {
+    first_seen: Instant,
+    peers: Vec<PeerId>,
+}
 
 #[derive(Debug, IntoStaticStr)]
 /// A message that can be sent to the sync manager thread.
@@ -257,13 +267,15 @@ pub struct SyncManager<T: BeaconChainTypes> {
     custody_backfill_sync: CustodyBackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
-    /// debounce duplicated `UnknownBlockHashFromAttestation` for the same root peer tuple. A peer
-    /// may forward us thousands of a attestations, each one triggering an individual event. Only
-    /// one event is useful, the rest generating log noise and wasted cycles
+    /// Debounce duplicate unknown-root reports from the same peer before applying quorum.
     notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
-    /// Debounce duplicated `UnknownPayloadEnvelopeFromAttestation` for the same root/peer tuple,
-    /// for the same reason as `notified_unknown_roots`: a peer may forward many payload-present
-    /// attestations for a block whose execution payload envelope we have not yet seen.
+    /// Recent peer reports used to require corroboration before requesting an unknown root.
+    pending_unknown_roots: LruCache<Hash256, PendingUnknownRoot>,
+    /// Number of distinct peers that must report an unknown root before we request it.
+    unknown_root_min_peers: usize,
+    /// Debounce duplicated `UnknownPayloadEnvelopeFromAttestation` for the same root/peer tuple:
+    /// a peer may forward many payload-present attestations for a block whose execution payload
+    /// envelope we have not yet seen.
     notified_unknown_payload_roots: LRUTimeCache<(PeerId, Hash256)>,
 }
 
@@ -277,6 +289,7 @@ pub fn spawn<T: BeaconChainTypes>(
     beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
     fork_context: Arc<ForkContext>,
+    unknown_root_min_peers: usize,
 ) {
     assert!(
         beacon_chain
@@ -293,6 +306,7 @@ pub fn spawn<T: BeaconChainTypes>(
         beacon_processor,
         sync_recv,
         fork_context,
+        unknown_root_min_peers,
     );
 
     // spawn the sync manager thread
@@ -307,6 +321,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
         fork_context: Arc<ForkContext>,
+        unknown_root_min_peers: usize,
     ) -> Self {
         let network_globals = beacon_processor.network_globals.clone();
         Self {
@@ -325,6 +340,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
+            pending_unknown_roots: LruCache::new(MAX_PENDING_UNKNOWN_ROOTS),
+            unknown_root_min_peers,
             notified_unknown_payload_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
@@ -369,13 +386,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn get_ignored_chains(&mut self) -> Vec<Hash256> {
-        self.block_lookups.get_ignored_chains()
+    pub(crate) fn insert_ignored_chain(&mut self, block_root: Hash256) {
+        self.block_lookups.insert_ignored_chain(block_root);
     }
 
     #[cfg(test)]
-    pub(crate) fn insert_ignored_chain(&mut self, block_root: Hash256) {
-        self.block_lookups.insert_ignored_chain(block_root);
+    pub(crate) fn get_ignored_chains(&mut self) -> Vec<Hash256> {
+        self.block_lookups.get_ignored_chains()
     }
 
     #[cfg(test)]
@@ -530,6 +547,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// the disconnect.
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
         // Remove peer from all data structures
+        let emptied_roots = self
+            .pending_unknown_roots
+            .iter_mut()
+            .filter_map(|(root, pending)| {
+                pending.peers.retain(|peer| peer != peer_id);
+                pending.peers.is_empty().then_some(*root)
+            })
+            .collect::<Vec<_>>();
+        for root in emptied_roots {
+            self.pending_unknown_roots.pop(&root);
+        }
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
         let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.block_lookups.peer_disconnected(peer_id);
@@ -796,6 +824,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = prune_lookups_interval.tick() => {
                     self.block_lookups.prune_lookups();
+                    self.prune_pending_unknown_roots();
                 }
                 _ = prune_requests.tick() => {
                     self.prune_requests();
@@ -892,7 +921,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
                     self.notified_unknown_roots.insert((peer_id, block_root));
-                    debug!(?block_root, ?peer_id, "Received unknown block hash message");
                     self.handle_unknown_block_root(peer_id, block_root);
                 }
             }
@@ -1004,22 +1032,71 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    /// Request an unknown root only after distinct connected peers corroborate it.
     fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256) {
-        match self.should_search_for_block(None, &peer_id) {
-            Ok(_) => {
-                if self.block_lookups.search_unknown_block(
-                    block_root,
-                    &[peer_id],
-                    &mut self.network,
-                ) {
-                    // Lookup created. No need to log here it's logged in `new_current_lookup`
-                } else {
-                    debug!(?block_root, "No lookup created for unknown block");
-                }
-            }
-            Err(reason) => {
-                debug!(%block_root, reason, "Ignoring unknown block request");
-            }
+        if let Err(reason) = self.should_search_for_block(None, &peer_id) {
+            debug!(%block_root, reason, "Ignoring unknown block request");
+            return;
+        }
+
+        // There is already a lookup underway for this block root
+        let peers = if self.block_lookups.has_lookup_for_block(block_root) {
+            vec![peer_id]
+        } else if let Some(peers) = self.record_unknown_root(block_root, peer_id) {
+            peers
+        } else {
+            return;
+        };
+
+        if !self
+            .block_lookups
+            .search_unknown_block(block_root, &peers, &mut self.network)
+        {
+            debug!(?block_root, "No lookup created for unknown block");
+        }
+    }
+
+    /// Record that `peer_id` reported `block_root`. Returns the reporting peers once
+    /// `unknown_root_min_peers` distinct peers have reported it within the expiry window.
+    fn record_unknown_root(&mut self, block_root: Hash256, peer_id: PeerId) -> Option<Vec<PeerId>> {
+        let now = Instant::now();
+        let ttl = Duration::from_secs(NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS);
+
+        // Evicts the least recently reported root when full.
+        let pending = self
+            .pending_unknown_roots
+            .get_or_insert_mut(block_root, || PendingUnknownRoot {
+                first_seen: now,
+                peers: vec![],
+            });
+        // Periodic pruning may lag, so restart an expired entry instead of counting stale peers.
+        if now.saturating_duration_since(pending.first_seen) >= ttl {
+            pending.first_seen = now;
+            pending.peers.clear();
+        }
+        if pending.peers.contains(&peer_id) {
+            return None;
+        }
+        pending.peers.push(peer_id);
+        if pending.peers.len() < self.unknown_root_min_peers {
+            return None;
+        }
+        self.pending_unknown_roots
+            .pop(&block_root)
+            .map(|pending| pending.peers)
+    }
+
+    fn prune_pending_unknown_roots(&mut self) {
+        let now = Instant::now();
+        let ttl = Duration::from_secs(NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS);
+        let expired_roots = self
+            .pending_unknown_roots
+            .iter()
+            .filter(|(_, pending)| now.saturating_duration_since(pending.first_seen) >= ttl)
+            .map(|(root, _)| *root)
+            .collect::<Vec<_>>();
+        for root in expired_roots {
+            self.pending_unknown_roots.pop(&root);
         }
     }
 

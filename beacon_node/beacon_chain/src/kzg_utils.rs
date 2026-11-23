@@ -112,21 +112,20 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
     kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments)
 }
 
-/// Validate a batch of full `DataColumnSidecar`s against commitments supplied out-of-band.
+/// Validate a batch of full `DataColumnSidecar`s, each against the commitments of its block.
 ///
 /// Gloas sidecars do not carry commitments. Their commitments come from the block's
 /// `ExecutionPayloadBid`.
-pub fn validate_data_columns_with_commitments<'a, E: EthSpec>(
+pub fn validate_data_columns_with_commitments<'a, 'b, E: EthSpec>(
     kzg: &Kzg,
-    data_column_iter: impl Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
-    kzg_commitments: &[KzgCommitment],
+    data_column_iter: impl Iterator<Item = (&'a Arc<DataColumnSidecar<E>>, &'b [KzgCommitment])>,
 ) -> Result<(), (Option<u64>, KzgError)> {
     let mut cells = Vec::new();
     let mut proofs = Vec::new();
     let mut column_indices = Vec::new();
     let mut commitments = Vec::new();
 
-    for data_column in data_column_iter {
+    for (data_column, kzg_commitments) in data_column_iter {
         let col_index = *data_column.index();
 
         if data_column.column().is_empty() {
@@ -765,6 +764,15 @@ fn build_partial_column_cells<E: EthSpec>(
     Ok((bitmap, columns, column_kzg_proofs))
 }
 
+/// Returns the minimum number of data columns needed to reconstruct the remaining columns or the
+/// blobs of a block.
+///
+/// Every check of whether reconstruction is possible must use this, so that the code requesting
+/// a reconstruction and the code performing it agree.
+pub fn min_columns_for_reconstruction<E: EthSpec>() -> usize {
+    E::number_of_columns() / 2
+}
+
 fn reconstruct_blobs_with_indices<E: EthSpec>(
     kzg: &Kzg,
     mut data_columns: Vec<Arc<DataColumnSidecar<E>>>,
@@ -1016,14 +1024,20 @@ mod test {
             .blob_kzg_commitments()
             .unwrap();
 
-        let result =
-            validate_data_columns_with_commitments(kzg, column_sidecars.iter(), commitments);
+        let result = validate_data_columns_with_commitments(
+            kzg,
+            column_sidecars.iter().map(|c| (c, &commitments[..])),
+        );
         assert!(result.is_ok());
 
         // Verify that wrong commitments cause a failure
         let bad_commitments = vec![KzgCommitment::empty_for_testing(); num_of_blobs];
-        let result =
-            validate_data_columns_with_commitments(kzg, column_sidecars.iter(), &bad_commitments);
+        let result = validate_data_columns_with_commitments(
+            kzg,
+            column_sidecars
+                .iter()
+                .map(|c| (c, bad_commitments.as_slice())),
+        );
         assert!(result.is_err());
     }
 
@@ -1046,14 +1060,20 @@ mod test {
             .map(|blob| blob_to_kzg_commitment::<E>(kzg, blob).unwrap())
             .collect();
 
-        let result =
-            validate_data_columns_with_commitments(kzg, column_sidecars.iter(), &commitments);
+        let result = validate_data_columns_with_commitments(
+            kzg,
+            column_sidecars.iter().map(|c| (c, commitments.as_slice())),
+        );
         assert!(result.is_ok());
 
         // Verify that wrong commitments cause a failure
         let bad_commitments = vec![KzgCommitment::empty_for_testing(); num_of_blobs];
-        let result =
-            validate_data_columns_with_commitments(kzg, column_sidecars.iter(), &bad_commitments);
+        let result = validate_data_columns_with_commitments(
+            kzg,
+            column_sidecars
+                .iter()
+                .map(|c| (c, bad_commitments.as_slice())),
+        );
         assert!(result.is_err());
     }
 

@@ -30,6 +30,11 @@ Options:
           The URL of a service compatible with the MEV-boost API.
       --builder-disable-ssz
           Disables sending requests using SSZ over the builder API.
+      --builder-fallback-ban-slots <builder-fallback-ban-slots>
+          After the Gloas fork, a builder that fails to reveal its execution
+          payload for a block that received sufficient attestations will have
+          its bids ignored for this many slots. Cannot be less than
+          `SLOTS_PER_EPOCH`. [default: 32]
       --builder-fallback-epochs-since-finalization <builder-fallback-epochs-since-finalization>
           If this node is proposing a block and the chain has not finalized
           within this number of epochs, it will NOT query any connected
@@ -42,12 +47,21 @@ Options:
           If this node is proposing a block and has seen this number of skip
           slots on the canonical chain in a row, it will NOT query any connected
           builders, and will use the local execution engine for payload
-          construction. [default: 3]
+          construction. After the Gloas fork a skip is a slot whose beacon block
+          landed and received enough attestations to charge the builder, but
+          whose execution payload did not; slots with no beacon block are not
+          counted. After the Gloas fork builders are still queried, but any
+          external bid is used only if the local build fails. [default: 3]
       --builder-fallback-skips-per-epoch <builder-fallback-skips-per-epoch>
           If this node is proposing a block and has seen this number of skip
           slots on the canonical chain in the past `SLOTS_PER_EPOCH`, it will
           NOT query any connected builders, and will use the local execution
-          engine for payload construction. [default: 8]
+          engine for payload construction. After the Gloas fork a skip is a slot
+          whose beacon block landed and received enough attestations to charge
+          the builder, but whose execution payload did not; slots with no beacon
+          block are not counted. After the Gloas fork builders are still
+          queried, but any external bid is used only if the local build fails.
+          [default: 8]
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]
@@ -316,8 +330,8 @@ Options:
           1/3 of a slot.
       --proof-engine-endpoint <PROOF-ENGINE-ENDPOINT>
           Server endpoint for an EIP-8025 proof engine used to verify execution
-          proofs. When present, the node subscribes to the execution_proof
-          gossip topic and propagates proofs that verify. Experimental.
+          proofs. Proofs decide payload validity if there's no
+          --execution-endpoint. Experimental.
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>
@@ -369,7 +383,7 @@ Options:
           Configure how many epochs of history the slasher keeps. Immutable
           after initialization.
       --slasher-max-db-size <GIGABYTES>
-          Maximum size of the MDBX database used by the slasher.
+          Maximum size of the LMDB database used by the slasher.
       --slasher-slot-offset <SECONDS>
           Set the delay from the start of the slot at which the slasher should
           ingest attestations. Only effective if the slasher-update-period is a
@@ -409,6 +423,9 @@ Options:
           Path to a json file containing the trusted setup params. NOTE: This
           will override the trusted setup that is generated from the mainnet kzg
           ceremony. Use with caution
+      --unknown-root-min-peers <INTEGER>
+          The number of distinct peers required to report an unknown block root
+          before Lighthouse requests it. Defaults to 3.
       --validator-monitor-file <PATH>
           As per --validator-monitor-pubkeys, but the comma-separated list is
           contained within a file at the given path.

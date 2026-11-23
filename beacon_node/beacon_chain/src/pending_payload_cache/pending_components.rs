@@ -14,7 +14,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
-use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
+use types::{
+    BlockImportSource, ColumnIndex, EthSpec, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
+};
 
 /// This represents the components of a payload pending data availability.
 ///
@@ -23,6 +25,8 @@ use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub bid: Arc<SignedExecutionPayloadBid<E>>,
+    /// cached beacon block for serving over RPC while importing
+    pub block: Option<(Arc<SignedBeaconBlock<E>>, BlockImportSource)>,
     /// a cached post executed payload envelope
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
@@ -58,15 +62,13 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns the indices of columns that have all cells present.
+    ///
+    /// Like `num_completed_columns`, this does not build the sidecars.
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
-        let slot = self.bid.message().slot();
-        let block_root = self.block_root;
         self.verified_data_columns
             .iter()
-            .filter_map(|(col_idx, col)| {
-                col.to_full_sidecar(*col_idx, slot, block_root)
-                    .map(|_| *col_idx)
-            })
+            .filter(|(_, column)| column.is_complete())
+            .map(|(column_index, _)| *column_index)
             .collect()
     }
 
@@ -205,8 +207,16 @@ impl<E: EthSpec> PendingComponents<E> {
         self.envelope = Some(envelope);
     }
 
+    /// Returns the number of columns that have all cells present.
+    ///
+    /// This counts without building the sidecars. A column's cells are sized from the bid's
+    /// commitments, which share the sidecar's list bound, so every complete column is also
+    /// returned by `get_cached_data_columns`.
     pub fn num_completed_columns(&self) -> usize {
-        self.get_cached_data_columns().len()
+        self.verified_data_columns
+            .values()
+            .filter(|column| column.is_complete())
+            .count()
     }
 
     /// Returns whether our custody requirement for this block's data columns has been
@@ -289,6 +299,7 @@ impl<E: EthSpec> PendingComponents<E> {
         Self {
             block_root,
             bid,
+            block: None,
             envelope: None,
             verified_data_columns: HashMap::new(),
             reconstruction_started: false,

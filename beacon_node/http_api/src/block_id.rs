@@ -1,6 +1,8 @@
 use crate::version::inconsistent_fork_rejection;
 use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
-use beacon_chain::kzg_utils::{reconstruct_blob_sidecars, reconstruct_blobs};
+use beacon_chain::kzg_utils::{
+    min_columns_for_reconstruction, reconstruct_blob_sidecars, reconstruct_blobs,
+};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedResponse};
 use eth2::types::BlockId as CoreBlockId;
@@ -510,7 +512,7 @@ impl BlockId {
         })?;
 
         let num_found_column_keys = column_indices.len();
-        let num_required_columns = T::EthSpec::number_of_columns() / 2;
+        let num_required_columns = min_columns_for_reconstruction::<T::EthSpec>();
         let is_blob_available = num_found_column_keys >= num_required_columns;
         let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
 
@@ -562,25 +564,30 @@ mod tests {
         },
     };
     use std::time::Duration;
-    use types::MinimalEthSpec;
+    use types::Spec;
 
-    type TestHarness = BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>;
+    type TestHarness = BeaconChainHarness<EphemeralHarnessType<Spec>>;
+
+    // Gloas genesis needs at least one validator per slot.
+    fn validator_count() -> usize {
+        Spec::slots_per_epoch() as usize
+    }
 
     fn harness() -> TestHarness {
-        BeaconChainHarness::builder(MinimalEthSpec)
+        BeaconChainHarness::builder(Spec::default())
             .default_spec()
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(validator_count())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build()
     }
 
     fn gloas_supernode_harness() -> TestHarness {
-        BeaconChainHarness::builder(MinimalEthSpec)
+        BeaconChainHarness::builder(Spec::default())
             .spec(Arc::new(
-                ForkName::Gloas.make_genesis_spec(MinimalEthSpec::default_spec()),
+                ForkName::Gloas.make_genesis_spec(Spec::default_spec()),
             ))
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(validator_count())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(NodeCustodyType::Supernode)
@@ -775,6 +782,7 @@ mod tests {
         );
 
         let available_block = AvailableBlock::new(
+            block_root,
             block.clone(),
             AvailableBlockData::new_with_data_columns(data_columns),
             &chain.custody_context,

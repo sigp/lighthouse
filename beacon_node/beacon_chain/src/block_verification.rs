@@ -102,9 +102,10 @@ use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, ColumnIndex,
+    DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256,
+    InconsistentFork, KzgProofs, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -333,7 +334,52 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// The bid builds on an empty parent but does not match the expected empty block hash.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer should be penalized.
+    EmptyParentPayloadHashMismatch {
+        bid_parent_block_hash: ExecutionBlockHash,
+        parent_latest_block_hash: ExecutionBlockHash,
+    },
+    /// The slot of a Gloas data column sidecar does not match the slot of its bid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column is invalid and the peer that served `column_index` should be penalized.
+    DataColumnSlotMismatch {
+        column_index: ColumnIndex,
+        block_slot: Slot,
+        data_column_slot: Slot,
+    },
     EnvelopeError(Box<EnvelopeError>),
+}
+
+/// Wraps the `BlockError` with the root of the block being computed to avoid
+/// computing it again on error.
+#[derive(Debug)]
+pub struct BlockErrorWithRoot {
+    /// Absent when the verification task fails without returning a computed root.
+    /// Note: We should return the root in almost all cases.
+    /// Only runtime failures can be returned without it.
+    pub block_root: Option<Hash256>,
+    pub error: Box<BlockError>,
+}
+
+impl BlockErrorWithRoot {
+    pub fn into_block_error(self) -> BlockError {
+        *self.error
+    }
+}
+
+impl From<BeaconChainError> for BlockErrorWithRoot {
+    fn from(error: BeaconChainError) -> Self {
+        Self {
+            block_root: None,
+            error: Box::new(error.into()),
+        }
+    }
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -357,12 +403,6 @@ impl From<AvailabilityCheckError> for BlockError {
 /// the execution payload.
 #[derive(Debug, IntoStaticStr)]
 pub enum ExecutionPayloadError {
-    /// There's no eth1 connection (mandatory after merge)
-    ///
-    /// ## Peer scoring
-    ///
-    /// As this is our fault, do not penalize the peer
-    NoExecutionConnection,
     /// Error occurred during engine_executePayload
     ///
     /// ## Peer scoring
@@ -406,8 +446,6 @@ impl ExecutionPayloadError {
         // always forced to consider here whether or not to penalize a peer when
         // we add a new error condition.
         match self {
-            // The peer has nothing to do with this error, do not penalize them.
-            ExecutionPayloadError::NoExecutionConnection => false,
             // The peer has nothing to do with this error, do not penalize them.
             ExecutionPayloadError::RequestFailed(_) => false,
             // An honest optimistic node may propagate blocks which are rejected by an EE, do not
@@ -763,7 +801,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T
         self,
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
-        GossipVerifiedBlock::new(self, chain)
+        GossipVerifiedBlock::new(self, chain).map_err(BlockErrorWithRoot::into_block_error)
     }
 
     fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
@@ -841,7 +879,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, BlockError> {
+    ) -> Result<Self, BlockErrorWithRoot> {
         // If the block is valid for gossip we don't supply it to the slasher here because
         // we assume it will be transformed into a fully verified block. We *do* need to supply
         // it to the slasher if an error occurs, because that's the end of this block's journey,
@@ -850,23 +888,25 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // The `SignedBeaconBlock` and `SignedBeaconBlockHeader` have the same canonical root,
         // but it's way quicker to calculate root of the header since the hash of the tree rooted
         // at `BeaconBlockBody` is already computed in the header.
-        Self::new_without_slasher_checks(block, &header, chain)
+        let block_root = get_block_header_root(&header);
+        Span::current().record("block_root", block_root.to_string());
+        Self::new_without_slasher_checks(block, block_root, chain)
             .map_err(|e| {
                 process_block_slash_info::<_, BlockError>(
                     chain,
                     BlockSlashInfo::from_early_error_block(header, e),
                 )
             })
-            .inspect(|block| {
-                let current_span = Span::current();
-                current_span.record("block_root", block.block_root.to_string());
+            .map_err(|error| BlockErrorWithRoot {
+                block_root: Some(block_root),
+                error: Box::new(error),
             })
     }
 
     /// As for new, but doesn't pass the block to the slasher.
     fn new_without_slasher_checks(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        block_header: &SignedBeaconBlockHeader,
+        block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
@@ -918,8 +958,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             }
         }
 
-        let block_root = get_block_header_root(block_header);
-
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(block.message(), block_root, chain)?;
 
@@ -951,14 +989,31 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let (parent_block, block) =
             verify_parent_block_and_envelope_are_known::<T>(&fork_choice_read_lock, block)?;
 
-        // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
-        if let Ok(bid) = block.message().body().signed_execution_payload_bid()
-            && bid.message().parent_block_root() != block.message().parent_root()
-        {
-            return Err(BlockError::BidParentRootMismatch {
-                bid_parent_root: bid.message().parent_block_root(),
-                block_parent_root: block.message().parent_root(),
-            });
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
+            if bid.message().parent_block_root() != block.message().parent_root() {
+                return Err(BlockError::BidParentRootMismatch {
+                    bid_parent_root: bid.message().parent_block_root(),
+                    block_parent_root: block.message().parent_root(),
+                });
+            }
+
+            // [New in Gloas:EIP7732]
+            // [REJECT] If the parent is not full, the bid builds on the parent's execution head.
+            //
+            // A pre-Gloas parent embeds its payload, so both hashes are that payload's hash, which
+            // the Gloas upgrade sets as `latest_block_hash`.
+            if let PayloadBlockHash::Hash(parent_full_payload_hash) = parent_block.block_hash()
+                && !block.is_parent_block_full(parent_full_payload_hash)
+                && let PayloadBlockHash::Hash(parent_latest_block_hash) =
+                    parent_block.head_payload_block_hash(proto_array::PayloadStatus::Empty)
+                && bid.message().parent_block_hash() != parent_latest_block_hash
+            {
+                return Err(BlockError::EmptyParentPayloadHashMismatch {
+                    bid_parent_block_hash: bid.message().parent_block_hash(),
+                    parent_latest_block_hash,
+                });
+            }
         }
 
         drop(fork_choice_read_lock);
@@ -1258,6 +1313,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 {
                     MaybeAvailableBlock::Available(
                         AvailableBlock::new(
+                            from.block_root,
                             block,
                             AvailableBlockData::NoData,
                             &chain.custody_context,
@@ -2195,22 +2251,18 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
     impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
     impl Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 > {
-    let get_pubkey = move |validator_index| {
-        // Disallow access to any validator pubkeys that are not in the current beacon state.
-        if validator_index < state.validators().len() {
-            validator_pubkey_cache
-                .get(validator_index)
-                .map(Cow::Borrowed)
-        } else {
-            None
-        }
-    };
+    // The pubkey cache can lag behind `state`: validators may be added to the registry by epoch
+    // processing before any block from that epoch has been imported. Keys for validators beyond the
+    // end of the cache are read from `state`, and validators that are not in `state` are rejected.
+    let get_pubkey =
+        move |validator_index| validator_pubkey_cache.get_for_state(state, validator_index);
 
-    let decompressor = move |pk_bytes| {
-        // Map compressed pubkey to validator index.
-        let validator_index = validator_pubkey_cache.get_index(pk_bytes)?;
-        // Map validator index to pubkey (respecting guard on unknown validators).
-        get_pubkey(validator_index)
+    let decompressor = move |pk_bytes: &'a PublicKeyBytes| {
+        // Use the cached key if `pk_bytes` belongs to a cached validator, otherwise decompress it.
+        validator_pubkey_cache
+            .get_pubkey_from_pubkey_bytes(pk_bytes)
+            .map(Cow::Borrowed)
+            .or_else(|| pk_bytes.decompress().ok().map(Cow::Owned))
     };
 
     BlockSignatureVerifier::new(state, get_pubkey, decompressor, spec)

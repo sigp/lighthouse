@@ -93,6 +93,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<Option<String>, Box<BeaconChainError>> {
         let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let latest_allowed_slot = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
+            .saturating_add(FUTURE_SLOT_TOLERANCE);
+        // Epoch F cannot be finalized before F + 2. Apply clock tolerance before epoch rounding.
+        let max_finalized_epoch = latest_allowed_slot
+            .epoch(T::EthSpec::slots_per_epoch())
+            .saturating_sub(2u64);
 
         let irrelevant_reason = if local.fork_digest() != remote.fork_digest() {
             // The node is on a different network/fork
@@ -101,17 +110,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 hex::encode(local.fork_digest()),
                 hex::encode(remote.fork_digest())
             ))
-        } else if *remote.head_slot()
-            > self
-                .chain
-                .slot()
-                .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
-                + FUTURE_SLOT_TOLERANCE
-        {
+        } else if *remote.head_slot() > latest_allowed_slot {
             // The remote's head is on a slot that is significantly ahead of what we consider the
             // current slot. This could be because they are using a different genesis time, or that
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
+        } else if *remote.finalized_epoch() > max_finalized_epoch {
+            Some("Finalized epoch is too recent".to_string())
         } else if (remote.finalized_epoch() == local.finalized_epoch()
             && remote.finalized_root() == local.finalized_root())
             || remote.finalized_root().is_zero()
@@ -122,6 +127,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // genesis, or they are ahead. In all cases, we should allow this peer to connect to us
             // so we can sync from them.
             None
+        } else if remote.finalized_epoch() == local.finalized_epoch() {
+            // Both roots are nonzero and differ, so no database lookup is needed.
+            Some("Different finalized chain".to_string())
         } else {
             // Remote finalized epoch is less than ours.
             let remote_finalized_slot = start_slot(*remote.finalized_epoch());
@@ -1640,21 +1648,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
             };
 
-        let oldest_blob_slot = self
-            .chain
-            .store
-            .get_blob_info()
-            .oldest_blob_slot
-            .unwrap_or(data_availability_boundary_slot);
-        if request_start_slot < oldest_blob_slot {
+        let oldest_data_slot = self.chain.store.get_data_info().oldest_data_slot;
+        if request_start_slot < oldest_data_slot {
             debug!(
                 %request_start_slot,
-                %oldest_blob_slot,
+                %oldest_data_slot,
                 %data_availability_boundary_slot,
                 "Range request start slot is older than data availability boundary."
             );
 
-            return if data_availability_boundary_slot < oldest_blob_slot {
+            return if data_availability_boundary_slot < oldest_data_slot {
                 Err((
                     RpcErrorResponse::ResourceUnavailable,
                     "blobs pruned within boundary",

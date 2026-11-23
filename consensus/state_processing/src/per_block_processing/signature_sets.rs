@@ -482,9 +482,9 @@ where
 ///
 /// The domain is computed at the inclusion list's own slot epoch, not the state's current epoch.
 pub fn inclusion_list_signature_set<'a, E, F>(
-    state: &'a BeaconState<E>,
     get_pubkey: F,
     signed_inclusion_list: &'a SignedInclusionList,
+    genesis_validators_root: Hash256,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -500,7 +500,7 @@ where
         epoch,
         Domain::InclusionListCommittee,
         &fork,
-        state.genesis_validators_root(),
+        genesis_validators_root,
     );
 
     let signing_root = message.signing_root(domain);
@@ -854,11 +854,9 @@ where
 mod inclusion_list_signature_tests {
     use super::{get_pubkey_from_state, inclusion_list_signature_set};
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use types::{
-        Domain, EthSpec, Hash256, InclusionList, MinimalEthSpec, SignedInclusionList, SignedRoot,
-    };
+    use types::{Domain, EthSpec, Hash256, InclusionList, SignedInclusionList, SignedRoot, Spec};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
     const VALIDATOR_COUNT: usize = 16;
 
     fn harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
@@ -895,10 +893,10 @@ mod inclusion_list_signature_tests {
             .sign(message.signing_root(domain));
         let signed = SignedInclusionList { message, signature };
 
-        let set = inclusion_list_signature_set(
-            &state,
+        let set = inclusion_list_signature_set::<E, _>(
             |i| get_pubkey_from_state(&state, i),
             &signed,
+            state.genesis_validators_root(),
             &spec,
         )
         .unwrap();
@@ -931,10 +929,10 @@ mod inclusion_list_signature_tests {
             .sign(message.signing_root(domain));
         let signed = SignedInclusionList { message, signature };
 
-        let set = inclusion_list_signature_set(
-            &state,
+        let set = inclusion_list_signature_set::<E, _>(
             |i| get_pubkey_from_state(&state, i),
             &signed,
+            state.genesis_validators_root(),
             &spec,
         )
         .unwrap();

@@ -454,11 +454,22 @@ pub enum ChainHealth {
     PreMerge,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailedCondition {
     Skips,
     SkipsPerEpoch,
     EpochsSinceFinalization,
+}
+
+impl FailedCondition {
+    /// A stable label for metrics.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FailedCondition::Skips => "skips",
+            FailedCondition::SkipsPerEpoch => "skips_per_epoch",
+            FailedCondition::EpochsSinceFinalization => "epochs_since_finalization",
+        }
+    }
 }
 
 type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a BlobsBundle<E>>);
@@ -565,7 +576,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }?;
 
         let engine: Engine = {
-            let auth = Auth::new(jwt_key, jwt_id, jwt_version);
+            let auth = Auth::new(jwt_key, jwt_id, jwt_version)
+                .map_err(|e| Error::InvalidJWTSecret(format!("{:?}", e)))?;
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
             let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
                 .map_err(Error::ApiError)?;
@@ -2097,9 +2109,9 @@ mod test {
     use super::*;
     use crate::test_utils::{Block, MockExecutionLayer as GenericMockExecutionLayer};
     use task_executor::test_utils::TestRuntime;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
-    type MockExecutionLayer = GenericMockExecutionLayer<MainnetEthSpec>;
+    type MockExecutionLayer = GenericMockExecutionLayer<Spec>;
 
     #[tokio::test]
     async fn produce_three_valid_pos_execution_blocks() {
@@ -2127,7 +2139,7 @@ mod test {
                 ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]).unwrap(),
             ])
             .unwrap(),
-            withdrawals: types::ProgressiveWithdrawals::<MainnetEthSpec>::new(vec![Withdrawal {
+            withdrawals: types::ProgressiveWithdrawals::<Spec>::new(vec![Withdrawal {
                 index: 1,
                 validator_index: 2,
                 address: Address::from([0x33; 20]),
@@ -2166,7 +2178,7 @@ mod test {
 
     #[tokio::test]
     async fn test_expected_gas_limit() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         assert_eq!(
             expected_gas_limit(30_000_000, 30_000_000, &spec),
             Some(30_000_000)

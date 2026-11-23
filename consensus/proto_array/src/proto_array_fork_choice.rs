@@ -52,6 +52,11 @@ impl VoteTracker {
     pub fn current_slot(&self) -> Slot {
         self.current_slot
     }
+
+    /// The payload status of this validator's latest message for a block at `block_slot`.
+    pub fn current_payload_status(&self, block_slot: Slot) -> PayloadStatus {
+        PayloadStatus::from_vote(self.current_slot, self.current_payload_present, block_slot)
+    }
 }
 
 // This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
@@ -572,11 +577,6 @@ impl std::fmt::Display for DoNotReOrg {
     }
 }
 
-/// New-type for the re-org threshold percentage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ReOrgThreshold(pub u64);
-
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -820,23 +820,18 @@ impl ProtoArrayForkChoice {
     /// Get the block to propose on during `current_slot`.
     ///
     /// This function returns a *definitive* result which should be acted on.
-    #[allow(clippy::too_many_arguments)]
     pub fn get_proposer_head<E: EthSpec>(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
             current_slot,
             canonical_head,
             justified_balances,
-            re_org_head_threshold,
-            re_org_parent_threshold,
-            max_epochs_since_finalization,
+            spec,
         )?;
 
         // Only re-org a single slot. This prevents cascading failures during asynchrony.
@@ -877,15 +872,12 @@ impl ProtoArrayForkChoice {
     /// Get information about the block to propose on during `current_slot`.
     ///
     /// This function returns a *partial* result which must be processed further.
-    #[allow(clippy::too_many_arguments)]
     pub fn get_proposer_head_info<E: EthSpec>(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
             .proto_array
@@ -908,7 +900,7 @@ impl ProtoArrayForkChoice {
             .ok_or(DoNotReOrg::MissingHeadFinalizedCheckpoint)?
             .epoch;
         let epochs_since_finalization = proposal_epoch.saturating_sub(finalized_epoch).as_u64();
-        if epochs_since_finalization > max_epochs_since_finalization.as_u64() {
+        if epochs_since_finalization > spec.reorg_max_epochs_since_finalization {
             return Err(DoNotReOrg::ChainNotFinalizing {
                 epochs_since_finalization,
             }
@@ -934,12 +926,14 @@ impl ProtoArrayForkChoice {
 
         // Compute re-org weight thresholds for head and parent.
         let re_org_head_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_head_threshold.0)
+            calculate_committee_fraction::<E>(justified_balances, spec.reorg_head_weight_threshold)
                 .ok_or(Error::ReOrgThresholdOverflow)?;
 
-        let re_org_parent_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_parent_threshold.0)
-                .ok_or(Error::ReOrgThresholdOverflow)?;
+        let re_org_parent_weight_threshold = calculate_committee_fraction::<E>(
+            justified_balances,
+            spec.reorg_parent_weight_threshold,
+        )
+        .ok_or(Error::ReOrgThresholdOverflow)?;
 
         Ok(ProposerHeadInfo {
             head_node,
@@ -1222,6 +1216,26 @@ impl ProtoArrayForkChoice {
     pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
         self.get_proto_node(block_root)
             .and_then(|node| node.payload_received().ok())
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if more than `PAYLOAD_TIMELY_THRESHOLD` PTC members voted that the payload
+    /// for `block_root` was timely. Ignores whether this node received the payload itself.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_payload_timely<E: EthSpec>(&self, block_root: &Hash256) -> bool {
+        self.get_proto_node(block_root)
+            .and_then(|node| node.ptc_votes_timeliness::<E>(true).ok())
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if more than `DATA_AVAILABILITY_TIMELY_THRESHOLD` PTC members voted that
+    /// the blob data for `block_root` was available. Ignores this node's own availability view.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_data_available<E: EthSpec>(&self, block_root: &Hash256) -> bool {
+        self.get_proto_node(block_root)
+            .and_then(|node| node.ptc_votes_data_availability::<E>(true).ok())
             .unwrap_or(false)
     }
 
@@ -1514,7 +1528,7 @@ fn compute_deltas(
 mod test_compute_deltas {
     use super::*;
     use fixed_bytes::FixedBytesExtended;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {
@@ -1527,7 +1541,7 @@ mod test_compute_deltas {
 
     #[test]
     fn finalized_descendant() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         let genesis_slot = Slot::new(0);
         let genesis_epoch = Epoch::new(0);
 
@@ -1549,7 +1563,7 @@ mod test_compute_deltas {
             root: Hash256::repeat_byte(42),
         };
 
-        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fc = ProtoArrayForkChoice::new::<Spec>(
             genesis_slot,
             genesis_slot,
             state_root,
@@ -1567,7 +1581,7 @@ mod test_compute_deltas {
 
         // Add block that is a finalized descendant.
         fc.proto_array
-            .on_block::<MainnetEthSpec>(
+            .on_block::<Spec>(
                 Block {
                     slot: genesis_slot + 1,
                     root: finalized_desc,
@@ -1594,7 +1608,7 @@ mod test_compute_deltas {
 
         // Add block that is *not* a finalized descendant.
         fc.proto_array
-            .on_block::<MainnetEthSpec>(
+            .on_block::<Spec>(
                 Block {
                     slot: genesis_slot + 1,
                     root: not_finalized_desc,
@@ -1631,24 +1645,19 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
 
-        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            finalized_root,
-            genesis_checkpoint
-        ));
-        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            finalized_desc,
-            genesis_checkpoint
-        ));
-        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            not_finalized_desc,
-            genesis_checkpoint
-        ));
         assert!(
-            !fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-                unknown,
+            fc.is_finalized_checkpoint_or_descendant::<Spec>(finalized_root, genesis_checkpoint)
+        );
+        assert!(
+            fc.is_finalized_checkpoint_or_descendant::<Spec>(finalized_desc, genesis_checkpoint)
+        );
+        assert!(
+            !fc.is_finalized_checkpoint_or_descendant::<Spec>(
+                not_finalized_desc,
                 genesis_checkpoint
             )
         );
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<Spec>(unknown, genesis_checkpoint));
 
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
@@ -1693,7 +1702,7 @@ mod test_compute_deltas {
     /// *checkpoint*, not just the finalized *block*.
     #[test]
     fn finalized_descendant_edge_case() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         let get_block_root = Hash256::from_low_u64_be;
         let genesis_slot = Slot::new(0);
         let junk_state_root = Hash256::zero();
@@ -1706,7 +1715,7 @@ mod test_compute_deltas {
             root: get_block_root(0),
         };
 
-        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fc = ProtoArrayForkChoice::new::<Spec>(
             genesis_slot,
             genesis_slot,
             junk_state_root,
@@ -1730,7 +1739,7 @@ mod test_compute_deltas {
 
         let insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
             fc.proto_array
-                .on_block::<MainnetEthSpec>(
+                .on_block::<Spec>(
                     Block {
                         slot: Slot::from(block.slot),
                         root: get_block_root(block.root),
@@ -1765,7 +1774,7 @@ mod test_compute_deltas {
 
         // Produce the 0th epoch of blocks. They should all form a chain from
         // the genesis block.
-        for i in 1..MainnetEthSpec::slots_per_epoch() {
+        for i in 1..Spec::slots_per_epoch() {
             insert_block(
                 &mut fc,
                 TestBlock {
@@ -1776,7 +1785,7 @@ mod test_compute_deltas {
             )
         }
 
-        let last_slot_of_epoch_0 = MainnetEthSpec::slots_per_epoch() - 1;
+        let last_slot_of_epoch_0 = Spec::slots_per_epoch() - 1;
 
         // Produce a block that descends from the last block of epoch -.
         //
@@ -1816,7 +1825,7 @@ mod test_compute_deltas {
 
         assert!(
             fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                .is_finalized_checkpoint_or_descendant::<Spec>(
                     finalized_root,
                     finalized_checkpoint
                 ),
@@ -1825,7 +1834,7 @@ mod test_compute_deltas {
 
         assert!(
             fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                .is_finalized_checkpoint_or_descendant::<Spec>(
                     get_block_root(canonical_slot),
                     finalized_checkpoint
                 ),
@@ -1833,7 +1842,7 @@ mod test_compute_deltas {
         );
         assert!(
             !fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                .is_finalized_checkpoint_or_descendant::<Spec>(
                     get_block_root(non_canonical_slot),
                     finalized_checkpoint
                 ),
@@ -2470,17 +2479,17 @@ mod test_compute_deltas {
 #[cfg(test)]
 mod test_find_head {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     #[test]
     fn justified_balances_updates() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         let checkpoint = Checkpoint {
             epoch: Epoch::new(0),
             root: Hash256::from_low_u64_be(1),
         };
         let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fork_choice = ProtoArrayForkChoice::new::<Spec>(
             Slot::new(0),
             Slot::new(0),
             Hash256::zero(),
@@ -2505,7 +2514,7 @@ mod test_find_head {
                 .unwrap();
             let allocation = fork_choice.balances.effective_balances.as_ptr();
             let head = fork_choice
-                .find_head::<MainnetEthSpec>(
+                .find_head::<Spec>(
                     checkpoint,
                     checkpoint,
                     &balances,
@@ -2534,7 +2543,7 @@ mod test_find_head {
             balances.total_effective_balance = total_effective_balance;
             balances.num_active_validators = num_active_validators;
             let head = fork_choice
-                .find_head::<MainnetEthSpec>(
+                .find_head::<Spec>(
                     checkpoint,
                     checkpoint,
                     &balances,

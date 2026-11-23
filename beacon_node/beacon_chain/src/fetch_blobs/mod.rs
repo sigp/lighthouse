@@ -269,10 +269,10 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
         }
     }
 
-    if chain_adapter.fork_choice_contains_block(&block_root) {
-        // Avoid computing columns if the block has already been imported.
+    if chain_adapter.is_block_data_imported(block_root) {
+        // Avoid computing columns if they have already been imported.
         debug!(
-            info = "block has already been imported",
+            info = "columns have already been imported",
             "Ignoring EL blobs response"
         );
         return Ok(None);
@@ -482,9 +482,9 @@ async fn fetch_and_process_blobs_v4<T: BeaconChainTypes>(
         inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V4_PARTIAL_RESPONSES_TOTAL);
     }
 
-    if chain_adapter.fork_choice_contains_block(&block_root) {
+    if chain_adapter.is_block_data_imported(block_root) {
         debug!(
-            info = "block has already been imported",
+            info = "columns have already been imported",
             "Ignoring EL blobs response"
         );
         return Ok(None);
