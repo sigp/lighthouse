@@ -330,8 +330,8 @@ Options:
           1/3 of a slot.
       --proof-engine-endpoint <PROOF-ENGINE-ENDPOINT>
           Server endpoint for an EIP-8025 proof engine used to verify execution
-          proofs. When present, the node subscribes to the execution_proof
-          gossip topic and propagates proofs that verify. Experimental.
+          proofs. Proofs decide payload validity if there's no
+          --execution-endpoint. Experimental.
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>
@@ -383,7 +383,7 @@ Options:
           Configure how many epochs of history the slasher keeps. Immutable
           after initialization.
       --slasher-max-db-size <GIGABYTES>
-          Maximum size of the MDBX database used by the slasher.
+          Maximum size of the LMDB database used by the slasher.
       --slasher-slot-offset <SECONDS>
           Set the delay from the start of the slot at which the slasher should
           ingest attestations. Only effective if the slasher-update-period is a

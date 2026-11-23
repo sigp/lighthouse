@@ -9,6 +9,7 @@ name = "validator_http_api"
 path = "src/lib.rs"
 
 [features]
+spec-minimal = ["types/spec-minimal"]
 testing = ["dep:deposit_contract", "dep:doppelganger_service", "dep:tempfile"]
 
 [dependencies]

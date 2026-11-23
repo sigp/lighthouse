@@ -221,9 +221,9 @@ mod tests {
     use super::*;
     use bls::FixedBytesExtended;
     use builder_types::RequestAuthData;
-    use types::{FullPayload, MainnetEthSpec};
+    use types::{FullPayload, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
     type Payload = FullPayload<E>;
 
     fn dummy_fork_info() -> ForkInfo {
