@@ -4,24 +4,36 @@ version = "0.1.0"
 edition = { workspace = true }
 authors = ["Sean Anderson <sean@sigmaprime.io>"]
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
+base64 = { workspace = true }
 bls = { workspace = true }
 context_deserialize = { workspace = true }
 eth2 = { workspace = true }
 ethereum_ssz = { workspace = true }
 futures = { workspace = true }
 lighthouse_version = { workspace = true }
+metrics = { workspace = true }
 parking_lot = { workspace = true }
 pretty_reqwest_error = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+slot_clock = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tokio-tungstenite = { workspace = true }
 tracing = { workspace = true }
+webpki-roots = { workspace = true }
 
 [dev-dependencies]
 arbitrary = { workspace = true }
 builder_types = { workspace = true, features = ["arbitrary"] }
 mockito = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "net", "time"] }
 types = { workspace = true, features = ["arbitrary"] }

@@ -1,5 +1,9 @@
+use ssz_types::BitVector;
 use std::mem;
-use types::{BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec, Fork};
+use types::{
+    BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec,
+    ExecutionPayloadBidHeze, Fork,
+};
 
 /// Transform a `Gloas` state into a `Heze` state.
 pub fn upgrade_to_heze<E: EthSpec>(
@@ -64,7 +68,26 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        latest_execution_payload_bid: pre.latest_execution_payload_bid.clone(),
+        // [New in Heze:EIP7805] the bid gains `inclusion_list_bits`; carry the shared Gloas
+        // fields forward and default the new field to empty (no bits computed at upgrade).
+        latest_execution_payload_bid: {
+            let pre_bid = &pre.latest_execution_payload_bid;
+            ExecutionPayloadBidHeze {
+                parent_block_hash: pre_bid.parent_block_hash,
+                parent_block_root: pre_bid.parent_block_root,
+                block_hash: pre_bid.block_hash,
+                prev_randao: pre_bid.prev_randao,
+                fee_recipient: pre_bid.fee_recipient,
+                gas_limit: pre_bid.gas_limit,
+                builder_index: pre_bid.builder_index,
+                slot: pre_bid.slot,
+                value: pre_bid.value,
+                execution_payment: pre_bid.execution_payment,
+                blob_kzg_commitments: pre_bid.blob_kzg_commitments.clone(),
+                execution_requests_root: pre_bid.execution_requests_root,
+                inclusion_list_bits: BitVector::new(),
+            }
+        },
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,

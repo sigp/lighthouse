@@ -194,14 +194,14 @@ impl<T, M> From<UnversionedResponse<T, M>> for BeaconResponse<T, M> {
 mod fork_version_response_tests {
     use crate::beacon_response::ExecutionOptimisticFinalizedMetadata;
     use crate::{
-        ExecutionPayload, ExecutionPayloadBellatrix, ForkName, ForkVersionedResponse,
-        MainnetEthSpec, UnversionedResponse,
+        ExecutionPayload, ExecutionPayloadBellatrix, ForkName, ForkVersionedResponse, Spec,
+        UnversionedResponse,
     };
     use serde_json::json;
 
     #[test]
     fn fork_versioned_response_deserialize_correct_fork() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
         let response_json =
             serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
@@ -219,7 +219,7 @@ mod fork_version_response_tests {
 
     #[test]
     fn fork_versioned_response_deserialize_incorrect_fork() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
         let response_json =
             serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {

@@ -5,17 +5,17 @@ use crate::{
 use bls::PublicKeyBytes;
 use eth2::types::{
     BuilderPreferencesRequest, ContentType, EthSpec, ExecutionBlockHash, ForkName,
-    ForkVersionedResponse, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedRequestAuth, Slot,
+    ForkVersionDecode, ForkVersionedResponse, Hash256, SignedBeaconBlock,
+    SignedExecutionPayloadBid, SignedRequestAuth, Slot,
 };
 use eth2::{
     CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
     SSZ_CONTENT_TYPE_HEADER,
 };
-use reqwest::StatusCode;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderName, HeaderValue};
+use reqwest::{StatusCode, Url};
 use sensitive_url::SensitiveUrl;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use std::time::Duration;
 use tracing::warn;
 
@@ -27,9 +27,34 @@ pub const DEFAULT_GET_EXECUTION_PAYLOAD_BID_TIMEOUT_MILLIS: u64 = 400;
 pub const DEFAULT_SUBMIT_TIMEOUT_MILLIS: u64 = 1000;
 
 /// Header advertising the proposer's request timeout (in milliseconds) to the builder.
-const X_TIMEOUT_MS: HeaderName = HeaderName::from_static("x-timeout-ms");
+pub(crate) const X_TIMEOUT_MS: HeaderName = HeaderName::from_static("x-timeout-ms");
 /// Header carrying the Unix send-time (in milliseconds) so the builder can measure latency.
-const DATE_MILLISECONDS: HeaderName = HeaderName::from_static("date-milliseconds");
+pub(crate) const DATE_MILLISECONDS: HeaderName = HeaderName::from_static("date-milliseconds");
+
+/// `{builder_url}/eth/v1/builder/{endpoint}/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey}`,
+/// the path of a bid request or bid stream. `None` if `builder_url` cannot be a base.
+pub(crate) fn bid_url(
+    builder_url: &SensitiveUrl,
+    endpoint: &str,
+    slot: Slot,
+    executed_ancestor_hash: ExecutionBlockHash,
+    parent_root: Hash256,
+    proposer_pubkey: &PublicKeyBytes,
+) -> Option<Url> {
+    let mut url = builder_url.expose_full().clone();
+    url.path_segments_mut()
+        .ok()?
+        .push("eth")
+        .push("v1")
+        .push("builder")
+        .push(endpoint)
+        .push(&slot.to_string())
+        // The spec names this path parameter `parent_hash`.
+        .push(&format!("{executed_ancestor_hash:?}"))
+        .push(&format!("{parent_root:?}"))
+        .push(&proposer_pubkey.as_hex_string());
+    Some(url)
+}
 
 /// A client for the Gloas (ePBS) Builder API.
 ///
@@ -145,19 +170,15 @@ impl BuilderHttpClient {
         signed_request_auth: &SignedRequestAuth,
         fork_name: ForkName,
     ) -> Result<Option<SignedExecutionPayloadBid<E>>, Error> {
-        let mut path = builder_url.expose_full().clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(builder_url.clone()))?
-            .push("eth")
-            .push("v1")
-            .push("builder")
-            .push("execution_payload_bid")
-            .push(slot.to_string().as_str())
-            // The spec names this path parameter `parent_hash`.
-            .push(format!("{executed_ancestor_hash:?}").as_str())
-            .push(format!("{parent_root:?}").as_str())
-            .push(proposer_pubkey.as_hex_string().as_str());
+        let path = bid_url(
+            builder_url,
+            "execution_payload_bid",
+            slot,
+            executed_ancestor_hash,
+            parent_root,
+            proposer_pubkey,
+        )
+        .ok_or_else(|| Error::InvalidUrl(builder_url.clone()))?;
 
         let timeout = Duration::from_millis(DEFAULT_GET_EXECUTION_PAYLOAD_BID_TIMEOUT_MILLIS);
         let headers = self.compute_get_execution_payload_bid_headers();
@@ -182,13 +203,23 @@ impl BuilderHttpClient {
 
         match content_type_from_header(&response_headers) {
             ContentType::Ssz => {
-                let bid = SignedExecutionPayloadBid::<E>::from_ssz_bytes(&response_bytes)
-                    .map_err(Error::InvalidSsz)?;
+                let bid = SignedExecutionPayloadBid::<E>::from_ssz_bytes_by_fork(
+                    &response_bytes,
+                    fork_name,
+                )
+                .map_err(Error::InvalidSsz)?;
                 Ok(Some(bid))
             }
             ContentType::Json => {
                 let versioned: ForkVersionedResponse<SignedExecutionPayloadBid<E>> =
                     serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)?;
+                let received = versioned.data.message().fork_name_unchecked();
+                if received != fork_name {
+                    return Err(Error::InvalidFork {
+                        expected: fork_name,
+                        received,
+                    });
+                }
                 Ok(Some(versioned.data))
             }
         }
@@ -311,11 +342,11 @@ mod tests {
     use super::*;
     use arbitrary::Arbitrary;
     use eth2::types::beacon_response::EmptyMetadata;
-    use eth2::types::{ForkName, MainnetEthSpec};
+    use eth2::types::{ForkName, SignedExecutionPayloadBidGloas, Spec};
     use mockito::{Matcher, Server, ServerGuard};
     use std::str::FromStr;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn client_for() -> BuilderHttpClient {
         BuilderHttpClient::new(None, false).unwrap()
@@ -330,11 +361,15 @@ mod tests {
         SignedRequestAuth::arbitrary(&mut u).unwrap()
     }
 
+    fn empty_bid() -> SignedExecutionPayloadBid<E> {
+        SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas::empty())
+    }
+
     fn empty_bid_response() -> ForkVersionedResponse<SignedExecutionPayloadBid<E>> {
         ForkVersionedResponse {
             version: ForkName::Gloas,
             metadata: EmptyMetadata {},
-            data: SignedExecutionPayloadBid::empty(),
+            data: empty_bid(),
         }
     }
 
@@ -377,7 +412,7 @@ mod tests {
         let mut server = Server::new_async().await;
         mock_bid(&mut server, ContentType::Json);
         let bid = request_bid(&server).await.expect("should have a bid");
-        assert_eq!(bid, SignedExecutionPayloadBid::empty());
+        assert_eq!(bid, empty_bid());
     }
 
     #[tokio::test]
@@ -385,7 +420,7 @@ mod tests {
         let mut server = Server::new_async().await;
         mock_bid(&mut server, ContentType::Ssz);
         let bid = request_bid(&server).await.expect("should have a bid");
-        assert_eq!(bid, SignedExecutionPayloadBid::empty());
+        assert_eq!(bid, empty_bid());
     }
 
     #[tokio::test]
@@ -515,5 +550,29 @@ mod tests {
             .with_status(204)
             .create();
         assert!(request_bid(&server).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_execution_payload_bid_rejects_invalid_fork() {
+        let mut server = Server::new_async().await;
+        mock_bid(&mut server, ContentType::Json);
+        let result = client_for()
+            .get_execution_payload_bid::<E>(
+                &builder_url(&server),
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                Hash256::repeat_byte(2),
+                &PublicKeyBytes::empty(),
+                &signed_request_auth(),
+                ForkName::Heze,
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(Error::InvalidFork {
+                expected: ForkName::Heze,
+                received: ForkName::Gloas,
+            })
+        ));
     }
 }

@@ -4,7 +4,8 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, ChainConfig,
     chain_config::FastConfirmationMode,
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+        fork_name_from_env, test_spec,
     },
 };
 use bls::Keypair;
@@ -15,9 +16,9 @@ use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
 use tempfile::{TempDir, tempdir};
-use types::{BeaconState, EthSpec, Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot, Spec};
 
-type E = MinimalEthSpec;
+type E = Spec;
 type Harness = BeaconChainHarness<DiskHarnessType<E>>;
 type Store = Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>;
 
@@ -56,7 +57,7 @@ fn config(fcr: bool, reset_payload_statuses: bool) -> ChainConfig {
 
 /// The harness owns the mock execution layer and the clock; the node shares both.
 fn harness(store: Store) -> Harness {
-    let harness = Harness::builder(MinimalEthSpec)
+    let harness = Harness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS.to_vec())
         .fresh_disk_store(store)
@@ -68,7 +69,7 @@ fn harness(store: Store) -> Harness {
 }
 
 fn node(store: Store, harness: &Harness, fresh: bool, fcr: bool, reset: bool) -> Harness {
-    let builder = Harness::builder(MinimalEthSpec)
+    let builder = Harness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS.to_vec());
     let builder = if fresh {
@@ -81,6 +82,12 @@ fn node(store: Store, harness: &Harness, fresh: bool, fcr: bool, reset: bool) ->
         .execution_layer(harness.chain.execution_layer.clone())
         .chain_config(config(fcr, reset))
         .build()
+}
+
+/// A pre-Bellatrix block has no execution block hash, so `run_fcr` errors and the node always
+/// announces the finalized block. These tests have nothing to check there.
+fn pre_bellatrix() -> bool {
+    fork_name_from_env().is_some_and(|fork| !fork.bellatrix_enabled())
 }
 
 fn validators(n: usize) -> Vec<usize> {
@@ -385,6 +392,9 @@ impl Scenario {
     }
 
     async fn run(self) {
+        if pre_bellatrix() {
+            return;
+        }
         let all = validators(VALIDATOR_COUNT);
         let epoch = E::slots_per_epoch();
         let mut rig = Rig::new();
@@ -511,6 +521,9 @@ async fn crash_instead_of_graceful_shutdown() {
 /// that root, so only its age can reject it — and it must.
 #[tokio::test]
 async fn re_enabling_fcr_drops_a_stale_root() {
+    if pre_bellatrix() {
+        return;
+    }
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -557,6 +570,9 @@ async fn re_enabling_fcr_drops_a_stale_root() {
 /// survives the boot that turns it back on.
 #[tokio::test]
 async fn re_enabling_fcr_drops_roots_finality_passed() {
+    if pre_bellatrix() {
+        return;
+    }
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -603,6 +619,9 @@ async fn re_enabling_fcr_drops_roots_finality_passed() {
 /// block is not confirmed. The EL is the one that lost the statuses, so it may lack the block too.
 #[tokio::test]
 async fn a_payload_status_reset_drops_the_confirmed_root() {
+    if pre_bellatrix() {
+        return;
+    }
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -636,12 +655,16 @@ struct Restarted {
 }
 
 async fn restart_after(slots_of_downtime: u64) -> Restarted {
+    restart_after_warmup(WARMUP_SLOTS, slots_of_downtime).await
+}
+
+async fn restart_after_warmup(warmup_slots: u64, slots_of_downtime: u64) -> Restarted {
     let db = tempdir().unwrap();
     let store = store(&db);
     let stopped = harness(store.clone());
     stopped
         .extend_chain(
-            WARMUP_SLOTS as usize,
+            warmup_slots as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -674,6 +697,9 @@ async fn restart_after(slots_of_downtime: u64) -> Restarted {
 /// either, even though the rule itself has gone back to the finalized block.
 #[tokio::test]
 async fn the_confirmed_root_reaches_the_execution_layer() {
+    if pre_bellatrix() {
+        return;
+    }
     let rig = restart_after(1).await;
 
     assert_eq!(
@@ -708,6 +734,9 @@ async fn the_confirmed_root_reaches_the_execution_layer() {
 /// root from before the restart has to be in there already or the EL's safe block hash regresses.
 #[tokio::test]
 async fn the_startup_update_sends_the_restored_root() {
+    if pre_bellatrix() {
+        return;
+    }
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -750,7 +779,12 @@ async fn the_startup_update_sends_the_restored_root() {
 /// A root off the head's chain is dropped: the EL rejects such a `forkchoiceUpdated`.
 #[tokio::test]
 async fn drops_a_root_that_was_reorged_out() {
-    let rig = restart_after(1).await;
+    if pre_bellatrix() {
+        return;
+    }
+    // Restart near the epoch end so FCR can recover from observed justification at the
+    // next boundary, while still trailing the root confirmed before the restart.
+    let rig = restart_after_warmup(WARMUP_SLOTS + E::slots_per_epoch() - 1, 0).await;
 
     // A fork from the pre-restart root's parent, attested by all, takes the head off that branch.
     let first_slot = rig.node.chain.slot().unwrap();
@@ -777,20 +811,41 @@ async fn drops_a_root_that_was_reorged_out() {
         rig.slot_before.epoch(E::slots_per_epoch()) + 2 > rig.node.chain.epoch().unwrap(),
         "the pre-restart root must still be recent, or it would be dropped as stale instead"
     );
+    let canonical_head = &rig.node.chain.canonical_head;
+    let current_confirmed = canonical_head
+        .fast_confirmation
+        .as_ref()
+        .unwrap()
+        .lock()
+        .fcr
+        .confirmed_root;
+    let current_confirmed_slot = canonical_head
+        .fork_choice_read_lock()
+        .get_block(&current_confirmed)
+        .unwrap()
+        .slot;
     assert!(
-        confirmed(&rig.node.chain).unwrap().1 < rig.slot_before,
+        current_confirmed_slot < rig.slot_before,
         "the rule must not have caught up, or that is what dropped the root"
     );
     assert_ne!(
+        current_confirmed,
+        finalized(&rig.node.chain),
+        "FCR must have recovered ahead of finalized for this to test the fallback"
+    );
+    assert_eq!(
         confirmed(&rig.node.chain).unwrap().0,
-        rig.confirmed_before,
-        "a root off the head's chain must be dropped"
+        current_confirmed,
+        "a reorged pre-restart root must fall back to the current confirmed root"
     );
 }
 
 /// Three epochs down puts the root outside the window: the revert the oracle above has to forbid.
 #[tokio::test]
 async fn falls_back_to_finalized_after_a_long_downtime() {
+    if pre_bellatrix() {
+        return;
+    }
     let rig = restart_after(3 * E::slots_per_epoch()).await;
 
     assert_ne!(rig.confirmed_before, finalized(&rig.node.chain));

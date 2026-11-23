@@ -10,7 +10,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use axum_utils::{Server, cors::build_cors_layer, middleware::add_server_header};
+use axum_utils::{CompressionLayer, Server, cors::build_cors_layer, middleware::add_server_header};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::prometheus_client::registry::Registry;
 use logging::crit;
@@ -117,6 +117,7 @@ pub async fn serve<T: BeaconChainTypes>(
         .route("/metrics", get(metrics_handler::<T>))
         .with_state(ctx.clone())
         .layer(add_server_header(server_header))
+        .layer(CompressionLayer::new())
         .layer(cors_layer);
 
     let address = SocketAddr::new(config.listen_addr, config.listen_port);

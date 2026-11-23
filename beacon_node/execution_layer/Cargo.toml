@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 alloy-consensus = { workspace = true }
 alloy-primitives = { workspace = true }
@@ -22,7 +25,7 @@ hash-db = "0.15.2"
 hash256-std-hasher = "0.15.2"
 hashlink = { workspace = true }
 hex = { workspace = true }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "12", default-features = false, features = ["aws_lc_rs"] }
 keccak-hash = "0.10.0"
 kzg = { workspace = true }
 lighthouse_version = { workspace = true }

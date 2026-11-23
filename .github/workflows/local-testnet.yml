@@ -16,7 +16,7 @@ jobs:
   dockerfile-ubuntu:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Build Docker image
         run: |
@@ -24,7 +24,7 @@ jobs:
           docker save lighthouse:local -o lighthouse-docker.tar
 
       - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lighthouse-docker
           path: lighthouse-docker.tar
@@ -34,7 +34,7 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     needs: dockerfile-ubuntu
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Kurtosis
         run: |
@@ -44,7 +44,7 @@ jobs:
           kurtosis analytics disable
 
       - name: Download Docker image artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lighthouse-docker
           path: .
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-local-testnet
           path: |
@@ -102,7 +102,7 @@ jobs:
     needs: dockerfile-ubuntu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Kurtosis
         run: |
@@ -112,7 +112,7 @@ jobs:
           kurtosis analytics disable
 
       - name: Download Docker image artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lighthouse-docker
           path: .
@@ -127,7 +127,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-doppelganger-protection-success
           path: |
@@ -138,7 +138,7 @@ jobs:
     needs: dockerfile-ubuntu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Kurtosis
         run: |
@@ -148,7 +148,7 @@ jobs:
           kurtosis analytics disable
 
       - name: Download Docker image artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lighthouse-docker
           path: .
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-doppelganger-protection-failure
           path: |
@@ -181,7 +181,7 @@ jobs:
       matrix:
         network: [sepolia]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Kurtosis
         run: |
@@ -191,7 +191,7 @@ jobs:
           kurtosis analytics disable
 
       - name: Download Docker image artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lighthouse-docker
           path: .
@@ -206,7 +206,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-checkpoint-sync-${{ matrix.network }}
           path: |
@@ -223,7 +223,7 @@ jobs:
         fork: [fulu, gloas]
         offline_secs: [120, 300]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Kurtosis
         run: |
@@ -233,7 +233,7 @@ jobs:
           kurtosis analytics disable
 
       - name: Download Docker image artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lighthouse-docker
           path: .
@@ -248,7 +248,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-genesis-sync-${{ matrix.fork }}-${{ matrix.offline_secs }}s
           path: |
@@ -268,7 +268,7 @@ jobs:
       'genesis-sync-test'
     ]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Check that success job is dependent on all others
         run: |
           exclude_jobs='checkpoint-sync-test'

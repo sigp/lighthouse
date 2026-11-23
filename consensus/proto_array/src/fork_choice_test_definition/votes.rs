@@ -338,7 +338,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             execution_payload_parent_hash: None,
             execution_payload_block_hash: None,
         },
-        // Block 5 has incompatible finalized checkpoint, so `get_filtered_block_tree`
+        // Block 5 has incompatible finalized checkpoint, so `get_filtered_node_tree`
         // excludes the entire 1->3->4->5 branch (no viable leaf). Head moves to 2.
         //
         //          0

@@ -220,13 +220,12 @@ impl NatState {
 
 /// Observes if NAT traversal is possible.
 pub fn observe_nat() -> NatState {
-    let discv5_ipv4 = metrics::get_int_gauge(&discovery_metrics::NAT_OPEN, &["discv5_ipv4"])
-        .map(|g| g.get() == 1)
-        .unwrap_or_default();
-
-    let discv5_ipv6 = metrics::get_int_gauge(&discovery_metrics::NAT_OPEN, &["discv5_ipv6"])
-        .map(|g| g.get() == 1)
-        .unwrap_or_default();
+    // `discovery_metrics::NAT_OPEN` also carries discv5_ipv4/ipv6, but those gauges are only
+    // updated by `scrape_discovery_metrics()` while the beacon node serves `/metrics`, so they
+    // can be stale or never set at all. Read the discv5 global metrics directly instead.
+    let metrics = discv5::Discv5::metrics();
+    let discv5_ipv4 = metrics.ipv4_contactable;
+    let discv5_ipv6 = metrics.ipv6_contactable;
 
     let libp2p_ipv4 = metrics::get_int_gauge(&discovery_metrics::NAT_OPEN, &["libp2p_ipv4"])
         .map(|g| g.get() == 1)

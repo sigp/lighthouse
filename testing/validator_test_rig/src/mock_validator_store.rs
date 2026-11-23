@@ -5,11 +5,11 @@ use futures::{Stream, stream};
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Epoch, ExecutionPayloadEnvelope, Graffiti, Hash256, MainnetEthSpec,
-    PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences, SelectionProof,
-    SignedAggregateAndProof, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedValidatorRegistrationData, SingleAttestation, Slot,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    Address, Epoch, ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData,
+    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedValidatorRegistrationData, SingleAttestation, Slot, Spec, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -47,7 +47,7 @@ impl MockValidatorStore {
 
 impl ValidatorStore for MockValidatorStore {
     type Error = ();
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     async fn sign_payload_attestation(
         &self,

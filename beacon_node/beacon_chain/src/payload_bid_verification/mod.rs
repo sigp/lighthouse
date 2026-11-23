@@ -10,7 +10,7 @@
 //!    GossipVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache
 //! ```
 
-use types::{BeaconStateError, ExecutionBlockHash, Hash256, Slot};
+use types::{BeaconStateError, ExecutionBlockHash, Hash256, InconsistentFork, Slot};
 
 pub mod direct_verified_bid;
 pub mod gossip_verified_bid;
@@ -94,6 +94,8 @@ pub enum PayloadBidError {
     InvalidPrevRandao { slot: Slot },
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
+    /// The bid's variant does not match the fork at its slot.
+    InconsistentFork(InconsistentFork),
     /// Internal error
     InternalError(String),
 }
