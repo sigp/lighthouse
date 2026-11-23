@@ -1,5 +1,6 @@
 mod attestation_production;
 mod attestation_verification;
+mod backfill;
 mod blob_verification;
 mod block_verification;
 mod column_verification;

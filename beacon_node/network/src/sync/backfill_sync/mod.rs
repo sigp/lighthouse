@@ -169,7 +169,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // genesis root) then backfill has been completed.
         let anchor_info = beacon_chain.store.get_anchor_info();
         let (state, current_start) =
-            if anchor_info.block_backfill_complete(beacon_chain.genesis_backfill_slot) {
+            if anchor_info.block_backfill_complete(beacon_chain.genesis_backfill_slot()) {
                 (BackFillState::Completed, Epoch::new(0))
             } else {
                 (
@@ -280,7 +280,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             remaining: self
                 .current_start
                 .start_slot(T::EthSpec::slots_per_epoch())
-                .saturating_sub(self.beacon_chain.genesis_backfill_slot)
+                .saturating_sub(self.beacon_chain.genesis_backfill_slot())
                 .as_usize(),
         })
     }
@@ -1085,7 +1085,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// not required.
     fn reset_start_epoch(&mut self) -> Result<(), ResetEpochError> {
         let anchor_info = self.beacon_chain.store.get_anchor_info();
-        if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
+        if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot()) {
             Err(ResetEpochError::SyncCompleted)
         } else {
             self.current_start = anchor_info
@@ -1101,7 +1101,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // Check that the beacon chain agrees
             let anchor_info = self.beacon_chain.store.get_anchor_info();
             // Conditions that we have completed a backfill sync
-            if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
+            if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot()) {
                 return true;
             } else {
                 error!("Backfill out of sync with beacon chain");
@@ -1115,7 +1115,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         start_epoch
             <= self
                 .beacon_chain
-                .genesis_backfill_slot
+                .genesis_backfill_slot()
                 .epoch(T::EthSpec::slots_per_epoch())
     }
 

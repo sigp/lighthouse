@@ -527,8 +527,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
-    /// The slot at which blocks are downloaded back to.
-    pub genesis_backfill_slot: Slot,
     /// Contains all the information the node requires to calculate which columns to custody
     pub custody_context: Arc<CustodyContext<T>>,
     /// Provides KZG verification and temporary storage for pre-Gloas blocks and blobs.
@@ -7641,6 +7639,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Get the earliest epoch in which the node has met its custody requirements.
     /// A `None` response indicates that we've met our custody requirements up to the
     /// column data availability window
+    /// The slot at which blocks are downloaded back to.
+    ///
+    /// Computed from the current fork, so the range shrinks once Gloas activates.
+    pub fn genesis_backfill_slot(&self) -> Slot {
+        if self.config.genesis_backfill {
+            return Slot::new(0);
+        }
+        // Before genesis, backfill all the way to genesis.
+        let Some(current_slot) = self.slot_clock.now() else {
+            return Slot::new(0);
+        };
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+        let backfill_epoch_range = if cfg!(feature = "test_backfill") {
+            3
+        } else {
+            match self
+                .spec
+                .compute_min_epochs_for_block_requests(current_epoch)
+            {
+                Ok(range) => range,
+                Err(_) => return Slot::new(0),
+            }
+        };
+        current_epoch
+            .saturating_sub(backfill_epoch_range)
+            .start_slot(T::EthSpec::slots_per_epoch())
+    }
+
     pub fn earliest_custodied_data_column_epoch(&self) -> Option<Epoch> {
         self.store
             .get_data_column_custody_info()

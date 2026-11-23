@@ -494,7 +494,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             oldest_block_parent: expected_block_root,
             ..anchor_info
         };
-        let backfill_complete = new_anchor.block_backfill_complete(self.genesis_backfill_slot);
+        let backfilled_to_genesis = new_anchor.block_backfill_complete(Slot::new(0));
         anchor_and_blob_batch.push(
             self.store
                 .compare_and_set_anchor_info(anchor_info, new_anchor)?,
@@ -503,10 +503,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Flush metadata to disk (cf. `put_sync` for the freezer split).
         self.store.hot_db.sync()?;
 
-        // If backfill has completed and the chain is configured to reconstruct historic states,
+        // If backfill has reached genesis and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.
-        // This can only happen if we have backfilled all the way to genesis.
-        if backfill_complete && self.genesis_backfill_slot == Slot::new(0) && self.config.archive {
+        if backfilled_to_genesis && self.config.archive {
             self.store_migrator.process_reconstruction();
         }
 
