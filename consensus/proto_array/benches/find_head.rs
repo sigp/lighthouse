@@ -4,8 +4,7 @@ use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoic
 use std::collections::BTreeSet;
 use std::time::Duration;
 use types::{
-    AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    MainnetEthSpec, Slot,
+    AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256, Slot, Spec,
 };
 
 fn get_root(i: u64) -> Hash256 {
@@ -18,8 +17,8 @@ fn get_hash(i: u64) -> ExecutionBlockHash {
 
 /// Build a linear chain of `num_blocks` blocks.
 fn build_chain(num_blocks: u64, gloas: bool) -> (ProtoArrayForkChoice, types::ChainSpec) {
-    let mut spec = MainnetEthSpec::default_spec();
-    let gloas_fork_slot = 32;
+    let mut spec = Spec::default_spec();
+    let gloas_fork_slot = Spec::slots_per_epoch();
     if gloas {
         spec.gloas_fork_epoch = Some(Epoch::new(1));
     }
@@ -30,7 +29,7 @@ fn build_chain(num_blocks: u64, gloas: bool) -> (ProtoArrayForkChoice, types::Ch
     };
     let junk_shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
 
-    let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+    let mut fork_choice = ProtoArrayForkChoice::new::<Spec>(
         Slot::new(0),
         Slot::new(0),
         Hash256::zero(),
@@ -72,7 +71,7 @@ fn build_chain(num_blocks: u64, gloas: bool) -> (ProtoArrayForkChoice, types::Ch
         };
 
         fork_choice
-            .process_block::<MainnetEthSpec>(block, Slot::new(i), &spec, Duration::ZERO)
+            .process_block::<Spec>(block, Slot::new(i), &spec, Duration::ZERO)
             .expect("should process block");
     }
 
@@ -97,7 +96,7 @@ fn bench_find_head(c: &mut Criterion) {
             group.bench_function(BenchmarkId::new(label, num_blocks), |b| {
                 b.iter(|| {
                     fork_choice
-                        .find_head::<MainnetEthSpec>(
+                        .find_head::<Spec>(
                             finalized_checkpoint,
                             finalized_checkpoint,
                             &balances,

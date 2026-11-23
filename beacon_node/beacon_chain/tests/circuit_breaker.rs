@@ -22,10 +22,10 @@ use std::time::Duration;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     BeaconState, BlockImportSource, BuilderIndex, EthSpec, ExecutionBlockHash, Hash256,
-    MinimalEthSpec, SignedBeaconBlock, Slot,
+    SignedBeaconBlock, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type Harness = BeaconChainHarness<EphemeralHarnessType<E>>;
 
 const VALIDATOR_COUNT: usize = 64;

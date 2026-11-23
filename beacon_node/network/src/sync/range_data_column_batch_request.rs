@@ -237,11 +237,9 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
             // didn't serve us columns for a skipped slot
             if block.slot() != slot {
                 // If we received columns for a skipped slot, punish the peer
-                if !columns.is_empty() {
-                    for column in expected_custody_columns {
-                        if let Some(naughty_peer) = column_to_peer.get(column) {
-                            naughty_peers.push((*column, *naughty_peer));
-                        }
+                for column in &columns {
+                    if let Some(naughty_peer) = column_to_peer.get(column.index()) {
+                        naughty_peers.push((*column.index(), *naughty_peer));
                     }
                 }
 
@@ -413,6 +411,19 @@ mod tests {
         harness
     }
 
+    /// Adds a block at the next slot and returns the columns stored for it.
+    async fn extend_with_columns(harness: &Harness) -> DataColumnSidecarList<E> {
+        harness.advance_slot();
+        let block_root = harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        data_columns(harness, block_root)
+    }
+
     /// Imports a block at `slot` without its payload envelope.
     async fn import_block_without_envelope(harness: &Harness, slot: Slot) -> Hash256 {
         let (block_contents, envelope, _) = harness
@@ -464,15 +475,8 @@ mod tests {
             .collect()
     }
 
-    /// Runs a custody backfill request for `epoch` where `peer` serves `columns`.
-    fn custody_backfill_responses(
-        harness: &Harness,
-        epoch: Epoch,
-        requested_columns: Vec<ColumnIndex>,
-        columns: DataColumnSidecarList<E>,
-        peer: PeerId,
-    ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
-        let request_id = DataColumnsByRangeRequestId {
+    fn backfill_request_id(peer: PeerId, epoch: Epoch) -> DataColumnsByRangeRequestId {
+        DataColumnsByRangeRequestId {
             id: 0,
             parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
                 CustodyBackFillBatchRequestId {
@@ -481,7 +485,18 @@ mod tests {
                 },
             ),
             peer,
-        };
+        }
+    }
+
+    /// Runs a custody backfill request for `epoch` where `peer` serves `columns`.
+    fn custody_backfill_responses(
+        harness: &Harness,
+        epoch: Epoch,
+        requested_columns: Vec<ColumnIndex>,
+        columns: DataColumnSidecarList<E>,
+        peer: PeerId,
+    ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
+        let request_id = backfill_request_id(peer, epoch);
         let mut request = RangeDataColumnBatchRequest::new(
             vec![(request_id, requested_columns)],
             harness.chain.clone(),
@@ -716,5 +731,69 @@ mod tests {
             PeerId::random(),
         );
         assert_empty_success(response);
+    }
+
+    #[tokio::test]
+    async fn skipped_slot_column_blames_only_the_serving_peer() {
+        let harness = gloas_harness();
+        let first_columns = extend_with_columns(&harness).await;
+        // Skip a slot before the next block.
+        harness.advance_slot();
+        let second_columns = extend_with_columns(&harness).await;
+
+        let skipped_slot = first_columns[0].slot() + 1;
+        assert_eq!(second_columns[0].slot(), skipped_slot + 1);
+
+        let honest_column = *first_columns[0].index();
+        let faulty_column = *first_columns[1].index();
+        let served = |index: ColumnIndex| {
+            first_columns
+                .iter()
+                .chain(second_columns.iter())
+                .filter(|column| *column.index() == index)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        let epoch = Epoch::new(0);
+        let honest_request_id = backfill_request_id(PeerId::random(), epoch);
+        let faulty_request_id = backfill_request_id(PeerId::random(), epoch);
+
+        let mut request = RangeDataColumnBatchRequest::new(
+            vec![
+                (honest_request_id, vec![honest_column]),
+                (faulty_request_id, vec![faulty_column]),
+            ],
+            harness.chain.clone(),
+            epoch,
+        );
+
+        // The honest peer serves only the column it was assigned.
+        request
+            .add_custody_columns(honest_request_id, served(honest_column))
+            .expect("should complete honest request");
+
+        // The faulty peer serves its own column plus one at the skipped slot. The wire validator
+        // accepts that column: its slot is in range and its index was requested.
+        let mut faulty_response = served(faulty_column);
+        let skipped_slot_column = match faulty_response[0].as_ref() {
+            DataColumnSidecar::Gloas(column) => {
+                let mut column = column.clone();
+                column.slot = skipped_slot;
+                Arc::new(DataColumnSidecar::Gloas(column))
+            }
+            DataColumnSidecar::Fulu(_) => panic!("expected Gloas columns"),
+        };
+        faulty_response.push(skipped_slot_column);
+        request
+            .add_custody_columns(faulty_request_id, faulty_response)
+            .expect("should complete faulty request");
+
+        let faulty_peers = match request.responses() {
+            Some(Err(CouplingError::DataColumnPeerFailure { faulty_peers, .. })) => faulty_peers,
+            response => panic!("expected a peer failure, got {response:?}"),
+        };
+
+        assert_eq!(faulty_peers, vec![(faulty_column, faulty_request_id.peer)]);
     }
 }
