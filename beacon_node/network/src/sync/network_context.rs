@@ -49,13 +49,14 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
+use store::DatabaseBlock;
 #[cfg(test)]
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
-    ForkContext, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod custody;
@@ -712,6 +713,36 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers_to_deprioritize: &HashSet<PeerId>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
+        // An imported PQ block can outlive the lookup caches. Seed its processed component
+        // from disk so a payload repair never has to reimport a finalized block.
+        let known_pq_block = self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+            .is_some_and(|block| {
+                self.fork_context
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(block.slot)
+                    == ForkName::Pq
+            });
+        if known_pq_block {
+            return match self.chain.store.try_get_full_block(&block_root) {
+                Ok(Some(DatabaseBlock::Full(block @ SignedBeaconBlock::Pq(_)))) => {
+                    Ok(LookupRequestResult::NoRequestNeeded(
+                        "PQ block already imported",
+                        Arc::new(block),
+                    ))
+                }
+                Ok(_) => Err(RpcRequestSendError::InternalError(format!(
+                    "Imported PQ lookup block {block_root} is missing from the local store"
+                ))),
+                Err(error) => Err(RpcRequestSendError::InternalError(format!(
+                    "Loading imported PQ lookup block {block_root}: {error:?}"
+                ))),
+            };
+        }
+
         let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
         let Some(peer_id) = lookup_peers
             .read()

@@ -162,9 +162,10 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     }
 
     pub(super) fn pq_envelope(&self) -> Option<SignedExecutionPayloadEnvelopePq<E>> {
+        let auth = self.pq_auth.as_deref()?;
         Some(SignedExecutionPayloadEnvelopePq::from_projection(
             self.envelope.as_ref().clone(),
-            self.pq_auth.as_ref()?.as_ref().clone(),
+            auth.clone(),
         ))
     }
 
@@ -421,17 +422,33 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
 ) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
     // TODO(EIP-7732): add metrics here
 
-    // We can use `get_hot_state` here rather than `get_advanced_hot_state` because the envelope
-    // must be from the same slot as its block (so no advance is required).
-    let cache_state = true;
-    let state = store
-        .get_hot_state(&block_state_root, cache_state)
-        .map_err(EnvelopeError::from)?
-        .ok_or_else(|| {
-            BeaconChainError::DBInconsistent(format!(
-                "Missing state for envelope block {block_state_root:?}",
-            ))
-        })?;
+    // The envelope needs the exact post-block state. When a checkpoint slot is skipped, the
+    // finalized block's state can move to the freezer ahead of its reveal being repaired.
+    let state = match store.get_hot_state(&block_state_root, true)? {
+        Some(state) => state,
+        None => {
+            let state = match store.load_cold_state(&block_state_root)? {
+                Some(state) => Some(state),
+                None => store.load_split_pq_block_state(beacon_block_root, block_state_root)?,
+            };
+            let mut state = state.ok_or_else(|| {
+                BeaconChainError::DBInconsistent(format!(
+                    "Missing state for envelope block {block_state_root:?}",
+                ))
+            })?;
+            if state
+                .canonical_root()
+                .map_err(EnvelopeError::BeaconStateError)?
+                != block_state_root
+            {
+                return Err(BeaconChainError::DBInconsistent(format!(
+                    "Replayed state does not match envelope block state root {block_state_root:?}",
+                ))
+                .into());
+            }
+            state
+        }
+    };
 
     Ok(EnvelopeProcessingSnapshot {
         pre_state: state,

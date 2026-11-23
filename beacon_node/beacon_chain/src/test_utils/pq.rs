@@ -2,8 +2,12 @@
 
 use super::*;
 use pq_prover::{ProverBackend, ReferenceBackend};
-use state_processing::pq::{self, LEAF_OFFSET_BEACON_PROPOSER, MIN_ATTESTATION_INCLUSION_DELAY_PQ};
+use state_processing::pq::{
+    self, LEAF_OFFSET_BEACON_PROPOSER, LEAF_OFFSET_PAYLOAD_ENVELOPE,
+    MIN_ATTESTATION_INCLUSION_DELAY_PQ,
+};
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
+use types::kzg_ext::ProgressiveKzgCommitments;
 
 pub(super) use genesis::pq::PqGenesisKeys;
 
@@ -33,12 +37,88 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore>
         slot: Slot,
         validators: &[usize],
     ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
+        self.make_pq_block_with_bid(state, slot, validators, None, Default::default())
+            .await
+    }
+
+    pub async fn make_pq_block_with_bid(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        validators: &[usize],
+        revealed_parent: Option<ExecutionBlockHash>,
+        blob_kzg_commitments: ProgressiveKzgCommitments<E>,
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         let keys = self.pq_keys.clone().expect("PQ harness keys");
         let spec = self.spec.clone();
         let validators = validators.iter().copied().collect();
-        tokio::task::spawn_blocking(move || make_pq_block(state, slot, &validators, &keys, &spec))
-            .await
-            .expect("PQ harness block production should run")
+        tokio::task::spawn_blocking(move || {
+            make_pq_block(
+                state,
+                slot,
+                &validators,
+                &keys,
+                &spec,
+                revealed_parent,
+                blob_kzg_commitments,
+            )
+        })
+        .await
+        .expect("PQ harness block production should run")
+    }
+
+    pub fn make_pq_envelope(
+        &self,
+        block: &SignedBeaconBlock<E>,
+        state: &BeaconState<E>,
+    ) -> SignedExecutionPayloadEnvelopePq<E> {
+        let bid = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap();
+        let slot = block.slot();
+        let message = ExecutionPayloadEnvelopePq {
+            payload: ExecutionPayloadGloas {
+                parent_hash: bid.message().parent_block_hash(),
+                block_hash: bid.message().block_hash(),
+                prev_randao: bid.message().prev_randao(),
+                gas_limit: bid.message().gas_limit(),
+                timestamp: state_processing::per_block_processing::compute_timestamp_at_slot(
+                    state, slot, &self.spec,
+                )
+                .unwrap(),
+                slot_number: slot,
+                withdrawals: state
+                    .payload_expected_withdrawals()
+                    .unwrap()
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap(),
+                ..Default::default()
+            },
+            builder_index: bid.message().builder_index(),
+            execution_requests: ExecutionRequestsPq::default(),
+            beacon_block_root: block.canonical_root(),
+            parent_beacon_block_root: block.parent_root(),
+        };
+        let domain = self.spec.get_domain(
+            state.current_epoch(),
+            Domain::BeaconBuilder,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let leaf = pq::slot_leaf_index(slot, LEAF_OFFSET_PAYLOAD_ENVELOPE).unwrap();
+        SignedExecutionPayloadEnvelopePq {
+            signature: self.sign_pq_test_message(
+                block.message().proposer_index() as usize,
+                leaf,
+                message.signing_root(domain),
+            ),
+            message,
+        }
     }
 
     pub fn sign_pq_block(
@@ -70,6 +150,8 @@ fn make_pq_block<E: EthSpec>(
     validators: &HashSet<usize>,
     keys: &[PqGenesisKeys],
     spec: &ChainSpec,
+    revealed_parent: Option<ExecutionBlockHash>,
+    blob_kzg_commitments: ProgressiveKzgCommitments<E>,
 ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
     complete_state_advance(&mut state, None, slot, None, spec).expect("advance PQ state");
     state.build_caches(spec).expect("build PQ caches");
@@ -93,13 +175,15 @@ fn make_pq_block<E: EthSpec>(
     );
     block.body.signed_execution_payload_bid = SignedExecutionPayloadBidPq {
         message: ExecutionPayloadBidGloas {
-            parent_block_hash: *state.latest_block_hash().expect("execution parent"),
+            parent_block_hash: revealed_parent
+                .unwrap_or_else(|| *state.latest_block_hash().expect("execution parent")),
             parent_block_root: parent_root,
             block_hash: execution_block_hash,
             prev_randao,
             builder_index: BUILDER_INDEX_SELF_BUILD,
             slot,
             execution_requests_root: ExecutionRequestsPq::<E>::default().tree_hash_root(),
+            blob_kzg_commitments,
             ..Default::default()
         },
         signature: XmssSignature::empty(),

@@ -8,8 +8,8 @@ use crate::memory_store::MemoryStore;
 use crate::metadata::{
     ANCHOR_INFO_KEY, ANCHOR_UNINITIALIZED, AnchorInfo, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY,
     CURRENT_SCHEMA_VERSION, CompactionTimestamp, DATA_COLUMN_CUSTODY_INFO_KEY, DATA_INFO_KEY,
-    DataColumnCustodyInfo, DataInfo, SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
-    SchemaVersion,
+    DataColumnCustodyInfo, DataInfo, SCHEMA_VERSION_KEY, SPLIT_KEY, SPLIT_PQ_BLOCK_STATE_KEY,
+    STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion,
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
@@ -2712,6 +2712,56 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         *self.split.read_recursive()
     }
 
+    /// Return the retained exact post-state of a skipped PQ checkpoint's block. A split state
+    /// advanced through skipped slots cannot verify that block's own envelope.
+    pub fn load_split_pq_block_state(
+        &self,
+        block_root: Hash256,
+        state_root: Hash256,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        let split = self.get_split_info();
+        if split.block_root != block_root {
+            return Ok(None);
+        }
+        let Some(SignedBeaconBlock::Pq(block)) = self.get_blinded_block(&block_root)? else {
+            return Ok(None);
+        };
+        let block_slot = block.message.slot;
+        if block_slot >= split.slot || block.message.state_root != state_root {
+            return Ok(None);
+        }
+        let snapshot: Option<SplitPqBlockState> = self.hot_db.get(&SPLIT_PQ_BLOCK_STATE_KEY)?;
+        if let Some(snapshot) = snapshot
+            && snapshot.state_root == state_root
+        {
+            return BeaconState::from_ssz_bytes(&snapshot.state, &self.spec)
+                .map(Some)
+                .map_err(Into::into);
+        }
+
+        // Before this snapshot was retained, a non-archive node could prune the exact state.
+        // Only reconstruct the current split block, and only when the genesis chain is present.
+        let genesis_slot = self.spec.genesis_slot;
+        if self.get_oldest_block_slot() != genesis_slot {
+            return Ok(None);
+        }
+        let base_state = self.load_cold_state_by_slot(genesis_slot)?;
+        let blocks = self.load_cold_blocks(genesis_slot.saturating_add(1_u64), block_slot)?;
+        let mut state =
+            self.replay_blocks(base_state, blocks, block_slot, no_state_root_iter(), None)?;
+        if state.canonical_root()? != state_root {
+            return Ok(None);
+        }
+        let current_split = self.split.read_recursive();
+        if *current_split == split {
+            self.hot_db.put_sync(
+                &SPLIT_PQ_BLOCK_STATE_KEY,
+                &SplitPqBlockState::new(state_root, &state),
+            )?;
+        }
+        Ok(Some(state))
+    }
+
     pub fn set_split(&self, slot: Slot, state_root: Hash256, block_root: Hash256) {
         *self.split.write() = Split {
             slot,
@@ -3610,6 +3660,26 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
     // in the worst case we will restart with the old split and re-run the migration.
     store.cold_db.do_atomically(cold_db_block_ops)?;
     store.cold_db.sync()?;
+
+    // The non-archive freezer may have skipped the post-block state entirely. Keep at most the
+    // current split block's exact state when its checkpoint falls on a later, skipped slot.
+    let header = finalized_state.latest_block_header();
+    let retain_pq_block_state = header.slot < finalized_state.slot()
+        && header.slot < anchor_info.state_upper_limit
+        && store.spec.fork_name_at_slot::<E>(header.slot) == ForkName::Pq;
+    let retained_state = if retain_pq_block_state {
+        let state_root = header.state_root;
+        if let Some(state) = store.get_hot_state(&state_root, false)? {
+            Some(SplitPqBlockState::new(state_root, &state))
+        } else {
+            // The finalized block can stay the same across more than one skipped checkpoint.
+            let existing: Option<SplitPqBlockState> =
+                store.hot_db.get(&SPLIT_PQ_BLOCK_STATE_KEY)?;
+            existing.filter(|state| state.state_root == state_root)
+        }
+    } else {
+        None
+    };
     let new_split = {
         let mut split_guard = store.split.write();
         let latest_split = *split_guard;
@@ -3637,7 +3707,19 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
             state_root: finalized_state_root,
             block_root: finalized_block_root,
         };
-        store.hot_db.put_sync(&SPLIT_KEY, &new_split)?;
+        let snapshot_op = retained_state.map_or_else(
+            || {
+                KeyValueStoreOp::DeleteKey(
+                    DBColumn::BeaconMeta,
+                    SPLIT_PQ_BLOCK_STATE_KEY.as_slice().to_vec(),
+                )
+            },
+            |state| state.as_kv_store_op(SPLIT_PQ_BLOCK_STATE_KEY),
+        );
+        store
+            .hot_db
+            .do_atomically(vec![new_split.as_kv_store_op(SPLIT_KEY), snapshot_op])?;
+        store.hot_db.sync()?;
 
         // Split point is now persisted in the hot database on disk. The in-memory split point
         // hasn't been modified elsewhere since we keep a write lock on it. It's safe to update
@@ -3668,6 +3750,35 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
 pub struct SplitChange {
     pub previous: Split,
     pub new: Split,
+}
+
+#[derive(Encode, Decode)]
+struct SplitPqBlockState {
+    state_root: Hash256,
+    state: Vec<u8>,
+}
+
+impl SplitPqBlockState {
+    fn new<E: EthSpec>(state_root: Hash256, state: &BeaconState<E>) -> Self {
+        Self {
+            state_root,
+            state: state.as_ssz_bytes(),
+        }
+    }
+}
+
+impl StoreItem for SplitPqBlockState {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconMeta
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_ssz_bytes(bytes).map_err(Into::into)
+    }
 }
 
 /// Struct for storing the split slot and state root in the database.

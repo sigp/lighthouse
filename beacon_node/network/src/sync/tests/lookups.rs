@@ -284,6 +284,13 @@ impl TestRig {
             )
             .build();
 
+        Self::from_harness(harness, test_rig_config.fulu_test_type)
+    }
+
+    fn from_harness(
+        harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+        fulu_test_type: FuluTestType,
+    ) -> Self {
         let chain = harness.chain.clone();
         let fork_context = Arc::new(ForkContext::new::<E>(
             Slot::new(0),
@@ -360,7 +367,7 @@ impl TestRig {
             requests: <_>::default(),
             complete_strategy: <_>::default(),
             initial_block_lookups_metrics: <_>::default(),
-            fulu_test_type: test_rig_config.fulu_test_type,
+            fulu_test_type,
         }
     }
 
@@ -2100,6 +2107,259 @@ fn stable_arbitrary() {
                 .unwrap()
         ),
         "arbitrary produces a consistent value"
+    );
+}
+
+#[cfg(feature = "spec-minimal")]
+#[tokio::test]
+async fn pq_restart_repairs_aligned_finalized_parent() {
+    pq_restart_repairs_finalized_parent(false).await;
+}
+
+#[cfg(feature = "spec-minimal")]
+#[tokio::test]
+async fn pq_restart_repairs_finalized_parent_at_skipped_checkpoint() {
+    pq_restart_repairs_finalized_parent(true).await;
+}
+
+#[cfg(feature = "spec-minimal")]
+async fn pq_restart_repairs_finalized_parent(skipped_checkpoint: bool) {
+    use beacon_chain::ChainSegmentResult;
+    use beacon_chain::kzg_utils::{blob_to_kzg_commitment, blobs_to_data_column_sidecars_gloas};
+    use store::{DBColumn, KeyValueStore, metadata::SPLIT_PQ_BLOCK_STATE_KEY};
+    use types::{Blob, Epoch, EthSpec, SignedExecutionPayloadEnvelope};
+
+    let spec = Arc::new(ForkName::Pq.make_genesis_spec(E::default_spec()));
+    let validators = (0..E::slots_per_epoch() as usize).collect::<Vec<_>>();
+    let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(validators.len())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .mock_execution_layer_all_payloads_valid()
+        .build();
+    // Minimal PQ reaches its first non-genesis finality at epoch two in this fixture.
+    let checkpoint_epoch = Epoch::new(2);
+    let checkpoint_slot = checkpoint_epoch.start_slot(E::slots_per_epoch());
+    let parent_slot = if skipped_checkpoint {
+        checkpoint_slot - 1
+    } else {
+        checkpoint_slot
+    };
+    let mut state = harness.get_current_state();
+    for slot in (1..parent_slot.as_u64()).map(Slot::new) {
+        (_, state) = harness
+            .add_attested_block_at_slot(slot, state, &validators)
+            .await
+            .unwrap();
+    }
+    let mut blob = Blob::<E>::default();
+    blob[31] = 1;
+    let commitment = blob_to_kzg_commitment::<E>(&harness.chain.kzg, &blob).unwrap();
+    let (parent, parent_state) = harness
+        .make_pq_block_with_bid(
+            state,
+            parent_slot,
+            &validators,
+            None,
+            vec![commitment].try_into().unwrap(),
+        )
+        .await;
+    let parent_root = parent.0.canonical_root();
+    let parent_state_root = parent.0.state_root();
+    let envelope = harness.make_pq_envelope(&parent.0, &parent_state);
+    let parent_hash = envelope.message.payload.block_hash;
+    let columns = blobs_to_data_column_sidecars_gloas(
+        &[&blob],
+        parent_root,
+        parent_slot,
+        &harness.chain.kzg,
+        &spec,
+    )
+    .unwrap();
+    harness
+        .process_block(parent_slot, parent_root, parent)
+        .await
+        .unwrap();
+
+    // Finalize the parent along the original EMPTY branch. The alternative child has the
+    // same finalized ancestor but needs its FULL reveal.
+    let child_slot = checkpoint_slot + 1;
+    let (full_child, _) = harness
+        .make_pq_block_with_bid(
+            parent_state.clone(),
+            child_slot,
+            &validators,
+            Some(parent_hash),
+            Default::default(),
+        )
+        .await;
+    state = parent_state;
+    for slot in (child_slot.as_u64()..E::slots_per_epoch() * 6).map(Slot::new) {
+        (_, state) = harness
+            .add_attested_block_at_slot(slot, state, &validators)
+            .await
+            .unwrap();
+        if harness.finalized_checkpoint().epoch >= checkpoint_epoch {
+            break;
+        }
+    }
+    assert_eq!(harness.finalized_checkpoint().root, parent_root);
+    assert_eq!(harness.chain.store.get_split_slot(), checkpoint_slot);
+    assert!(!harness.chain.envelope_is_known_to_fork_choice(&parent_root));
+    harness.chain.persist_fork_choice().unwrap();
+    let store = harness.chain.store.clone();
+    let slot_clock = harness.chain.slot_clock.clone();
+    drop(harness);
+    if skipped_checkpoint {
+        // Neither ordinary hot nor historical cold storage retains this state on a non-archive
+        // node. Confirm migration kept the exact state, then simulate upgrading a database
+        // whose split was migrated before the retained snapshot existed.
+        store.delete_state(&parent_state_root, parent_slot).unwrap();
+        assert!(
+            store
+                .get_hot_state(&parent_state_root, false)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .load_cold_state_slot(&parent_state_root)
+                .unwrap()
+                .is_none()
+        );
+        assert_ne!(store.get_split_info().state_root, parent_state_root);
+        assert!(
+            store
+                .hot_db
+                .key_exists(DBColumn::BeaconMeta, SPLIT_PQ_BLOCK_STATE_KEY.as_slice())
+                .unwrap()
+        );
+        let mut retained = store
+            .load_split_pq_block_state(parent_root, parent_state_root)
+            .unwrap()
+            .unwrap();
+        assert_eq!(retained.slot(), parent_slot);
+        assert_eq!(retained.canonical_root().unwrap(), parent_state_root);
+        store
+            .hot_db
+            .key_delete(DBColumn::BeaconMeta, SPLIT_PQ_BLOCK_STATE_KEY.as_slice())
+            .unwrap();
+    }
+    let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        .spec(spec)
+        .deterministic_keypairs(validators.len())
+        .resumed_ephemeral_store(store)
+        .mock_execution_layer()
+        .mock_execution_layer_all_payloads_valid()
+        .testing_slot_clock(slot_clock)
+        .build();
+    let mut rig = TestRig::from_harness(harness, FuluTestType::WeFullnodeThemSupernode);
+    let child_peer = rig.new_connected_supernode_peer();
+    let block_only_peer = rig.new_connected_supernode_peer();
+    rig.send_sync_message(SyncMessage::MissingRangeParentPayload {
+        parent_root,
+        child_peer,
+    });
+    rig.trigger_unknown_block_from_attestation(parent_root, block_only_peer);
+
+    let mut envelope_requests = 0;
+    let mut column_requests = 0;
+    while let Ok(message) = rig.network_rx.try_recv() {
+        match message {
+            NetworkMessage::SendRequest {
+                request: RequestType::PayloadEnvelopesByRoot(request),
+                peer_id,
+                sync_request_id: Some(sync_request_id),
+            } => {
+                assert_eq!(peer_id, child_peer);
+                assert_eq!(request.beacon_block_roots.as_slice(), &[parent_root]);
+                envelope_requests += 1;
+                rig.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+                    sync_request_id,
+                    peer_id,
+                    envelope: Some(Arc::new(SignedExecutionPayloadEnvelope::Pq(
+                        envelope.clone(),
+                    ))),
+                });
+                rig.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+                    sync_request_id,
+                    peer_id,
+                    envelope: None,
+                });
+            }
+            NetworkMessage::SendRequest {
+                request: RequestType::DataColumnsByRoot(request),
+                peer_id,
+                sync_request_id: Some(sync_request_id),
+            } => {
+                column_requests += 1;
+                let indices = request
+                    .data_column_ids
+                    .iter()
+                    .flat_map(|id| {
+                        assert_eq!(id.block_root, parent_root);
+                        id.columns.iter().copied()
+                    })
+                    .collect::<HashSet<_>>();
+                let selected = columns
+                    .iter()
+                    .filter(|column| indices.contains(column.index()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                rig.send_rpc_columns_response(sync_request_id, peer_id, &selected);
+            }
+            NetworkMessage::SendRequest {
+                request: RequestType::BlocksByRoot(_),
+                ..
+            } => {
+                panic!("a previously imported finalized block must be loaded locally");
+            }
+            NetworkMessage::ReportPeer { peer_id, msg, .. } => {
+                panic!("unexpected penalty for {peer_id}: {msg}")
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(envelope_requests, 1);
+    assert!(column_requests > 0);
+    rig.simulate(SimulateConfig::default()).await;
+    assert!(rig.penalties.is_empty());
+    if skipped_checkpoint {
+        assert!(
+            rig.harness
+                .chain
+                .store
+                .hot_db
+                .key_exists(DBColumn::BeaconMeta, SPLIT_PQ_BLOCK_STATE_KEY.as_slice())
+                .unwrap()
+        );
+    }
+    assert_eq!(
+        rig.harness
+            .chain
+            .get_rpc_payload_envelope(&parent_root)
+            .unwrap()
+            .unwrap(),
+        SignedExecutionPayloadEnvelope::Pq(envelope)
+    );
+    let full_child_root = full_child.0.canonical_root();
+    let full_child = RangeSyncBlock::new_gloas(full_child_root, full_child.0, None).unwrap();
+    match rig
+        .harness
+        .chain
+        .process_chain_segment(vec![full_child], NotifyExecutionLayer::Yes)
+        .await
+    {
+        ChainSegmentResult::Successful { imported_blocks } => {
+            assert_eq!(imported_blocks, vec![(full_child_root, child_slot)]);
+        }
+        ChainSegmentResult::Failed { error, .. } => panic!("FULL child failed: {error:?}"),
+    }
+    assert!(
+        rig.harness
+            .chain
+            .block_is_known_to_fork_choice(&full_child_root)
     );
 }
 

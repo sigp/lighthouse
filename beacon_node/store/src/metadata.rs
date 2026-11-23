@@ -22,6 +22,7 @@ pub const BLOB_INFO_KEY: Hash256 = Hash256::repeat_byte(6);
 pub const DATA_COLUMN_INFO_KEY: Hash256 = Hash256::repeat_byte(7);
 pub const DATA_COLUMN_CUSTODY_INFO_KEY: Hash256 = Hash256::repeat_byte(8);
 pub const DATA_INFO_KEY: Hash256 = Hash256::repeat_byte(9);
+pub const SPLIT_PQ_BLOCK_STATE_KEY: Hash256 = Hash256::repeat_byte(10);
 
 /// State upper limit value used to indicate that a node is not storing historic states.
 pub const STATE_UPPER_LIMIT_NO_RETAIN: Slot = Slot::new(u64::MAX);

@@ -226,7 +226,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         match peer_type {
             PeerType::Block => {}
             PeerType::PayloadEnvelope(execution_hash) => {
-                gloas_child_peers.insert(*execution_hash, block_peers.clone());
+                // Block-only peers added later have not claimed this reveal.
+                gloas_child_peers.insert(
+                    *execution_hash,
+                    Arc::new(RwLock::new(peers.iter().copied().collect())),
+                );
             }
         }
 
@@ -1058,4 +1062,36 @@ fn fmt_peer_map_as_len(
 ) -> Result<(), std::fmt::Error> {
     let total = peer_map.values().map(|set| set.read().len()).sum::<usize>();
     write!(f, "{}", total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::test_utils::EphemeralHarnessType;
+    use types::Spec;
+
+    #[test]
+    fn block_only_peer_is_not_a_required_reveal_source() {
+        let claimant = PeerId::random();
+        let block_only_peer = PeerId::random();
+        let second_claimant = PeerId::random();
+        let hash = ExecutionBlockHash::from_root(Hash256::repeat_byte(1));
+        let claim = PeerType::PayloadEnvelope(hash);
+        let mut lookup = SingleBlockLookup::<EphemeralHarnessType<Spec>>::new(
+            Hash256::repeat_byte(2),
+            &[claimant],
+            &claim,
+            0,
+            None,
+        );
+        let reveal_peers = lookup.get_data_peers(Some(hash));
+        assert!(lookup.add_peer(block_only_peer, &PeerType::Block));
+        assert!(!reveal_peers.read().contains(&block_only_peer));
+        assert!(lookup.add_peer(second_claimant, &claim));
+        assert_eq!(
+            *reveal_peers.read(),
+            HashSet::from([claimant, second_claimant])
+        );
+        assert!(lookup.all_peers().contains(&block_only_peer));
+    }
 }

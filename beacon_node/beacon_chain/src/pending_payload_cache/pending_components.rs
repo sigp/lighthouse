@@ -9,6 +9,7 @@ use crate::payload_envelope_verification::AvailabilityPendingExecutedEnvelope;
 use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::AvailableExecutedEnvelope;
 use crate::pending_payload_cache::pending_column::PendingColumn;
+use fork_choice::PayloadVerificationStatus;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -204,7 +205,17 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         envelope: AvailabilityPendingExecutedEnvelope<E>,
     ) {
-        self.envelope = Some(envelope);
+        if let Some(pending) = &mut self.envelope {
+            if envelope
+                .payload_verification_outcome
+                .payload_verification_status
+                == PayloadVerificationStatus::Verified
+            {
+                pending.payload_verification_outcome = envelope.payload_verification_outcome;
+            }
+        } else {
+            self.envelope = Some(envelope);
+        }
     }
 
     /// Returns the number of columns that have all cells present.

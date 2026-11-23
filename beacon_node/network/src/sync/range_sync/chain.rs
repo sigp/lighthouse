@@ -404,14 +404,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 };
             }
             self.pending_parent_payload = Some((batch_id, parent_root, Instant::now()));
-            let peers = self
-                .peers
-                .iter()
-                .copied()
-                .chain(std::iter::once(*peer))
-                .collect();
-            beacon_processor
-                .send_sync_message(SyncMessage::MissingRangeParentPayload { parent_root, peers });
+            // Other peers may share our finalized checkpoint without following this child.
+            beacon_processor.send_sync_message(SyncMessage::MissingRangeParentPayload {
+                parent_root,
+                child_peer: *peer,
+            });
             return Ok(KeepChain);
         }
         if self

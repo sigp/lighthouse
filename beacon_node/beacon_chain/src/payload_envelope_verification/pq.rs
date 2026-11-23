@@ -74,7 +74,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if chain.spec.fork_name_at_slot::<T::EthSpec>(slot) != ForkName::Pq || slot != block.message.slot {
                 return Err(EnvelopeError::SlotMismatch { block: block.message.slot, envelope: slot });
             }
-            let snapshot = load_snapshot_from_state_root::<T>(block_root, proto_block.state_root, &chain.store)?;
+            let snapshot = load_snapshot_from_state_root::<T>(block_root, block.message.state_root, &chain.store)?;
             state_processing::per_block_processing::verify_pq_execution_request_list_lengths(&message.execution_requests)
                 .map_err(|error| EnvelopeError::InvalidPqExecutionRequests(format!("{error:?}")))?;
             let _signature_timer = metrics::start_timer(&metrics::PQ_XMSS_VERIFY_SECONDS);

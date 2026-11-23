@@ -261,8 +261,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(EnvelopeError::BlockRootNotInForkChoice(block_root));
         }
 
-        // Gossip and RPC may race for the same reveal. Preserve the first committed result.
-        if fork_choice_reader.is_payload_received(&block_root) {
+        // Gossip and RPC may race for the same reveal. A duplicate can still carry a stronger
+        // execution verdict, which fork choice propagates along the executed branch.
+        let already_received = fork_choice_reader.is_payload_received(&block_root);
+        if already_received && payload_verification_status == PayloadVerificationStatus::Optimistic
+        {
             return Ok(block_root);
         }
 
@@ -279,6 +282,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 signed_envelope.message().payload.block_hash,
             )
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
+
+        // The original envelope and columns were committed under the same lock.
+        if already_received {
+            return Ok(block_root);
+        }
 
         // It is important NOT to return errors here before the database commit, because the envelope
         // has already been added to fork choice and the database would be left in an inconsistent

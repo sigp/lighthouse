@@ -12,7 +12,7 @@ use state_processing::{
     ConsensusContext, VerifySignatures,
     common::get_attestation_participation_flag_indices,
     per_block_processing::{
-        BlockSignatureStrategy, VerifyBlockRoot, compute_timestamp_at_slot,
+        BlockSignatureStrategy, VerifyBlockRoot,
         errors::{AttestationInvalid, BlockProcessingError, HeaderInvalid, IntoWithIndex},
         per_block_processing, verify_attestation_for_block_inclusion,
     },
@@ -39,35 +39,8 @@ async fn pq_rpc_envelope_rejects_wrong_leaf_and_imports_concurrently() {
         .make_pq_block(harness.get_current_state(), slot, &[])
         .await;
     let root = contents.0.canonical_root();
-    let bid = contents
-        .0
-        .message()
-        .body()
-        .signed_execution_payload_bid()
-        .unwrap();
-    let message = ExecutionPayloadEnvelopePq {
-        payload: ExecutionPayloadGloas {
-            parent_hash: bid.message().parent_block_hash(),
-            block_hash: bid.message().block_hash(),
-            prev_randao: bid.message().prev_randao(),
-            gas_limit: bid.message().gas_limit(),
-            timestamp: compute_timestamp_at_slot(&state, slot, &spec).unwrap(),
-            slot_number: slot,
-            withdrawals: state
-                .payload_expected_withdrawals()
-                .unwrap()
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap(),
-            ..Default::default()
-        },
-        builder_index: bid.message().builder_index(),
-        execution_requests: ExecutionRequestsPq::default(),
-        beacon_block_root: root,
-        parent_beacon_block_root: contents.0.parent_root(),
-    };
+    let signed = Arc::new(harness.make_pq_envelope(&contents.0, &state));
+    let message = &signed.message;
     let domain = spec.get_domain(
         state.current_epoch(),
         Domain::BeaconBuilder,
@@ -114,7 +87,6 @@ async fn pq_rpc_envelope_rejects_wrong_leaf_and_imports_concurrently() {
             state_processing::envelope_processing::EnvelopeProcessingError::ExecutionRequestsRootMismatch { .. }
         ))
     ));
-    let signed = sign(leaf);
     let (first, second) = tokio::join!(
         chain.verify_pq_envelope_for_rpc(signed.clone()),
         chain.verify_pq_envelope_for_rpc(signed.clone()),
@@ -136,6 +108,111 @@ async fn pq_rpc_envelope_rejects_wrong_leaf_and_imports_concurrently() {
         chain.get_rpc_payload_envelope(&root).unwrap().unwrap(),
         SignedExecutionPayloadEnvelope::Pq(Arc::unwrap_or_clone(signed)),
     );
+}
+
+#[tokio::test]
+async fn pq_rpc_duplicate_preserves_valid_verdict_in_both_orders() {
+    use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
+
+    let spec = Arc::new(ForkName::Pq.make_genesis_spec(E::default_spec()));
+    let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        .spec(spec)
+        .deterministic_keypairs(E::slots_per_epoch() as usize)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let chain = &harness.chain;
+    let mock = &harness.mock_execution_layer.as_ref().unwrap().server;
+    let status = |status, latest_valid_hash| PayloadStatusV1 {
+        status,
+        latest_valid_hash,
+        validation_error: None,
+        inclusion_list_satisfied: None,
+    };
+    let syncing = status(PayloadStatusV1Status::Syncing, None);
+    let verdict = |root| {
+        chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status_assuming_full(&root)
+            .unwrap()
+            .unwrap()
+    };
+    let mut state = harness.get_current_state();
+    let mut slot = Slot::new(1);
+    for valid_first in [false, true] {
+        let (parent, parent_state) = harness.make_pq_block(state, slot, &[]).await;
+        let parent_root = parent.0.canonical_root();
+        let parent_envelope = Arc::new(harness.make_pq_envelope(&parent.0, &parent_state));
+        let parent_hash = parent_envelope.message.payload.block_hash;
+        mock.set_payload_statuses(parent_hash, syncing.clone());
+        harness
+            .process_block(slot, parent_root, parent)
+            .await
+            .unwrap();
+        let verified_parent = chain
+            .verify_pq_envelope_for_rpc(parent_envelope)
+            .await
+            .unwrap();
+        chain
+            .process_verified_pq_envelope(verified_parent)
+            .await
+            .unwrap();
+        assert!(verdict(parent_root).is_optimistic());
+
+        slot += 1;
+        let (child, child_state) = harness
+            .make_pq_block_with_bid(
+                parent_state,
+                slot,
+                &[],
+                Some(parent_hash),
+                Default::default(),
+            )
+            .await;
+        let child_root = child.0.canonical_root();
+        let child_envelope = Arc::new(harness.make_pq_envelope(&child.0, &child_state));
+        let child_hash = child_envelope.message.payload.block_hash;
+        // Keep FCU from promoting the branch independently of the duplicate envelope path.
+        mock.set_fcu_payload_status(child_hash, syncing.clone());
+        harness
+            .process_block(slot, child_root, child)
+            .await
+            .unwrap();
+        let (first, second) = tokio::join!(
+            chain.verify_pq_envelope_for_rpc(child_envelope.clone()),
+            chain.verify_pq_envelope_for_rpc(child_envelope.clone()),
+        );
+        let valid = status(PayloadStatusV1Status::Valid, Some(child_hash));
+        let (first_status, second_status) = if valid_first {
+            (valid, syncing.clone())
+        } else {
+            (syncing.clone(), valid)
+        };
+        mock.set_new_payload_status(child_hash, first_status);
+        chain
+            .process_verified_pq_envelope(first.unwrap())
+            .await
+            .unwrap();
+        assert_eq!(verdict(child_root).is_valid(), valid_first);
+        assert_eq!(verdict(child_root).is_optimistic(), !valid_first);
+        mock.set_new_payload_status(child_hash, second_status);
+        chain
+            .process_verified_pq_envelope(second.unwrap())
+            .await
+            .unwrap();
+        assert!(verdict(child_root).is_valid());
+        assert!(verdict(parent_root).is_valid());
+        assert_eq!(
+            chain
+                .get_rpc_payload_envelope(&child_root)
+                .unwrap()
+                .unwrap(),
+            SignedExecutionPayloadEnvelope::Pq(Arc::unwrap_or_clone(child_envelope))
+        );
+        state = child_state;
+        slot += 1;
+    }
 }
 
 #[tokio::test]

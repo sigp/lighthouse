@@ -66,7 +66,6 @@ use logging::crit;
 use lru::LruCache;
 use lru_cache::LRUTimeCache;
 use slot_clock::SlotClock;
-use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::ops::Sub;
 use std::sync::Arc;
@@ -171,7 +170,7 @@ pub enum SyncMessage<E: EthSpec> {
     /// A downloaded range has a FULL child of a known block whose payload is missing locally.
     MissingRangeParentPayload {
         parent_root: Hash256,
-        peers: HashSet<PeerId>,
+        child_peer: PeerId,
     },
 
     /// A peer has disconnected.
@@ -949,7 +948,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.handle_unknown_payload_envelope(peer_id, block_root);
                 }
             }
-            SyncMessage::MissingRangeParentPayload { parent_root, peers } => {
+            SyncMessage::MissingRangeParentPayload {
+                parent_root,
+                child_peer,
+            } => {
                 let parent = self
                     .chain
                     .canonical_head
@@ -959,19 +961,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     && !block.payload_received
                     && let Some(hash) = block.execution_payload_block_hash
                 {
-                    let peers = {
-                        let info = self.network_globals().peers.read();
-                        peers
-                            .into_iter()
-                            .filter(|peer| info.is_connected(peer))
-                            .collect::<Vec<_>>()
-                    };
-                    let _ = self.block_lookups.search_payload_envelope(
-                        parent_root,
-                        hash,
-                        &peers,
-                        &mut self.network,
-                    );
+                    if self
+                        .network_globals()
+                        .peers
+                        .read()
+                        .is_connected(&child_peer)
+                    {
+                        let _ = self.block_lookups.search_payload_envelope(
+                            parent_root,
+                            hash,
+                            &[child_peer],
+                            &mut self.network,
+                        );
+                    }
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
