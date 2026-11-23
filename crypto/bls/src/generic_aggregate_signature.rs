@@ -29,6 +29,9 @@ pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
     /// Aggregates an aggregate signature onto `self`.
     fn add_assign_aggregate(&mut self, other: &Self);
 
+    /// Returns `true` if `self` is the point at infinity.
+    fn is_infinity(&self) -> bool;
+
     /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
 
@@ -126,7 +129,7 @@ where
         if let Some(other_point) = other.point() {
             if let Some(self_point) = &mut self.point {
                 self_point.add_assign(other_point);
-                self.is_infinity = self.is_infinity && other.is_infinity;
+                self.is_infinity = self_point.is_infinity();
             } else {
                 let mut self_point = AggSig::infinity();
                 self_point.add_assign(other_point);
@@ -142,7 +145,7 @@ where
         if let Some(other_point) = other.point() {
             if let Some(self_point) = &mut self.point {
                 self_point.add_assign_aggregate(other_point);
-                self.is_infinity = self.is_infinity && other.is_infinity;
+                self.is_infinity = self_point.is_infinity();
             } else {
                 let mut self_point = AggSig::infinity();
                 self_point.add_assign_aggregate(other_point);

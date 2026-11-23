@@ -858,8 +858,8 @@ pub fn cli_app() -> Command {
                 .long("proof-engine-endpoint")
                 .value_name("PROOF-ENGINE-ENDPOINT")
                 .help("Server endpoint for an EIP-8025 proof engine used to verify execution \
-                       proofs. When present, the node subscribes to the execution_proof gossip \
-                       topic and propagates proofs that verify. Experimental.")
+                       proofs. Proofs decide payload validity if there's no \
+                       --execution-endpoint. Experimental.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1165,7 +1165,7 @@ pub fn cli_app() -> Command {
             Arg::new("slasher-max-db-size")
                 .long("slasher-max-db-size")
                 .help(
-                    "Maximum size of the MDBX database used by the slasher."
+                    "Maximum size of the LMDB database used by the slasher."
                 )
                 .value_name("GIGABYTES")
                 .requires("slasher")
