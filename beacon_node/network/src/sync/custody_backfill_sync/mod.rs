@@ -1354,8 +1354,6 @@ mod tests {
         request.responses()
     }
 
-    // Once the gate allows custody backfill, every block in the epochs it fetches has a child.
-    // The first epoch's last block gets its child from the split block.
     #[tokio::test]
     async fn custody_backfill_batches_find_child_blocks_once_started() {
         let harness = harness_with_custody_increase(false).await;
