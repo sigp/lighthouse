@@ -829,11 +829,11 @@ mod tests {
     use futures::future::FutureExt;
     use parking_lot::RwLock;
     use slot_clock::ManualSlotClock;
-    use types::{Epoch, MainnetEthSpec};
+    use types::{Epoch, Spec};
 
     #[test]
     fn duration_to_attestation_deadline_is_fork_aware() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
         let mut spec = E::default_spec();
         let gloas_fork_epoch = Epoch::new(1);
@@ -844,25 +844,28 @@ mod tests {
         let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
         let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
         let last_pre_gloas_slot = first_gloas_slot - 1;
+        let due = |bps| spec.compute_slot_component_duration(bps).unwrap();
+        let pre_gloas_due = due(spec.attestation_due_bps);
+        let gloas_due = due(spec.attestation_due_bps_gloas);
 
         let test_cases = [
             (
                 "pre-genesis",
                 genesis_time - Duration::from_secs(1),
                 slot_clock.genesis_slot(),
-                Duration::from_millis(4999),
+                Duration::from_secs(1) + pre_gloas_due,
             ),
             (
                 "pre-Gloas",
                 slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
                 last_pre_gloas_slot,
-                Duration::from_millis(15999),
+                slot_duration + pre_gloas_due,
             ),
             (
                 "post-Gloas",
                 slot_clock.start_of(last_pre_gloas_slot).unwrap(),
                 first_gloas_slot,
-                Duration::from_millis(15000),
+                slot_duration + gloas_due,
             ),
         ];
 

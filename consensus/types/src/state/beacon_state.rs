@@ -23,7 +23,8 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
+    ExecutionPayloadBidRefMut, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -40,8 +41,10 @@ use crate::{
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
-        CURRENT_SYNC_COMMITTEE_INDEX, CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA, FINALIZED_ROOT_INDEX,
-        FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA,
+        CURRENT_SYNC_COMMITTEE_FIELD_INDEX, CURRENT_SYNC_COMMITTEE_INDEX,
+        CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA, FINALIZED_CHECKPOINT_FIELD_INDEX,
+        FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_FIELD_INDEX,
+        NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA,
     },
     state::{
         BlockRootsIter, CommitteeCache, EpochCache, EpochCacheError, ExitCache, HistoricalBatch,
@@ -783,9 +786,19 @@ where
     pub builder_pending_withdrawals: ProgressiveList<BuilderPendingWithdrawal>,
 
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(
+        only(Gloas),
+        partial_getter(rename = "latest_execution_payload_bid_gloas")
+    )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
+    pub latest_execution_payload_bid: ExecutionPayloadBidGloas<E>,
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(
+        only(Heze),
+        partial_getter(rename = "latest_execution_payload_bid_heze")
+    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_execution_payload_bid: ExecutionPayloadBidHeze<E>,
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -1553,6 +1566,47 @@ impl<E: EthSpec> BeaconState<E> {
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             BeaconState::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+
+    /// Convenience accessor for `latest_execution_payload_bid` as an `ExecutionPayloadBidRef`.
+    pub fn latest_execution_payload_bid(
+        &self,
+    ) -> Result<ExecutionPayloadBidRef<'_, E>, BeaconStateError> {
+        match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => Err(BeaconStateError::IncorrectStateVariant),
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadBidRef::Gloas(
+                &state.latest_execution_payload_bid,
+            )),
+            BeaconState::Heze(state) => Ok(ExecutionPayloadBidRef::Heze(
+                &state.latest_execution_payload_bid,
+            )),
+        }
+    }
+
+    pub fn latest_execution_payload_bid_mut(
+        &mut self,
+    ) -> Result<ExecutionPayloadBidRefMut<'_, E>, BeaconStateError> {
+        match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => Err(BeaconStateError::IncorrectStateVariant),
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadBidRefMut::Gloas(
+                &mut state.latest_execution_payload_bid,
+            )),
+            BeaconState::Heze(state) => Ok(ExecutionPayloadBidRefMut::Heze(
+                &mut state.latest_execution_payload_bid,
+            )),
         }
     }
 
@@ -3747,6 +3801,11 @@ impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
     }
 }
 
+/// The `active_fields` of the progressive-container `BeaconState` variants (EIP-7688).
+///
+/// Must match the `active_fields` attribute on the Gloas and Heze variants.
+pub const BEACON_STATE_ACTIVE_FIELDS: [bool; 46] = [true; 46];
+
 impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
@@ -3824,71 +3883,53 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     pub fn compute_current_sync_committee_proof(&self) -> Result<Vec<Hash256>, BeaconStateError> {
-        // [Modified in Gloas:EIP7688] the state is a progressive container with different
-        // generalized indices, which are not implemented yet.
-        if self.fork_name_unchecked().gloas_enabled() {
-            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
-        }
-
         // Sync committees are top-level fields, subtract off the generalized indices
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-        let field_gindex = if self.fork_name_unchecked().electra_enabled() {
-            CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
+        let field_index = if self.fork_name_unchecked().gloas_enabled() {
+            CURRENT_SYNC_COMMITTEE_FIELD_INDEX
+        } else if self.fork_name_unchecked().electra_enabled() {
+            CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA.safe_sub(self.num_fields_pow2())?
         } else {
-            CURRENT_SYNC_COMMITTEE_INDEX
+            CURRENT_SYNC_COMMITTEE_INDEX.safe_sub(self.num_fields_pow2())?
         };
-        let field_index = field_gindex.safe_sub(self.num_fields_pow2())?;
         let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
 
     pub fn compute_next_sync_committee_proof(&self) -> Result<Vec<Hash256>, BeaconStateError> {
-        // [Modified in Gloas:EIP7688] the state is a progressive container with different
-        // generalized indices, which are not implemented yet.
-        if self.fork_name_unchecked().gloas_enabled() {
-            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
-        }
-
         // Sync committees are top-level fields, subtract off the generalized indices
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-        let field_gindex = if self.fork_name_unchecked().electra_enabled() {
-            NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+        let field_index = if self.fork_name_unchecked().gloas_enabled() {
+            NEXT_SYNC_COMMITTEE_FIELD_INDEX
+        } else if self.fork_name_unchecked().electra_enabled() {
+            NEXT_SYNC_COMMITTEE_INDEX_ELECTRA.safe_sub(self.num_fields_pow2())?
         } else {
-            NEXT_SYNC_COMMITTEE_INDEX
+            NEXT_SYNC_COMMITTEE_INDEX.safe_sub(self.num_fields_pow2())?
         };
-        let field_index = field_gindex.safe_sub(self.num_fields_pow2())?;
         let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
 
     pub fn compute_finalized_root_proof(&self) -> Result<Vec<Hash256>, BeaconStateError> {
-        // [Modified in Gloas:EIP7688] the state is a progressive container with different
-        // generalized indices, which are not implemented yet.
-        if self.fork_name_unchecked().gloas_enabled() {
-            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
-        }
-
-        // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
-        // the generalized index of `state.finalized_checkpoint`.
-        let checkpoint_root_gindex = if self.fork_name_unchecked().electra_enabled() {
-            FINALIZED_ROOT_INDEX_ELECTRA
+        // Finalized root is the right child of `finalized_checkpoint`, whose field offset in
+        // `BeaconState` is 20 in every fork.
+        //
+        // Before Gloas that offset is recovered from the generalized index: divide by two to
+        // reach `finalized_checkpoint`, then subtract 2**depth (gindex = 2**depth + index). After
+        // Electra that is 169/2 - 64 = 20, and prior to Electra 105/2 - 32 = 20. Gloas is a
+        // progressive container, whose generalized indices are not of that form, so it uses the
+        // field offset directly.
+        let checkpoint_index = if self.fork_name_unchecked().gloas_enabled() {
+            FINALIZED_CHECKPOINT_FIELD_INDEX
+        } else if self.fork_name_unchecked().electra_enabled() {
+            (FINALIZED_ROOT_INDEX_ELECTRA / 2).safe_sub(self.num_fields_pow2())?
         } else {
-            FINALIZED_ROOT_INDEX
+            (FINALIZED_ROOT_INDEX / 2).safe_sub(self.num_fields_pow2())?
         };
-        let checkpoint_gindex = checkpoint_root_gindex / 2;
-
-        // Convert gindex to index by subtracting 2**depth (gindex = 2**depth + index).
-        //
-        // After Electra, the index should be 169/2 - 64 = 20 which matches the position
-        // of `finalized_checkpoint` in `BeaconState`.
-        //
-        // Prior to Electra, the index should be 105/2 - 32 = 20 which matches the position
-        // of `finalized_checkpoint` in `BeaconState`.
-        let checkpoint_index = checkpoint_gindex.safe_sub(self.num_fields_pow2())?;
 
         let leaves = self.get_beacon_state_leaves();
         let mut proof = self.generate_proof(checkpoint_index, &leaves)?;
@@ -3903,6 +3944,15 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<Vec<Hash256>, BeaconStateError> {
         if field_index >= leaves.len() {
             return Err(BeaconStateError::IndexNotSupported(field_index));
+        }
+
+        // [Modified in Gloas:EIP7688] the state is a progressive container.
+        if self.fork_name_unchecked().gloas_enabled() {
+            return Ok(merkle_proof::progressive_container_proof(
+                leaves,
+                &BEACON_STATE_ACTIVE_FIELDS,
+                field_index,
+            )?);
         }
 
         let depth = self.num_fields_pow2().ilog2() as usize;
@@ -4075,6 +4125,25 @@ pub fn compute_weak_subjectivity_period_gloas(
         .safe_add(epochs_for_validator_set_churn)?;
 
     Ok(ws_period)
+}
+
+#[cfg(test)]
+mod progressive_container_tests {
+    use super::*;
+    use crate::MainnetEthSpec;
+
+    /// The proof `active_fields` must match the `tree_hash` attributes on the progressive variants.
+    #[test]
+    fn active_fields_match_num_fields() {
+        assert_eq!(
+            BEACON_STATE_ACTIVE_FIELDS.len(),
+            BeaconStateGloas::<MainnetEthSpec>::NUM_FIELDS
+        );
+        assert_eq!(
+            BEACON_STATE_ACTIVE_FIELDS.len(),
+            BeaconStateHeze::<MainnetEthSpec>::NUM_FIELDS
+        );
+    }
 }
 
 #[cfg(test)]

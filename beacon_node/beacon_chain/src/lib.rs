@@ -16,6 +16,7 @@ pub mod block_verification_types;
 pub mod builder;
 pub mod canonical_head;
 pub mod chain_config;
+pub mod circuit_breaker;
 pub mod custody_context;
 pub mod data_availability_checker;
 pub mod data_column_verification;
@@ -31,6 +32,7 @@ pub mod graffiti_calculator;
 pub mod historical_blocks;
 pub mod historical_data_columns;
 pub mod inclusion_list_store;
+pub mod inclusion_list_verification;
 pub mod invariants;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
@@ -78,7 +80,7 @@ pub use self::beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, LightClientProducerEvent, OverrideForkchoiceUpdate,
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
-pub use self::beacon_snapshot::BeaconSnapshot;
+pub use self::beacon_snapshot::{BeaconSnapshot, ChainDumpSnapshot};
 pub use self::block_production::PayloadEnvelopeContents;
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
@@ -89,10 +91,11 @@ pub use beacon_fork_choice_store::{
     PersistedForkChoiceStoreV28,
 };
 pub use block_verification::{
-    BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature, ParentImportStatus,
-    PayloadVerificationError, PayloadVerificationOutcome, PayloadVerificationStatus,
-    build_blob_data_column_sidecars, get_block_root, signature_verify_chain_segment,
+    BlockError, BlockErrorWithRoot, ExecutionPayloadError, ExecutionPendingBlock,
+    GossipVerifiedBlock, IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature,
+    ParentImportStatus, PayloadVerificationError, PayloadVerificationOutcome,
+    PayloadVerificationStatus, build_blob_data_column_sidecars, get_block_root,
+    signature_verify_chain_segment,
 };
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;

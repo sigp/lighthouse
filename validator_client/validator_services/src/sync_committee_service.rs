@@ -683,10 +683,10 @@ mod tests {
     };
     use bls::FixedBytesExtended;
     use slot_clock::ManualSlotClock;
-    use types::{Epoch, MainnetEthSpec, SignedContributionAndProof, SyncCommitteeContribution};
+    use types::{Epoch, SignedContributionAndProof, Spec, SyncCommitteeContribution};
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     struct TestHarness {
         harness: ValidatorClientHarness,
@@ -799,6 +799,24 @@ mod tests {
             yield_to_service().await;
         }
 
+        fn slot_duration(&self) -> Duration {
+            self.harness.spec.get_slot_duration()
+        }
+
+        /// Pre-Gloas sync message deadline, from the start of the slot.
+        fn sync_message_due(&self) -> Duration {
+            let spec = &self.harness.spec;
+            spec.compute_slot_component_duration(spec.sync_message_due_bps)
+                .unwrap()
+        }
+
+        /// Pre-Gloas contribution deadline, from the start of the slot.
+        fn contribution_due(&self) -> Duration {
+            let spec = &self.harness.spec;
+            spec.compute_slot_component_duration(spec.contribution_due_bps)
+                .unwrap()
+        }
+
         fn messages(&self) -> Vec<types::SyncCommitteeMessage> {
             self.harness
                 .mock_beacon_node_1
@@ -869,25 +887,28 @@ mod tests {
         let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
         let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
         let last_pre_gloas_slot = first_gloas_slot - 1;
+        let due = |bps| spec.compute_slot_component_duration(bps).unwrap();
+        let pre_gloas_due = due(spec.sync_message_due_bps);
+        let gloas_due = due(spec.sync_message_due_bps_gloas);
 
         let test_cases = [
             (
                 "pre-genesis",
                 genesis_time - Duration::from_secs(1),
                 slot_clock.genesis_slot(),
-                Duration::from_millis(4999),
+                Duration::from_secs(1) + pre_gloas_due,
             ),
             (
                 "pre-Gloas",
                 slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
                 last_pre_gloas_slot,
-                Duration::from_millis(15999),
+                slot_duration + pre_gloas_due,
             ),
             (
                 "post-Gloas",
                 slot_clock.start_of(last_pre_gloas_slot).unwrap(),
                 first_gloas_slot,
-                Duration::from_millis(15000),
+                slot_duration + gloas_due,
             ),
         ];
 
@@ -907,13 +928,13 @@ mod tests {
             ManualSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
         let contribution_due = spec.get_contribution_message_due::<E>(Slot::new(0));
 
-        slot_clock.set_current_time(Duration::from_secs(5));
+        slot_clock.set_current_time(contribution_due - Duration::from_secs(3));
         assert_eq!(
             delay_until_slot_offset(&slot_clock, Slot::new(0), contribution_due),
             Some(Duration::from_secs(3))
         );
 
-        slot_clock.set_current_time(Duration::from_secs(9));
+        slot_clock.set_current_time(contribution_due + Duration::from_secs(1));
         assert_eq!(
             delay_until_slot_offset(&slot_clock, Slot::new(0), contribution_due),
             Some(Duration::ZERO)
@@ -997,7 +1018,7 @@ mod tests {
         assert!(harness.messages().is_empty());
 
         harness
-            .advance_time(Duration::from_secs(4) + Duration::from_millis(1))
+            .advance_time(harness.sync_message_due() + Duration::from_millis(1))
             .await;
         wait_for_message_count(&harness, 1).await;
 
@@ -1026,12 +1047,12 @@ mod tests {
         harness.send_head(0, 11);
         yield_to_service().await;
         harness
-            .advance_time(Duration::from_secs(4) + Duration::from_millis(1))
+            .advance_time(harness.sync_message_due() + Duration::from_millis(1))
             .await;
         assert!(harness.messages().is_empty());
 
         harness.insert_duties().await;
-        harness.advance_time(Duration::from_secs(12)).await;
+        harness.advance_time(harness.slot_duration()).await;
         wait_for_message_count(&harness, 1).await;
 
         let messages = harness.messages();
@@ -1056,16 +1077,18 @@ mod tests {
         harness.start();
         yield_to_service().await;
 
-        // A head event arriving after the contribution deadline (8s) is too late for its
+        // A head event arriving after the contribution deadline is too late for its
         // messages to be aggregated, so the slot is skipped.
-        harness.advance_time(Duration::from_secs(9)).await;
+        let late = harness.contribution_due() + Duration::from_secs(1);
+        harness.advance_time(late).await;
         harness.send_head(0, 11);
         yield_to_service().await;
         assert!(harness.messages().is_empty());
 
         // The skip is latched and the timer still covers the next slot at its deadline.
+        let next_deadline = harness.slot_duration() + harness.sync_message_due();
         harness
-            .advance_time(Duration::from_secs(7) + Duration::from_millis(1))
+            .advance_time(next_deadline - late + Duration::from_millis(1))
             .await;
         wait_for_message_count(&harness, 1).await;
 
@@ -1092,7 +1115,9 @@ mod tests {
         yield_to_service().await;
 
         harness
-            .advance_time(Duration::from_secs(16) + Duration::from_millis(1))
+            .advance_time(
+                harness.slot_duration() + harness.sync_message_due() + Duration::from_millis(1),
+            )
             .await;
         wait_for_message_count(&harness, 1).await;
 
@@ -1121,7 +1146,9 @@ mod tests {
         yield_to_service().await;
 
         harness
-            .advance_time(Duration::from_secs(16) + Duration::from_millis(1))
+            .advance_time(
+                harness.slot_duration() + harness.sync_message_due() + Duration::from_millis(1),
+            )
             .await;
         wait_for_message_count(&harness, 1).await;
 
@@ -1147,9 +1174,11 @@ mod tests {
         harness.start();
         yield_to_service().await;
 
-        // The timer handles slot 1 at its sync message deadline (12s + 4s).
+        // The timer handles slot 1 at its sync message deadline.
         harness
-            .advance_time(Duration::from_secs(16) + Duration::from_millis(1))
+            .advance_time(
+                harness.slot_duration() + harness.sync_message_due() + Duration::from_millis(1),
+            )
             .await;
         wait_for_message_count(&harness, 1).await;
 
@@ -1159,7 +1188,9 @@ mod tests {
         yield_to_service().await;
 
         // The next messages are those of the timer for slot 2.
-        harness.advance_time(Duration::from_secs(11)).await;
+        harness
+            .advance_time(harness.slot_duration() - Duration::from_secs(1))
+            .await;
         wait_for_message_count(&harness, 2).await;
 
         let messages = harness.messages();
@@ -1194,12 +1225,13 @@ mod tests {
             .mock_beacon_node_1
             .mock_post_contribution_and_proofs();
 
-        // The pre-Gloas contribution deadline for slot 0 is 8s.
-        harness.advance_time(Duration::from_secs(6)).await;
+        // Before the pre-Gloas contribution deadline for slot 0.
+        let early = harness.contribution_due() * 3 / 4;
+        harness.advance_time(early).await;
         assert!(harness.contributions().is_empty());
 
         harness
-            .advance_time(Duration::from_secs(2) + Duration::from_millis(1))
+            .advance_time(harness.contribution_due() - early + Duration::from_millis(1))
             .await;
         wait_for_contribution_count(&harness, 1).await;
 
@@ -1238,11 +1270,12 @@ mod tests {
             .mock_beacon_node_1
             .mock_post_contribution_and_proofs();
 
-        harness.advance_time(Duration::from_secs(2)).await;
+        let early = harness.contribution_due() / 4;
+        harness.advance_time(early).await;
         harness.insert_selection_proof(Slot::new(0)).await;
 
         harness
-            .advance_time(Duration::from_secs(6) + Duration::from_millis(1))
+            .advance_time(harness.contribution_due() - early + Duration::from_millis(1))
             .await;
         wait_for_contribution_count(&harness, 1).await;
 
@@ -1270,9 +1303,15 @@ mod tests {
         harness.start();
         yield_to_service().await;
 
-        // The Gloas deadline for slot 1 is 12s + 3s. The pre-Gloas deadline would be
-        // 12s + 3.999s.
-        harness.advance_time(Duration::from_millis(14_900)).await;
+        // Slot 1's Gloas deadline comes 100ms+ before its pre-Gloas one would.
+        let spec = &harness.harness.spec;
+        let due = |bps| spec.compute_slot_component_duration(bps).unwrap();
+        let gloas_due = due(spec.sync_message_due_bps_gloas);
+        assert!(gloas_due + Duration::from_millis(100) < due(spec.sync_message_due_bps));
+
+        harness
+            .advance_time(harness.slot_duration() + gloas_due - Duration::from_millis(100))
+            .await;
         assert!(harness.messages().is_empty());
 
         harness.advance_time(Duration::from_millis(200)).await;

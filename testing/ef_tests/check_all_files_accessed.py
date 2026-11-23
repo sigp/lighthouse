@@ -57,9 +57,6 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
     # TODO: partial data column not implemented yet
     "tests/.*/.*/ssz_static/PartialDataColumn.*/.*",
-    # TODO(gloas): Ignore Gloas light client stuff for now
-    "tests/.*/gloas/ssz_static/LightClient.*/.*",
-    "tests/.*/gloas/light_client",
     # Execution payload header is irrelevant after Gloas, this type will probably be deleted.
     "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
     # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.
@@ -91,6 +88,9 @@ excluded_paths = [
     "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
 ]
+
+# Extra arguments are ignored paths. Useful for skipping another preset's vectors.
+excluded_paths += sys.argv[3:]
 
 
 def normalize_path(path):

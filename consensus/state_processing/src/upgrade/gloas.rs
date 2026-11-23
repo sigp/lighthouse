@@ -12,8 +12,8 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
-    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
-    PendingDeposit, ProgressiveKzgCommitments,
+    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBidGloas, ExecutionRequestsGloas,
+    Fork, PendingDeposit, ProgressiveKzgCommitments,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     is_builder_withdrawal_credential,
 };
@@ -120,7 +120,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        latest_execution_payload_bid: ExecutionPayloadBid {
+        latest_execution_payload_bid: ExecutionPayloadBidGloas {
             parent_block_hash: pre.latest_execution_payload_header.parent_hash,
             parent_block_root: pre.latest_block_header.parent_root,
             block_hash: pre.latest_execution_payload_header.block_hash,
@@ -317,7 +317,8 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     Ok(())
 }
 
-#[cfg(all(test, not(feature = "fake_crypto")))]
+// Too slow in debug builds.
+#[cfg(all(test, not(debug_assertions), not(feature = "fake_crypto")))]
 mod tests {
     use super::*;
     use crate::builder_deposits_cache::OnboardBuildersCache;
@@ -325,11 +326,10 @@ mod tests {
     use bls::{Keypair, SignatureBytes};
     use std::sync::Arc;
     use types::{
-        DepositData, Epoch, ForkName, MinimalEthSpec, Slot,
-        test_utils::generate_deterministic_keypairs,
+        DepositData, Epoch, ForkName, Slot, Spec, test_utils::generate_deterministic_keypairs,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn validator_count() -> usize {
         E::slots_per_epoch() as usize

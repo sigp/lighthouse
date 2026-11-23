@@ -340,7 +340,7 @@ impl<E: EthSpec> EnvelopeAction<E> {
             }
             (true, ProduceBlockV4Response::BlockOnly(block)) => {
                 let action = match block.body().signed_execution_payload_bid() {
-                    Ok(bid) if bid.message.builder_index == BUILDER_INDEX_SELF_BUILD => {
+                    Ok(bid) if bid.message().builder_index() == BUILDER_INDEX_SELF_BUILD => {
                         warn!(
                             slot = slot.as_u64(),
                             "Beacon node omitted the payload contents for a self-built block, \
@@ -351,7 +351,7 @@ impl<E: EthSpec> EnvelopeAction<E> {
                     Ok(bid) => {
                         info!(
                             slot = slot.as_u64(),
-                            builder_index = bid.message.builder_index,
+                            builder_index = bid.message().builder_index(),
                             "Builder bid won; the builder reveals the payload envelope"
                         );
                         Self::Skip
@@ -369,13 +369,13 @@ impl<E: EthSpec> EnvelopeAction<E> {
             (false, response) => {
                 let block = response.into_block();
                 let action = match block.body().signed_execution_payload_bid() {
-                    Ok(bid) if bid.message.builder_index == BUILDER_INDEX_SELF_BUILD => {
+                    Ok(bid) if bid.message().builder_index() == BUILDER_INDEX_SELF_BUILD => {
                         Self::Fetch(block.canonical_root())
                     }
                     Ok(bid) => {
                         info!(
                             slot = slot.as_u64(),
-                            builder_index = bid.message.builder_index,
+                            builder_index = bid.message().builder_index(),
                             "Builder bid won; the builder reveals the payload envelope"
                         );
                         Self::Skip
@@ -1189,7 +1189,7 @@ mod tests {
     use beacon_node_fallback::{CandidateBeaconNode, Config as BeaconNodeConfig};
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{Blob, KzgProof, MainnetEthSpec};
+    use types::{Blob, KzgProof, Spec};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
     use validator_test_rig::recording_validator_store::RecordingValidatorStore;
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
@@ -1235,8 +1235,8 @@ mod tests {
         }
 
         /// A stateless-mode service that publishes to the returned proposer node first.
-        async fn new_stateless_with_proposer_node() -> (Self, MockBeaconNode<MainnetEthSpec>) {
-            let proposer_node = MockBeaconNode::<MainnetEthSpec>::new().await;
+        async fn new_stateless_with_proposer_node() -> (Self, MockBeaconNode<Spec>) {
+            let proposer_node = MockBeaconNode::<Spec>::new().await;
             let harness = Self::new(1, true, Some(&proposer_node)).await;
             (harness, proposer_node)
         }
@@ -1244,7 +1244,7 @@ mod tests {
         async fn new(
             num_validators: usize,
             stateless_block_production: bool,
-            proposer_node: Option<&MockBeaconNode<MainnetEthSpec>>,
+            proposer_node: Option<&MockBeaconNode<Spec>>,
         ) -> Self {
             let harness = ValidatorClientHarness::new(num_validators).await;
 
@@ -1284,11 +1284,11 @@ mod tests {
             }
         }
 
-        fn bn1(&mut self) -> &mut MockBeaconNode<MainnetEthSpec> {
+        fn bn1(&mut self) -> &mut MockBeaconNode<Spec> {
             &mut self.harness.mock_beacon_node_1
         }
 
-        fn bn2(&mut self) -> &mut MockBeaconNode<MainnetEthSpec> {
+        fn bn2(&mut self) -> &mut MockBeaconNode<Spec> {
             &mut self.harness.mock_beacon_node_2
         }
 
@@ -1309,7 +1309,7 @@ mod tests {
         /// Assert `sign_block` was called once, for `block`, with `local_payload_root`.
         fn assert_signed_once(
             &self,
-            block: &BeaconBlock<MainnetEthSpec>,
+            block: &BeaconBlock<Spec>,
             local_payload_root: Option<Hash256>,
         ) {
             let calls = self.service.validator_store.sign_block_calls();
@@ -1320,12 +1320,12 @@ mod tests {
         }
     }
 
-    fn block_only(block: &BeaconBlock<MainnetEthSpec>) -> ProduceBlockV4Response<MainnetEthSpec> {
+    fn block_only(block: &BeaconBlock<Spec>) -> ProduceBlockV4Response<Spec> {
         ProduceBlockV4Response::BlockOnly(block.clone())
     }
 
     /// A Gloas block with a self-built bid.
-    fn self_build_block(spec: &ChainSpec) -> BeaconBlock<MainnetEthSpec> {
+    fn self_build_block(spec: &ChainSpec) -> BeaconBlock<Spec> {
         let mut block = BeaconBlock::empty(spec);
         let BeaconBlock::Gloas(gloas_block) = &mut block else {
             panic!("expected Gloas block");
@@ -1339,7 +1339,7 @@ mod tests {
     }
 
     /// The `include_payload=true` response for a self-built `block`, with one blob and one proof.
-    fn local_contents(block: &BeaconBlock<MainnetEthSpec>) -> BlockAndEnvelope<MainnetEthSpec> {
+    fn local_contents(block: &BeaconBlock<Spec>) -> BlockAndEnvelope<Spec> {
         let mut envelope = ExecutionPayloadEnvelope::empty();
         envelope.payload.slot_number = block.slot();
         envelope.payload.block_number = 7;
@@ -1349,17 +1349,13 @@ mod tests {
         BlockAndEnvelope {
             block: block.clone(),
             execution_payload_envelope: envelope,
-            kzg_proofs: KzgProofs::<MainnetEthSpec>::try_from(vec![KzgProof::empty()]).unwrap(),
-            blobs: BlobsList::<MainnetEthSpec>::try_from(vec![Blob::<MainnetEthSpec>::default()])
-                .unwrap(),
+            kzg_proofs: KzgProofs::<Spec>::try_from(vec![KzgProof::empty()]).unwrap(),
+            blobs: BlobsList::<Spec>::try_from(vec![Blob::<Spec>::default()]).unwrap(),
         }
     }
 
     /// Assert `node` received exactly one envelope publish matching `contents`.
-    fn assert_published_contents(
-        node: &MockBeaconNode<MainnetEthSpec>,
-        contents: &BlockAndEnvelope<MainnetEthSpec>,
-    ) {
+    fn assert_published_contents(node: &MockBeaconNode<Spec>, contents: &BlockAndEnvelope<Spec>) {
         let received = node.execution_payload_envelope_contents.lock().unwrap();
         assert_eq!(received.len(), 1, "Expected one envelope contents publish");
         assert_eq!(

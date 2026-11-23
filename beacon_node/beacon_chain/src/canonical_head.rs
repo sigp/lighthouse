@@ -365,7 +365,7 @@ impl<E: EthSpec> CachedHead<E> {
             self.snapshot
                 .beacon_state
                 .latest_execution_payload_bid()
-                .map(|bid| bid.prev_randao)
+                .map(|bid| bid.prev_randao())
         } else {
             block.body().execution_payload().map(|p| p.prev_randao())
         }
@@ -754,7 +754,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     ///
     /// This method replaces the old `BeaconChain::fork_choice` method.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(name = "lh_recompute_head_at_current_slot", skip_all, level = "debug")]
     pub async fn recompute_head_at_current_slot(self: &Arc<Self>) {
         match self.slot() {
             Ok(current_slot) => self.recompute_head_at_slot(current_slot).await,
@@ -1121,7 +1121,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let execution_envelope = if new_payload_status == PayloadStatus::Full {
                     let envelope = self
                         .store
-                        .get_signed_payload_envelope(&new_view.head_block_root)?
+                        .get_payload_envelope_summary(&new_view.head_block_root)?
                         .map(Arc::new)
                         .ok_or(Error::MissingExecutionPayloadEnvelope(
                             new_view.head_block_root,
@@ -1388,7 +1388,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let confirmed_root = fcr.get_restart_resilient_confirmed_root::<T::EthSpec>(
             head_root,
-            &finalized_cp,
             current_slot,
             proto_array,
         )?;

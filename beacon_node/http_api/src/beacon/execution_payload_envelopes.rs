@@ -31,7 +31,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
-use types::{BlockImportSource, EthSpec, ForkName, KzgProofs, SignedExecutionPayloadEnvelope};
+use types::{
+    BlockImportSource, DataColumnSidecar, EthSpec, ForkName, KzgProofs,
+    SignedExecutionPayloadEnvelope,
+};
 use warp::{
     Filter, Rejection,
     http::response::Builder,
@@ -275,7 +278,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             .message()
             .body()
             .signed_execution_payload_bid()
-            .is_ok_and(|bid| !bid.message.blob_kzg_commitments.is_empty());
+            .is_ok_and(|bid| !bid.message().blob_kzg_commitments().is_empty());
         if commits_to_blobs {
             return Err(warp_utils::reject::custom_bad_request(
                 "block commits to blobs but the beacon node has no cached blobs and KZG proofs to attach"
@@ -409,7 +412,18 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     }
 }
 
-/// Publishes locally-built data columns and imports the node's sampling subset.
+/// The data columns built from an envelope's blobs.
+struct BuiltDataColumns<T: BeaconChainTypes> {
+    /// Columns with cells we have not seen yet, to publish and import.
+    verified: Vec<GossipVerifiedDataColumn<T>>,
+    /// Columns already complete in the pending payload cache but not published yet, e.g. ones
+    /// retrieved from the EL that await their gradual publication. Building them marked them as
+    /// seen, which makes that publication skip them, so they must be published with the others.
+    unpublished: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
+}
+
+/// Publishes locally-built data columns and imports the node's sampling subset of the verified
+/// ones.
 ///
 /// Returns `Ok(true)` if envelope import was completed.
 /// Returns `Err` on publication failure.
@@ -417,13 +431,21 @@ async fn publish_and_import_columns<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     slot: types::Slot,
-    gossip_verified_columns: Vec<GossipVerifiedDataColumn<T>>,
+    columns: BuiltDataColumns<T>,
 ) -> Result<bool, Rejection> {
-    if gossip_verified_columns.is_empty() {
+    let BuiltDataColumns {
+        verified: gossip_verified_columns,
+        unpublished,
+    } = columns;
+    if gossip_verified_columns.is_empty() && unpublished.is_empty() {
         return Ok(false);
     }
 
-    if let Err(e) = publish_column_sidecars(network_tx, &gossip_verified_columns, chain) {
+    let columns_to_publish = gossip_verified_columns
+        .iter()
+        .map(|column| column.clone_data_column())
+        .chain(unpublished);
+    if let Err(e) = publish_column_sidecars(network_tx, columns_to_publish, chain) {
         error!(
             %slot,
             error = ?e,
@@ -479,7 +501,7 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
     slot: types::Slot,
     blobs: Arc<types::BlobsList<T::EthSpec>>,
     cell_proofs: Option<KzgProofs<T::EthSpec>>,
-) -> Result<impl Future<Output = Result<Vec<GossipVerifiedDataColumn<T>>, Rejection>>, Rejection> {
+) -> Result<impl Future<Output = Result<BuiltDataColumns<T>, Rejection>>, Rejection> {
     let chain_for_build = chain.clone();
     let handle = chain
         .task_executor
@@ -510,7 +532,7 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
     slot: types::Slot,
     blobs: &types::BlobsList<T::EthSpec>,
     cell_proofs: Option<KzgProofs<T::EthSpec>>,
-) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
+) -> Result<BuiltDataColumns<T>, Rejection> {
     let blob_refs: Vec<_> = blobs.iter().collect();
     let data_column_sidecars = match cell_proofs {
         Some(proofs) => beacon_chain::kzg_utils::blobs_to_data_column_sidecars_gloas_with_proofs(
@@ -538,33 +560,36 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
         warp_utils::reject::custom_server_error(format!("{e:?}"))
     })?;
 
-    let gossip_verified_columns = data_column_sidecars
-        .into_iter()
-        .filter_map(|col| {
-            let index = *col.index();
-            match GossipVerifiedDataColumn::new_for_block_publishing(col, chain) {
-                Ok(verified) => Some(verified),
-                Err(GossipDataColumnError::PriorKnown { .. }) => None,
-                Err(e) => {
-                    warn!(
-                        %slot,
-                        column_index = index,
-                        error = ?e,
-                        "Locally-built data column failed gossip verification"
-                    );
-                    None
-                }
+    let mut verified = Vec::new();
+    let mut unpublished = Vec::new();
+    for col in data_column_sidecars {
+        let index = *col.index();
+        match GossipVerifiedDataColumn::new_for_block_publishing(col.clone(), chain) {
+            Ok(column) => verified.push(column),
+            Err(GossipDataColumnError::PriorKnown { .. }) => {}
+            Err(GossipDataColumnError::PriorKnownUnpublished) => unpublished.push(col),
+            Err(e) => {
+                warn!(
+                    %slot,
+                    column_index = index,
+                    error = ?e,
+                    "Locally-built data column failed gossip verification"
+                );
             }
-        })
-        .collect::<Vec<_>>();
+        }
+    }
 
     debug!(
         %slot,
-        column_count = gossip_verified_columns.len(),
+        column_count = verified.len(),
+        unpublished_count = unpublished.len(),
         "Built data columns for envelope publication"
     );
 
-    Ok(gossip_verified_columns)
+    Ok(BuiltDataColumns {
+        verified,
+        unpublished,
+    })
 }
 
 // GET beacon/execution_payload_envelopes/{block_id}
