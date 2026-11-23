@@ -60,6 +60,11 @@ impl EpochBlockProposers {
         }
     }
 
+    /// Returns the proposer indices for every slot in `self.epoch`.
+    pub fn proposers(&self) -> &[usize] {
+        &self.proposers
+    }
+
     pub fn get_slot<E: EthSpec>(&self, slot: Slot) -> Result<Proposer, BeaconChainError> {
         let epoch = slot.epoch(E::slots_per_epoch());
         if epoch == self.epoch {
