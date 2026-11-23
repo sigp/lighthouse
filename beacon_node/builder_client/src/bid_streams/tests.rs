@@ -20,7 +20,7 @@ use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::protocol::frame::Frame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
-type E = types::MainnetEthSpec;
+type E = types::Spec;
 
 const SLOT: u64 = 10;
 const BID_PATH: &str = r"^/eth/v1/builder/execution_payload_bid/.+$";
