@@ -207,18 +207,26 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
             // A Gloas payload was revealed if the child's bid builds on it.
             let payload_revealed = match block.message().body().signed_execution_payload_bid() {
-                Ok(bid) => child_roots
-                    .get(&block_root)
-                    .copied()
-                    .flatten()
-                    .and_then(|child_root| blocks.get(&child_root))
-                    .map(|child| child.is_parent_block_full(bid.message().block_hash())),
+                Ok(bid) => {
+                    // Custody backfill only starts once the epoch's last block has a finalized
+                    // child, so every block should have one.
+                    let Some(child) = child_roots
+                        .get(&block_root)
+                        .copied()
+                        .flatten()
+                        .and_then(|child_root| blocks.get(&child_root))
+                    else {
+                        return Err(CouplingError::InternalError(format!(
+                            "No child block found for block {block_root:?}"
+                        )));
+                    };
+                    child.is_parent_block_full(bid.message().block_hash())
+                }
                 // Pre-gloas
-                Err(_) => Some(true),
+                Err(_) => true,
             };
-            let expects_columns = block.slot() == slot
-                && block.num_expected_blobs() != 0
-                && payload_revealed == Some(true);
+            let expects_columns =
+                block.slot() == slot && block.num_expected_blobs() != 0 && payload_revealed;
 
             let Some(columns) = received_columns_for_slot.remove(&slot) else {
                 // If at least one blob is expected for this slot but none have been served, penalize all peers
@@ -247,7 +255,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
             }
 
             // Withheld payload. Peers that haven't pruned its columns may still serve them.
-            if payload_revealed == Some(false) {
+            if !payload_revealed {
                 debug!(
                     %block_root,
                     %slot,
@@ -475,6 +483,22 @@ mod tests {
             .collect()
     }
 
+    /// Skips the rest of `epoch`, then finalizes past it so its last block has a finalized child,
+    /// as custody backfill requires.
+    async fn finalize_past(harness: &Harness, epoch: Epoch) {
+        while harness.get_current_slot() < (epoch + 1).start_slot(E::slots_per_epoch()) {
+            harness.advance_slot();
+        }
+        harness
+            .extend_chain(
+                E::slots_per_epoch() as usize * 5,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        assert!(harness.chain.store.get_split_slot() > epoch.end_slot(E::slots_per_epoch()));
+    }
+
     fn backfill_request_id(peer: PeerId, epoch: Epoch) -> DataColumnsByRangeRequestId {
         DataColumnsByRangeRequestId {
             id: 0,
@@ -545,6 +569,7 @@ mod tests {
                 .iter()
                 .all(|column| matches!(column.as_ref(), DataColumnSidecar::Gloas(_)))
         );
+        finalize_past(&harness, Epoch::new(0)).await;
 
         let response = custody_backfill_responses(
             &harness,
@@ -560,6 +585,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gloas_block_without_child_is_internal_error() {
+        let harness = gloas_harness();
+        harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        let response = custody_backfill_responses(
+            &harness,
+            Epoch::new(0),
+            vec![0, 1, 2, 3],
+            vec![],
+            PeerId::random(),
+        );
+        assert!(matches!(
+            response,
+            Some(Err(CouplingError::InternalError(_)))
+        ));
+    }
+
+    #[tokio::test]
     async fn withheld_gloas_payload_does_not_penalize_peers() {
         let block_slot = Slot::new(1);
         let harness = gloas_harness();
@@ -569,6 +618,7 @@ mod tests {
         harness.advance_slot();
         let child_root = import_block_without_envelope(&harness, Slot::new(2)).await;
         assert_parent_full(&harness, block_root, child_root, false);
+        finalize_past(&harness, Epoch::new(0)).await;
 
         let response = custody_backfill_responses(
             &harness,
@@ -596,6 +646,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_parent_full(&harness, block_root, child_root, true);
+        finalize_past(&harness, Epoch::new(0)).await;
 
         let peer = PeerId::random();
         let response =
@@ -621,7 +672,8 @@ mod tests {
             Some(block_root)
         );
 
-        // The slot 3 block has no child, so it owes no columns either.
+        // The slot 3 block's child also builds on its EMPTY parent.
+        finalize_past(&harness, Epoch::new(0)).await;
         let response = custody_backfill_responses(
             &harness,
             Epoch::new(0),
@@ -722,7 +774,9 @@ mod tests {
             .expect("should import child block");
         assert_parent_full(&harness, block_root, child_root, false);
 
+        // Read the columns before finalization prunes them.
         let data_columns = data_columns(&harness, block_root);
+        finalize_past(&harness, Epoch::new(0)).await;
         let response = custody_backfill_responses(
             &harness,
             Epoch::new(0),
@@ -743,6 +797,7 @@ mod tests {
 
         let skipped_slot = first_columns[0].slot() + 1;
         assert_eq!(second_columns[0].slot(), skipped_slot + 1);
+        finalize_past(&harness, Epoch::new(0)).await;
 
         let honest_column = *first_columns[0].index();
         let faulty_column = *first_columns[1].index();
