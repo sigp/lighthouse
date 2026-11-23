@@ -1194,11 +1194,17 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync::block_sidecar_coupling::CouplingError;
+    use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
     use beacon_chain::test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     };
+    use itertools::Itertools;
     use lighthouse_network::NetworkConfig;
-    use types::{ForkName, Slot, Spec};
+    use lighthouse_network::service::api_types::{
+        DataColumnsByRangeRequestId, DataColumnsByRangeRequester,
+    };
+    use types::{DataColumnSidecarList, ForkName, Slot, Spec};
 
     type E = Spec;
     type Harness = BeaconChainHarness<EphemeralHarnessType<E>>;
@@ -1294,5 +1300,72 @@ mod tests {
             Some(split.block_root)
         );
         assert!(!custody_backfill_sync(&harness).should_start_custody_backfill_sync());
+    }
+
+    /// Runs a custody backfill batch for `epoch` where a peer serves the stored custody columns.
+    fn batch_response(
+        harness: &Harness,
+        epoch: Epoch,
+    ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
+        let slots_per_epoch = E::slots_per_epoch();
+        let requested_columns = harness
+            .chain
+            .custody_context
+            .custody_columns_for_epoch(Some(epoch))
+            .to_vec();
+        let columns = harness
+            .chain
+            .forwards_iter_block_roots_until(
+                epoch.start_slot(slots_per_epoch),
+                epoch.end_slot(slots_per_epoch),
+            )
+            .unwrap()
+            .map(|result| result.unwrap().0)
+            .dedup()
+            .filter_map(|block_root| {
+                harness
+                    .chain
+                    .store
+                    .get_data_columns(&block_root, ForkName::Gloas)
+                    .unwrap()
+            })
+            .flatten()
+            .filter(|column| requested_columns.contains(column.index()))
+            .collect::<Vec<_>>();
+
+        let request_id = DataColumnsByRangeRequestId {
+            id: 0,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                CustodyBackFillBatchRequestId {
+                    id: 0,
+                    batch_id: CustodyBackfillBatchId { epoch, run_id: 0 },
+                },
+            ),
+            peer: PeerId::random(),
+        };
+        let mut request = RangeDataColumnBatchRequest::new(
+            vec![(request_id, requested_columns)],
+            harness.chain.clone(),
+            epoch,
+        );
+        request
+            .add_custody_columns(request_id, columns)
+            .expect("should complete request");
+        request.responses()
+    }
+
+    // Once the gate allows custody backfill, every block in the epochs it fetches has a child.
+    // The first epoch's last block gets its child from the split block.
+    #[tokio::test]
+    async fn custody_backfill_batches_find_child_blocks_once_started() {
+        let harness = harness_with_custody_increase(false).await;
+        assert!(custody_backfill_sync(&harness).should_start_custody_backfill_sync());
+
+        for epoch in (0..FINALIZED_EPOCH.as_u64()).map(Epoch::new) {
+            match batch_response(&harness, epoch) {
+                Some(Ok(_)) => {}
+                response => panic!("expected epoch {epoch} to succeed, got {response:?}"),
+            }
+        }
     }
 }
