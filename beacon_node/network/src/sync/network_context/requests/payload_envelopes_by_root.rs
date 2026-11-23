@@ -1,6 +1,6 @@
 use lighthouse_network::rpc::methods::PayloadEnvelopesByRootRequest;
 use std::sync::Arc;
-use types::{EthSpec, ForkContext, Hash256, SignedExecutionPayloadEnvelopeGloas};
+use types::{EthSpec, ForkContext, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
@@ -20,7 +20,7 @@ impl PayloadEnvelopesByRootSingleRequest {
 
 pub struct PayloadEnvelopesByRootRequestItems<E: EthSpec> {
     request: PayloadEnvelopesByRootSingleRequest,
-    items: Vec<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
+    items: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
 }
 
 impl<E: EthSpec> PayloadEnvelopesByRootRequestItems<E> {
@@ -33,12 +33,12 @@ impl<E: EthSpec> PayloadEnvelopesByRootRequestItems<E> {
 }
 
 impl<E: EthSpec> ActiveRequestItems for PayloadEnvelopesByRootRequestItems<E> {
-    type Item = Arc<SignedExecutionPayloadEnvelopeGloas<E>>;
+    type Item = Arc<SignedExecutionPayloadEnvelope<E>>;
 
     /// Append a response to the single chunk request. We expect exactly one envelope per
     /// block root. Returns `true` when the single expected item has been received.
     fn add(&mut self, envelope: Self::Item) -> Result<bool, LookupVerifyError> {
-        let block_root = envelope.message.beacon_block_root;
+        let block_root = envelope.beacon_block_root();
         if self.request.block_root != block_root {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }

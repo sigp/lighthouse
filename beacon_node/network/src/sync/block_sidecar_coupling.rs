@@ -20,7 +20,7 @@ use std::sync::Arc;
 use tracing::{Span, debug, warn};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas,
+    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
 use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkContext};
@@ -47,7 +47,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     payloads_request: Option<
         ByRangeRequest<
             PayloadEnvelopesByRangeRequestId,
-            Vec<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
+            Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
         >,
     >,
     /// Span to track the range request and all children range requests.
@@ -189,7 +189,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn add_payload_envelopes(
         &mut self,
         req_id: PayloadEnvelopesByRangeRequestId,
-        envelopes: Vec<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
+        envelopes: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
     ) -> Result<(), String> {
         match &mut self.payloads_request {
             Some(req) => req.finish(req_id, envelopes),
@@ -426,7 +426,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         blocks: Vec<(Hash256, Arc<SignedBeaconBlock<E>>)>,
         columns: DataColumnSidecarList<E>,
         custody_context: &CustodyContext<T>,
-        payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>>,
+        payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
     ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -460,35 +460,36 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 vec![]
             };
 
-            let range_sync_block = if let Some(envelopes_by_block_root) =
-                envelopes_by_block_root.as_mut()
-            {
-                let envelope = envelopes_by_block_root.remove(&block_root);
-                let bid = block
-                    .message()
-                    .body()
-                    .signed_execution_payload_bid()
-                    // this really should never fail
-                    .map_err(|_| AvailabilityCheckError::MissingBid(block_root))?;
-                let available_envelope = envelope
-                    .map(|env| AvailableEnvelope::new(env, custody_columns, bid, custody_context))
-                    .transpose()?;
+            let range_sync_block =
+                if let Some(envelopes_by_block_root) = envelopes_by_block_root.as_mut() {
+                    let envelope = envelopes_by_block_root.remove(&block_root);
+                    let bid = block
+                        .message()
+                        .body()
+                        .signed_execution_payload_bid()
+                        // this really should never fail
+                        .map_err(|_| AvailabilityCheckError::MissingBid(block_root))?;
+                    let available_envelope = envelope
+                        .map(|env| {
+                            AvailableEnvelope::from_rpc(env, custody_columns, bid, custody_context)
+                        })
+                        .transpose()?;
 
-                RangeSyncBlock::new_gloas(block_root, block, available_envelope)
-                    .map_err(CouplingError::EnvelopePeerFailure)?
-            } else if custody_columns.is_empty() {
-                RangeSyncBlock::new(
-                    block_root,
-                    block,
-                    AvailableBlockData::NoData,
-                    custody_context,
-                )
-                .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
-            } else {
-                let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                RangeSyncBlock::new(block_root, block, block_data, custody_context)
+                    RangeSyncBlock::new_gloas(block_root, block, available_envelope)
+                        .map_err(CouplingError::EnvelopePeerFailure)?
+                } else if custody_columns.is_empty() {
+                    RangeSyncBlock::new(
+                        block_root,
+                        block,
+                        AvailableBlockData::NoData,
+                        custody_context,
+                    )
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
-            };
+                } else {
+                    let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
+                    RangeSyncBlock::new(block_root, block, block_data, custody_context)
+                        .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
+                };
             range_sync_blocks.push(range_sync_block);
         }
 
@@ -536,6 +537,7 @@ impl<I: PartialEq + std::fmt::Display, T> ByRangeRequest<I, T> {
 #[cfg(test)]
 mod tests {
     use super::RangeBlockComponentsRequest;
+    use super::{AvailabilityCheckError, CouplingError};
     use crate::sync::network_context::PeerGroup;
     use beacon_chain::block_verification_types::RangeSyncBlock;
     use beacon_chain::custody_context::{CustodyContext, NodeCustodyType};
@@ -554,6 +556,7 @@ mod tests {
     use std::sync::Arc;
     use tracing::Span;
     use tree_hash::TreeHash;
+    use types::SignedExecutionPayloadEnvelope;
     use types::{
         ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelopeGloas,
         ExecutionRequestsGloas, ForkName, SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas,
@@ -766,6 +769,104 @@ mod tests {
     }
 
     #[test]
+    fn pq_range_couples_custody_columns_only_to_a_revealed_payload() {
+        use types::{
+            BeaconBlock, BeaconBlockPq, EmptyBlock, ExecutionPayloadEnvelopePq,
+            ExecutionRequestsPq, SignedExecutionPayloadEnvelopePq, VoluntaryExitRequest,
+            XmssPublicKey, XmssSignature,
+        };
+
+        let spec = Arc::new(ForkName::Pq.make_genesis_spec(gloas_spec()));
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
+        let (gloas, columns, _) = make_gloas_blocks_and_columns(1, &spec).pop().unwrap();
+        let SignedBeaconBlock::Gloas(gloas) = gloas.as_ref() else {
+            panic!("expected Gloas test fixture")
+        };
+        let mut pq = BeaconBlockPq::<E>::empty(&spec);
+        pq.slot = types::Slot::new(1);
+        let mut requests = ExecutionRequestsPq::default();
+        requests
+            .voluntary_exits
+            .push(VoluntaryExitRequest {
+                pubkey: XmssPublicKey::from([3; 32]),
+            })
+            .unwrap();
+        let bid = &mut pq.body.signed_execution_payload_bid.message;
+        bid.blob_kzg_commitments = gloas
+            .message
+            .body
+            .signed_execution_payload_bid
+            .message
+            .blob_kzg_commitments
+            .clone();
+        bid.execution_requests_root = requests.tree_hash_root();
+        let builder_index = bid.builder_index;
+        let payload_hash = bid.block_hash;
+        let block = Arc::new(SignedBeaconBlock::with_empty_signature(BeaconBlock::Pq(pq)));
+        let root = block.canonical_root();
+        let mut payload = types::ExecutionPayloadGloas::default();
+        payload.slot_number = block.slot();
+        payload.block_hash = payload_hash;
+        let envelope = Arc::new(SignedExecutionPayloadEnvelope::Pq(
+            SignedExecutionPayloadEnvelopePq {
+                message: ExecutionPayloadEnvelopePq {
+                    payload,
+                    execution_requests: requests,
+                    builder_index,
+                    beacon_block_root: root,
+                    parent_beacon_block_root: block.parent_root(),
+                },
+                signature: XmssSignature::empty(),
+            },
+        ));
+        let blocks = vec![(root, block)];
+        let required = custody_context.sampling_columns_for_epoch(Epoch::new(0));
+        let columns: Vec<_> = columns
+            .into_iter()
+            .filter(|column| required.contains(column.index()))
+            .map(|column| {
+                let mut column = Arc::unwrap_or_clone(column);
+                let types::DataColumnSidecar::Gloas(sidecar) = &mut column else {
+                    panic!("expected post-Gloas column")
+                };
+                sidecar.beacon_block_root = root;
+                sidecar.slot = types::Slot::new(1);
+                Arc::new(column)
+            })
+            .collect();
+        assert!(!columns.is_empty());
+        let full = RangeBlockComponentsRequest::<E>::responses_with_custody_columns(
+            blocks.clone(),
+            columns.clone(),
+            &custody_context,
+            Some(vec![envelope.clone()]),
+        )
+        .unwrap();
+        assert!(full[0].has_execution_envelope());
+        assert_eq!(full[0].data_columns().unwrap().len(), columns.len());
+        assert!(matches!(
+            RangeBlockComponentsRequest::<E>::responses_with_custody_columns(
+                blocks.clone(),
+                vec![],
+                &custody_context,
+                Some(vec![envelope]),
+            ),
+            Err(CouplingError::AvailabilityCheckError(
+                AvailabilityCheckError::MissingCustodyColumns
+            ))
+        ));
+        let empty = RangeBlockComponentsRequest::<E>::responses_with_custody_columns(
+            blocks,
+            vec![],
+            &custody_context,
+            Some(vec![]),
+        )
+        .unwrap();
+        assert!(!empty[0].has_execution_envelope());
+        assert!(empty[0].data_columns().is_none());
+    }
+
+    #[test]
     fn no_blobs_into_responses() {
         // This exercises the pre-Gloas blobs/no-data coupling path. Gloas coupling is covered
         // by the dedicated `setup_gloas_coupling` tests below.
@@ -933,7 +1034,11 @@ mod tests {
             blocks
                 .iter()
                 .rev()
-                .map(|(_, _, envelope)| envelope.clone())
+                .map(|(_, _, envelope)| {
+                    Arc::new(SignedExecutionPayloadEnvelope::Gloas(
+                        envelope.as_ref().clone(),
+                    ))
+                })
                 .collect(),
         )
         .unwrap();
@@ -970,8 +1075,13 @@ mod tests {
         } = setup_gloas_coupling(2);
 
         // Supply an envelope for only one of the two blocks.
-        info.add_payload_envelopes(payloads_req_id, vec![blocks[0].2.clone()])
-            .unwrap();
+        info.add_payload_envelopes(
+            payloads_req_id,
+            vec![Arc::new(SignedExecutionPayloadEnvelope::Gloas(
+                blocks[0].2.as_ref().clone(),
+            ))],
+        )
+        .unwrap();
 
         let responses = info.responses(&custody_context, spec).unwrap().0.unwrap();
         let count_with = |with_envelope: bool| {
@@ -999,8 +1109,13 @@ mod tests {
 
         let mut bad_envelope = (*blocks[0].2).clone();
         bad_envelope.message.payload.slot_number += 1;
-        info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)])
-            .unwrap();
+        info.add_payload_envelopes(
+            payloads_req_id,
+            vec![Arc::new(SignedExecutionPayloadEnvelope::Gloas(
+                bad_envelope,
+            ))],
+        )
+        .unwrap();
 
         let result = info.responses(&custody_context, spec).unwrap().0;
         assert!(

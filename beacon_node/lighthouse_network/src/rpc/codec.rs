@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::SignedExecutionPayloadEnvelopeGloas;
+use types::SignedExecutionPayloadEnvelope;
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
     ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
@@ -267,7 +267,9 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self.protocol.rpc_response_limits::<E>(&self.fork_context);
+        let ssz_limits = self
+            .protocol
+            .rpc_response_limits::<E>(&self.fork_context, self.fork_name);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC response length is out of bounds, length {}, max {}, min {}",
@@ -291,7 +293,26 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
                 // Safe to `take` from `self.fork_name` as we have all the bytes we need to
                 // decode an ssz object at this point.
                 let fork_name = self.fork_name.take();
-                handle_rpc_response(self.protocol.versioned_protocol, &decoded_buffer, fork_name)
+                let response = handle_rpc_response(
+                    self.protocol.versioned_protocol,
+                    &decoded_buffer,
+                    fork_name,
+                )?;
+                if let Some(
+                    RpcSuccessResponse::PayloadEnvelopesByRange(envelope)
+                    | RpcSuccessResponse::PayloadEnvelopesByRoot(envelope),
+                ) = &response
+                    && Some(
+                        self.fork_context
+                            .spec
+                            .fork_name_at_slot::<E>(envelope.slot()),
+                    ) != fork_name
+                {
+                    return Err(RPCError::InvalidData(
+                        "Payload envelope fork context does not match its slot".into(),
+                    ));
+                }
+                Ok(response)
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -670,56 +691,23 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::BlocksByRootV1 => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
-        SupportedProtocol::PayloadEnvelopesByRangeV1 => match fork_name {
-            Some(ForkName::Pq) => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                "Pq payload envelope RPC decoding is not implemented".into(),
-            )),
-            Some(fork_name) => {
-                if fork_name.gloas_enabled() {
-                    Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRange(Arc::new(
-                        SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(decoded_buffer)?,
-                    ))))
-                } else {
-                    Err(RPCError::ErrorResponse(
-                        RpcErrorResponse::InvalidRequest,
-                        "Invalid fork name for payload envelopes by range".to_string(),
-                    ))
+        SupportedProtocol::PayloadEnvelopesByRangeV1
+        | SupportedProtocol::PayloadEnvelopesByRootV1 => {
+            let fork = fork_name.ok_or_else(|| {
+                RPCError::InvalidData("Missing fork context for payload envelope".into())
+            })?;
+            let envelope = Arc::new(SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(
+                decoded_buffer,
+                fork,
+            )?);
+            let response = match versioned_protocol {
+                SupportedProtocol::PayloadEnvelopesByRangeV1 => {
+                    RpcSuccessResponse::PayloadEnvelopesByRange(envelope)
                 }
-            }
-            None => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                format!(
-                    "No context bytes provided for {:?} response",
-                    versioned_protocol
-                ),
-            )),
-        },
-        SupportedProtocol::PayloadEnvelopesByRootV1 => match fork_name {
-            Some(ForkName::Pq) => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                "Pq payload envelope RPC decoding is not implemented".into(),
-            )),
-            Some(fork_name) => {
-                if fork_name.gloas_enabled() {
-                    Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRoot(Arc::new(
-                        SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(decoded_buffer)?,
-                    ))))
-                } else {
-                    Err(RPCError::ErrorResponse(
-                        RpcErrorResponse::InvalidRequest,
-                        "Invalid fork name for payload envelopes by root".to_string(),
-                    ))
-                }
-            }
-            None => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                format!(
-                    "No context bytes provided for {:?} response",
-                    versioned_protocol
-                ),
-            )),
-        },
+                _ => RpcSuccessResponse::PayloadEnvelopesByRoot(envelope),
+            };
+            Ok(Some(response))
+        }
         SupportedProtocol::BlobsByRangeV1 => match fork_name {
             Some(fork_name) => {
                 if fork_name.deneb_enabled() {
@@ -1317,6 +1305,93 @@ mod tests {
                     RequestType::LightClientUpdatesByRange(light_client_updates_by_range)
                 )
             }
+        }
+    }
+
+    #[test]
+    fn native_payload_envelope_rpc_round_trips_and_rejects_bad_fork_context() {
+        use types::{
+            ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopePq,
+            SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopePq,
+            VoluntaryExitRequest, XmssPublicKey, XmssSignature,
+        };
+
+        let spec = spec_with_all_forks_enabled();
+        let gloas_slot = spec
+            .gloas_fork_epoch
+            .unwrap()
+            .start_slot(Spec::slots_per_epoch());
+        let pq_slot = spec
+            .pq_fork_epoch
+            .unwrap()
+            .start_slot(Spec::slots_per_epoch());
+        let mut gloas_message = ExecutionPayloadEnvelopeGloas::<Spec>::empty();
+        gloas_message.payload.slot_number = gloas_slot;
+        let gloas = SignedExecutionPayloadEnvelopeGloas {
+            message: gloas_message,
+            signature: bls::Signature::empty(),
+        };
+        let mut pq = SignedExecutionPayloadEnvelopePq::<Spec> {
+            message: ExecutionPayloadEnvelopePq {
+                payload: types::ExecutionPayloadGloas::default(),
+                execution_requests: Default::default(),
+                builder_index: 0,
+                beacon_block_root: Hash256::repeat_byte(5),
+                parent_beacon_block_root: Hash256::repeat_byte(6),
+            },
+            signature: XmssSignature::empty(),
+        };
+        pq.message.payload.slot_number = pq_slot;
+        pq.message
+            .execution_requests
+            .voluntary_exits
+            .push(VoluntaryExitRequest {
+                pubkey: XmssPublicKey::from([2; 32]),
+            })
+            .unwrap();
+        let protocols = [
+            SupportedProtocol::PayloadEnvelopesByRangeV1,
+            SupportedProtocol::PayloadEnvelopesByRootV1,
+        ];
+        for protocol in protocols {
+            for (fork, envelope, native_bytes) in [
+                (
+                    ForkName::Gloas,
+                    SignedExecutionPayloadEnvelope::Gloas(gloas.clone()),
+                    gloas.as_ssz_bytes(),
+                ),
+                (
+                    ForkName::Pq,
+                    SignedExecutionPayloadEnvelope::Pq(pq.clone()),
+                    pq.as_ssz_bytes(),
+                ),
+            ] {
+                assert_eq!(envelope.as_ssz_bytes(), native_bytes);
+                let mut bytes = encode_without_length_checks(native_bytes, fork, &spec).unwrap();
+                let result = decode_response(protocol, &mut bytes, ForkName::Pq, &spec)
+                    .unwrap()
+                    .unwrap();
+                match result {
+                    RpcSuccessResponse::PayloadEnvelopesByRange(decoded)
+                    | RpcSuccessResponse::PayloadEnvelopesByRoot(decoded) => {
+                        assert_eq!(*decoded, envelope);
+                    }
+                    other => panic!("unexpected response {other:?}"),
+                }
+            }
+            let mut truncated = pq.as_ssz_bytes();
+            truncated.truncate(SignedExecutionPayloadEnvelopePq::<Spec>::min_size() - 1);
+            let mut frame = encode_without_length_checks(truncated, ForkName::Pq, &spec).unwrap();
+            assert!(decode_response(protocol, &mut frame, ForkName::Pq, &spec).is_err());
+            let mut wrong_slot = pq.clone();
+            wrong_slot.message.payload.slot_number = gloas_slot;
+            let mut frame =
+                encode_without_length_checks(wrong_slot.as_ssz_bytes(), ForkName::Pq, &spec)
+                    .unwrap();
+            assert!(decode_response(protocol, &mut frame, ForkName::Pq, &spec).is_err());
+            let mut wrong_fork =
+                encode_without_length_checks(pq.as_ssz_bytes(), ForkName::Deneb, &spec).unwrap();
+            assert!(decode_response(protocol, &mut wrong_fork, ForkName::Pq, &spec).is_err());
         }
     }
 
@@ -2342,7 +2417,7 @@ mod tests {
         let fork_context = Arc::new(fork_context(ForkName::Base, &chain_spec));
 
         let max_rpc_size = chain_spec.max_payload_size as usize;
-        let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
+        let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context, None);
         let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
             protocol_id.clone(),

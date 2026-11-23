@@ -12,7 +12,7 @@ use beacon_chain::data_availability_checker::{
 };
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
-use beacon_chain::payload_envelope_verification::EnvelopeSource;
+use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     HistoricalBlockError, NotifyExecutionLayer,
@@ -28,7 +28,9 @@ use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use logging::crit;
 use std::sync::Arc;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::{BlockImportSource, DataColumnSidecarList, Epoch, ExecutionBlockHash, Hash256};
+use types::{
+    BlockImportSource, DataColumnSidecarList, Epoch, ExecutionBlockHash, ForkName, Hash256,
+};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -323,7 +325,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_lookup_envelope(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
-        envelope: Arc<types::SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
+        envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
         process_type: BlockProcessType,
     ) {
         debug!(
@@ -336,24 +338,41 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Gossip verification runs the same signature / slot / builder-index / block-hash checks
         // independently of gossip propagation, so we can reuse it for RPC-fetched envelopes.
         #[allow(clippy::result_large_err)]
-        let result = match self
-            .chain
-            .clone()
-            .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Rpc)
-            .await
-        {
-            Ok(verified) => {
-                self.chain
-                    .process_execution_payload_envelope(
-                        block_root,
-                        verified,
-                        NotifyExecutionLayer::Yes,
-                        BlockImportSource::Lookup,
-                        || Ok(()),
-                    )
+        let slot = envelope.slot();
+        let result = match Arc::unwrap_or_clone(envelope) {
+            types::SignedExecutionPayloadEnvelope::Gloas(envelope) => {
+                match self
+                    .chain
+                    .verify_envelope_for_gossip(Arc::new(envelope), EnvelopeSource::Rpc)
                     .await
+                {
+                    Ok(verified) => {
+                        self.chain
+                            .process_execution_payload_envelope(
+                                block_root,
+                                verified,
+                                NotifyExecutionLayer::Yes,
+                                BlockImportSource::Lookup,
+                                || Ok(()),
+                            )
+                            .await
+                    }
+                    Err(error) => Err(error.into()),
+                }
             }
-            Err(e) => Err(e.into()),
+            types::SignedExecutionPayloadEnvelope::Pq(envelope) => {
+                match self
+                    .chain
+                    .verify_pq_envelope_for_rpc(Arc::new(envelope))
+                    .await
+                {
+                    Ok(verified) => self.chain.process_verified_pq_envelope(verified).await,
+                    Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {
+                        Ok(AvailabilityProcessingStatus::Imported(slot, block_root))
+                    }
+                    Err(error) => Err(error.into()),
+                }
+            }
         };
 
         // The payload envelope is imported; release any attestations awaiting this block's payload
@@ -732,6 +751,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // This is an internal error, do not penalize the peer.
                         None
                     }
+                    HistoricalBlockError::UnsupportedPq => {
+                        debug!("Historical PQ block backfill is unavailable");
+                        None
+                    }
                     HistoricalBlockError::MissingEnvelope { block_root } => {
                         debug!(
                             ?block_root,
@@ -805,8 +828,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Helper function to handle a `BlockError` from `process_chain_segment`
     fn handle_failed_chain_segment(&self, error: BlockError) -> Result<(), ChainSegmentFailed> {
         match error {
-            BlockError::ParentUnknown { parent_root, .. } => {
-                // blocks should be sequential and all parents should exist
+            BlockError::ParentUnknown {
+                parent_root,
+                parent_block_hash,
+                ..
+            } => {
+                // A validated prefix may have imported the parent block before detecting an
+                // omitted payload. Retry the batch so its known parent can be repaired by root.
+                let missing_pq_payload = self
+                    .chain
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .get_block(&parent_root)
+                    .is_some_and(|parent| {
+                        self.chain.spec.fork_name_at_slot::<T::EthSpec>(parent.slot) == ForkName::Pq
+                            && parent_block_hash.is_some()
+                            && parent_block_hash == parent.execution_payload_block_hash
+                            && !parent.payload_received
+                    });
+                if missing_pq_payload {
+                    return Err(ChainSegmentFailed {
+                        message: format!("Known PQ parent {parent_root} is missing its payload"),
+                        peer_action: None,
+                    });
+                }
+                // Blocks should be sequential and all parents should exist.
                 Err(ChainSegmentFailed {
                     message: format!("Block has an unknown parent: {}", parent_root),
                     // Peers are faulty if they send non-sequential blocks.

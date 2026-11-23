@@ -2232,9 +2232,13 @@ async fn rpc_columns_notify_after_deferred_envelope_import() {
         .clone()
         .process_lookup_envelope(
             block_root,
-            rig.next_block_envelope
-                .clone()
-                .expect("the next block should have an envelope post-Gloas"),
+            Arc::new(types::SignedExecutionPayloadEnvelope::Gloas(
+                rig.next_block_envelope
+                    .as_ref()
+                    .expect("the next block should have an envelope post-Gloas")
+                    .as_ref()
+                    .clone(),
+            )),
             BlockProcessType::SinglePayloadEnvelope(1),
         )
         .await;

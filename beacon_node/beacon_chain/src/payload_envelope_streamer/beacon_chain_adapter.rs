@@ -5,7 +5,8 @@ use execution_layer::ExecutionPayloadBodyV2;
 use mockall::automock;
 use task_executor::TaskExecutor;
 use types::{
-    ExecutionBlockHash, ExecutionPayloadBody, Hash256, SignedExecutionPayloadEnvelopeSummary, Slot,
+    ExecutionBlockHash, ExecutionPayloadBody, ExecutionRequestsPq, Hash256,
+    SignedExecutionPayloadEnvelopeSummary, Slot, XmssSignature,
 };
 
 use super::Error;
@@ -32,6 +33,13 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
         root: &Hash256,
     ) -> Result<Option<SignedExecutionPayloadEnvelopeSummary<T::EthSpec>>, store::Error> {
         self.chain.store.get_payload_envelope_summary(root)
+    }
+
+    pub(crate) fn get_pq_payload_envelope_auth(
+        &self,
+        root: &Hash256,
+    ) -> Result<Option<(ExecutionRequestsPq<T::EthSpec>, XmssSignature)>, store::Error> {
+        self.chain.store.get_pq_payload_envelope_auth(root)
     }
 
     pub(crate) fn get_payload_body(

@@ -378,6 +378,24 @@ where
         self.chains.register_metrics();
     }
 
+    /// True if rechecking a pending payload removed an exhausted chain.
+    pub fn resume_waiting_payloads(&mut self, network: &mut SyncNetworkContext<T>) -> bool {
+        let removed = self
+            .chains
+            .call_all(|chain| chain.resume_waiting_payload(network));
+        let state_changed = !removed.is_empty();
+        for (removed_chain, sync_type, remove_reason) in removed {
+            self.on_chain_removed(
+                removed_chain,
+                sync_type,
+                remove_reason,
+                network,
+                "parent payload recovery",
+            );
+        }
+        state_changed
+    }
+
     /// Kickstarts sync.
     pub fn resume(&mut self, network: &mut SyncNetworkContext<T>) {
         for (removed_chain, sync_type, remove_reason) in

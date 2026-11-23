@@ -1,5 +1,7 @@
 #![cfg(all(feature = "spec-minimal", not(debug_assertions)))]
 
+use beacon_chain::AvailabilityProcessingStatus;
+use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use execution_layer::{
     NewPayloadRequest, NewPayloadRequestGloas, PayloadAttributes, PayloadParameters,
@@ -10,16 +12,131 @@ use state_processing::{
     ConsensusContext, VerifySignatures,
     common::get_attestation_participation_flag_indices,
     per_block_processing::{
-        BlockSignatureStrategy, VerifyBlockRoot,
+        BlockSignatureStrategy, VerifyBlockRoot, compute_timestamp_at_slot,
         errors::{AttestationInvalid, BlockProcessingError, HeaderInvalid, IntoWithIndex},
         per_block_processing, verify_attestation_for_block_inclusion,
     },
-    pq::{LEAF_OFFSET_BEACON_PROPOSER, slot_leaf_index},
+    pq::{LEAF_OFFSET_BEACON_PROPOSER, LEAF_OFFSET_PAYLOAD_ENVELOPE, slot_leaf_index},
     state_advance::complete_state_advance,
 };
+use std::sync::Arc;
 use types::{consts::altair::TIMELY_HEAD_FLAG_INDEX, *};
 
 type E = MinimalEthSpec;
+
+#[tokio::test]
+async fn pq_rpc_envelope_rejects_wrong_leaf_and_imports_concurrently() {
+    let spec = Arc::new(ForkName::Pq.make_genesis_spec(E::default_spec()));
+    let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(E::slots_per_epoch() as usize)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .mock_execution_layer_all_payloads_valid()
+        .build();
+    let slot = Slot::new(1);
+    let (contents, state) = harness
+        .make_pq_block(harness.get_current_state(), slot, &[])
+        .await;
+    let root = contents.0.canonical_root();
+    let bid = contents
+        .0
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let message = ExecutionPayloadEnvelopePq {
+        payload: ExecutionPayloadGloas {
+            parent_hash: bid.message().parent_block_hash(),
+            block_hash: bid.message().block_hash(),
+            prev_randao: bid.message().prev_randao(),
+            gas_limit: bid.message().gas_limit(),
+            timestamp: compute_timestamp_at_slot(&state, slot, &spec).unwrap(),
+            slot_number: slot,
+            withdrawals: state
+                .payload_expected_withdrawals()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            ..Default::default()
+        },
+        builder_index: bid.message().builder_index(),
+        execution_requests: ExecutionRequestsPq::default(),
+        beacon_block_root: root,
+        parent_beacon_block_root: contents.0.parent_root(),
+    };
+    let domain = spec.get_domain(
+        state.current_epoch(),
+        Domain::BeaconBuilder,
+        &state.fork(),
+        state.genesis_validators_root(),
+    );
+    let leaf = slot_leaf_index(slot, LEAF_OFFSET_PAYLOAD_ENVELOPE).unwrap();
+    let proposer_index = state.latest_block_header().proposer_index as usize;
+    let sign = |leaf| {
+        Arc::new(SignedExecutionPayloadEnvelopePq {
+            signature: harness.sign_pq_test_message(
+                proposer_index,
+                leaf,
+                message.signing_root(domain),
+            ),
+            message: message.clone(),
+        })
+    };
+    harness.process_block(slot, root, contents).await.unwrap();
+    let chain = &harness.chain;
+    assert!(matches!(
+        chain.verify_pq_envelope_for_rpc(sign(leaf + 1)).await,
+        Err(EnvelopeError::BadSignature)
+    ));
+    let mut mismatched_requests = message.clone();
+    mismatched_requests
+        .execution_requests
+        .voluntary_exits
+        .push(VoluntaryExitRequest {
+            pubkey: XmssPublicKey::from([42; 32]),
+        })
+        .unwrap();
+    let mismatched_requests = Arc::new(SignedExecutionPayloadEnvelopePq {
+        signature: harness.sign_pq_test_message(
+            proposer_index,
+            leaf,
+            mismatched_requests.signing_root(domain),
+        ),
+        message: mismatched_requests,
+    });
+    assert!(matches!(
+        chain.verify_pq_envelope_for_rpc(mismatched_requests).await,
+        Err(EnvelopeError::EnvelopeProcessingError(
+            state_processing::envelope_processing::EnvelopeProcessingError::ExecutionRequestsRootMismatch { .. }
+        ))
+    ));
+    let signed = sign(leaf);
+    let (first, second) = tokio::join!(
+        chain.verify_pq_envelope_for_rpc(signed.clone()),
+        chain.verify_pq_envelope_for_rpc(signed.clone()),
+    );
+    let (first, second) = tokio::join!(
+        chain.process_verified_pq_envelope(first.unwrap()),
+        chain.process_verified_pq_envelope(second.unwrap()),
+    );
+    for result in [first, second] {
+        assert!(
+            matches!(result.unwrap(), AvailabilityProcessingStatus::Imported(_, imported) if imported == root)
+        );
+    }
+    assert!(matches!(
+        chain.verify_pq_envelope_for_rpc(signed.clone()).await,
+        Err(EnvelopeError::EnvelopeAlreadySeen { .. })
+    ));
+    assert_eq!(
+        chain.get_rpc_payload_envelope(&root).unwrap().unwrap(),
+        SignedExecutionPayloadEnvelope::Pq(Arc::unwrap_or_clone(signed)),
+    );
+}
 
 #[tokio::test]
 async fn pq_reference_chain_finalizes_and_rejects_bad_authentication() {

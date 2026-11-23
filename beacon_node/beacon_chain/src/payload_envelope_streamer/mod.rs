@@ -14,8 +14,9 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, warn};
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayloadRef, ExecutionRequestsRef, Hash256,
-    SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeSummary, Slot,
+    ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayloadRef, ExecutionRequestsPq, ForkName,
+    Hash256, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeGloas,
+    SignedExecutionPayloadEnvelopePq, SignedExecutionPayloadEnvelopeSummary, Slot, XmssSignature,
 };
 
 #[cfg(not(test))]
@@ -23,11 +24,13 @@ use crate::BeaconChain;
 use crate::{BeaconChainError, BeaconChainTypes};
 
 type PayloadEnvelopeResult<E> =
-    Result<Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>, BeaconChainError>;
+    Result<Option<Arc<SignedExecutionPayloadEnvelope<E>>>, BeaconChainError>;
+type PqAuthentication<E> = Box<(ExecutionRequestsPq<E>, XmssSignature)>;
 
 #[derive(Debug)]
 pub enum Error {
     PayloadMissingFromExecutionLayer(ExecutionBlockHash),
+    MissingPqAuthentication(Hash256),
     PayloadBodiesByHashV2Failure(Box<execution_layer::Error>),
     InvalidPayloadBodiesResponse {
         expected: usize,
@@ -53,32 +56,28 @@ pub enum EnvelopeRequestSource {
 
 enum LoadedEnvelope<E: EthSpec> {
     Complete(PayloadEnvelopeResult<E>),
-    NeedsPayload(Box<SignedExecutionPayloadEnvelopeSummary<E>>),
-}
-
-impl<E: EthSpec> LoadedEnvelope<E> {
-    fn slot(&self) -> Option<Slot> {
-        match self {
-            Self::Complete(Ok(Some(envelope))) => Some(envelope.slot()),
-            Self::NeedsPayload(summary) => Some(summary.slot()),
-            Self::Complete(Ok(None) | Err(_)) => None,
-        }
-    }
+    NeedsPayload {
+        summary: Box<SignedExecutionPayloadEnvelopeSummary<E>>,
+        pq_authentication: Option<PqAuthentication<E>>,
+    },
 }
 
 pub struct PayloadEnvelopeStreamer<T: BeaconChainTypes> {
     adapter: EnvelopeStreamerBeaconAdapter<T>,
     request_source: EnvelopeRequestSource,
+    spec: Arc<ChainSpec>,
 }
 
 impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     pub(crate) fn new(
         adapter: EnvelopeStreamerBeaconAdapter<T>,
         request_source: EnvelopeRequestSource,
+        spec: Arc<ChainSpec>,
     ) -> Arc<Self> {
         Arc::new(Self {
             adapter,
             request_source,
+            spec,
         })
     }
 
@@ -86,7 +85,12 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     ///
     /// A summary whose payload has been pruned is returned as `NeedsPayload` for reconstruction
     /// from the execution layer.
-    fn load_envelope(&self, beacon_block_root: &Hash256) -> LoadedEnvelope<T::EthSpec> {
+    fn load_envelope(
+        &self,
+        beacon_block_root: &Hash256,
+        split_slot: Slot,
+        split_block_root: Hash256,
+    ) -> LoadedEnvelope<T::EthSpec> {
         let summary = match self.adapter.get_payload_envelope_summary(beacon_block_root) {
             Ok(Some(summary)) => summary,
             Ok(None) => return LoadedEnvelope::Complete(Ok(None)),
@@ -103,11 +107,44 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
             .into()));
         }
 
-        match self.adapter.get_payload_body(beacon_block_root) {
-            Ok(Some(payload_body)) => {
-                LoadedEnvelope::Complete(Ok(Some(Arc::new(summary.into_envelope(payload_body)))))
+        // Stored pre-split summaries already follow canonical payload status, except at the
+        // split block which can span skipped slots. By-root may intentionally serve a side chain.
+        if self.request_source == EnvelopeRequestSource::ByRange
+            && (summary.slot() >= split_slot || *beacon_block_root == split_block_root)
+        {
+            match self.adapter.block_has_canonical_payload(beacon_block_root) {
+                Ok(true) => {}
+                Ok(false) => return LoadedEnvelope::Complete(Ok(None)),
+                Err(error) => return LoadedEnvelope::Complete(Err(error)),
             }
-            Ok(None) => LoadedEnvelope::NeedsPayload(Box::new(summary)),
+        }
+
+        let pq_authentication =
+            if self.spec.fork_name_at_slot::<T::EthSpec>(summary.slot()) == ForkName::Pq {
+                match self.adapter.get_pq_payload_envelope_auth(beacon_block_root) {
+                    Ok(Some(auth)) => Some(Box::new(auth)),
+                    Ok(None) => {
+                        return LoadedEnvelope::Complete(Err(Error::MissingPqAuthentication(
+                            *beacon_block_root,
+                        )
+                        .into()));
+                    }
+                    Err(error) => {
+                        return LoadedEnvelope::Complete(Err(BeaconChainError::DBError(error)));
+                    }
+                }
+            } else {
+                None
+            };
+
+        match self.adapter.get_payload_body(beacon_block_root) {
+            Ok(Some(payload_body)) => LoadedEnvelope::Complete(Ok(Some(Arc::new(
+                native_envelope(summary.into_envelope(payload_body), pq_authentication),
+            )))),
+            Ok(None) => LoadedEnvelope::NeedsPayload {
+                summary: Box::new(summary),
+                pq_authentication,
+            },
             Err(error) => LoadedEnvelope::Complete(Err(BeaconChainError::DBError(error))),
         }
     }
@@ -128,29 +165,10 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                     block_roots
                         .into_iter()
                         .map(|root| {
-                            let loaded = streamer.load_envelope(&root);
-
-                            // By-root requests may sync branches other than our canonical view.
-                            if streamer.request_source == EnvelopeRequestSource::ByRoot {
-                                return (root, loaded);
-                            }
-
-                            let Some(slot) = loaded.slot() else {
-                                return (root, loaded);
-                            };
-
-                            // Before the split, non-canonical envelopes have already been pruned,
-                            // except for the split block when the checkpoint slot was skipped.
-                            // Its child may not be finalized yet, so use fork choice for it.
-                            if split_slot > slot && root != split_block_root {
-                                return (root, loaded);
-                            }
-
-                            match streamer.adapter.block_has_canonical_payload(&root) {
-                                Ok(true) => (root, loaded),
-                                Ok(false) => (root, LoadedEnvelope::Complete(Ok(None))),
-                                Err(error) => (root, LoadedEnvelope::Complete(Err(error))),
-                            }
+                            (
+                                root,
+                                streamer.load_envelope(&root, split_slot, split_block_root),
+                            )
                         })
                         .collect::<Vec<_>>()
                 },
@@ -163,7 +181,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         let payload_requests = loaded_envelopes
             .iter()
             .filter_map(|(_, loaded)| match loaded {
-                LoadedEnvelope::NeedsPayload(summary) => Some(summary.block_hash()),
+                LoadedEnvelope::NeedsPayload { summary, .. } => Some(summary.block_hash()),
                 LoadedEnvelope::Complete(_) => None,
             })
             .collect::<Vec<_>>();
@@ -178,11 +196,16 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
             .map(|(root, loaded)| {
                 let result = match loaded {
                     LoadedEnvelope::Complete(result) => Arc::new(result),
-                    LoadedEnvelope::NeedsPayload(summary) => match &mut payload_bodies {
+                    LoadedEnvelope::NeedsPayload {
+                        summary,
+                        pq_authentication,
+                    } => match &mut payload_bodies {
                         Ok(payload_bodies) => Arc::new(match payload_bodies.next().flatten() {
-                            Some(payload_body) => {
-                                reconstruct_envelope_from_body(*summary, payload_body)
-                            }
+                            Some(payload_body) => reconstruct_envelope_from_body(
+                                *summary,
+                                payload_body,
+                                pq_authentication,
+                            ),
                             None => Err(Error::PayloadMissingFromExecutionLayer(
                                 summary.block_hash(),
                             )
@@ -268,8 +291,9 @@ pub fn launch_payload_envelope_stream<T: BeaconChainTypes>(
     block_roots: Vec<Hash256>,
     request_source: EnvelopeRequestSource,
 ) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
+    let spec = Arc::clone(&chain.spec);
     let adapter = beacon_chain_adapter::EnvelopeStreamerBeaconAdapter::new(chain);
-    PayloadEnvelopeStreamer::new(adapter, request_source).launch_stream(block_roots)
+    PayloadEnvelopeStreamer::new(adapter, request_source, spec).launch_stream(block_roots)
 }
 
 /// The Engine API only guarantees support for 32 hashes per payload-body request.
@@ -278,6 +302,7 @@ const MAX_PAYLOAD_BODIES_PER_REQUEST: usize = 32;
 fn reconstruct_envelope_from_body<E: EthSpec>(
     summary: SignedExecutionPayloadEnvelopeSummary<E>,
     payload_body: ExecutionPayloadBodyV2<E>,
+    pq_authentication: Option<PqAuthentication<E>>,
 ) -> PayloadEnvelopeResult<E> {
     let expected_payload_hash = summary.block_hash();
     let withdrawals = payload_body
@@ -289,17 +314,18 @@ fn reconstruct_envelope_from_body<E: EthSpec>(
             .ok_or(Error::PayloadBodyMissingBlockAccessList(
                 expected_payload_hash,
             ))?;
-    let envelope = summary.into_envelope_from_payload_body(
-        payload_body.transactions,
-        withdrawals,
-        block_access_list,
+    let envelope = native_envelope(
+        summary.into_envelope_from_payload_body(
+            payload_body.transactions,
+            withdrawals,
+            block_access_list,
+        ),
+        pq_authentication,
     );
     let (computed_payload_hash, _) = execution_layer::calculate_execution_block_hash(
-        ExecutionPayloadRef::Gloas(&envelope.message.payload),
-        Some(envelope.message.parent_beacon_block_root),
-        Some(ExecutionRequestsRef::Gloas(
-            &envelope.message.execution_requests,
-        )),
+        ExecutionPayloadRef::Gloas(envelope.payload()),
+        Some(envelope.parent_beacon_block_root()),
+        Some(envelope.execution_requests()),
     );
     if expected_payload_hash != computed_payload_hash {
         return Err(Error::ComputedPayloadHashMismatch {
@@ -310,6 +336,18 @@ fn reconstruct_envelope_from_body<E: EthSpec>(
     }
 
     Ok(Some(Arc::new(envelope)))
+}
+
+fn native_envelope<E: EthSpec>(
+    envelope: SignedExecutionPayloadEnvelopeGloas<E>,
+    pq_authentication: Option<PqAuthentication<E>>,
+) -> SignedExecutionPayloadEnvelope<E> {
+    match pq_authentication {
+        Some(auth) => SignedExecutionPayloadEnvelope::Pq(
+            SignedExecutionPayloadEnvelopePq::from_projection(envelope, *auth),
+        ),
+        None => SignedExecutionPayloadEnvelope::Gloas(envelope),
+    }
 }
 
 impl From<Error> for BeaconChainError {

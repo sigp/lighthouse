@@ -351,6 +351,24 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
         }
     }
 
+    /// Retry with other peers after a downloaded batch could not obtain a required component.
+    pub fn required_data_unavailable(&mut self) -> Result<BatchOperationOutcome, WrongState> {
+        let BatchState::AwaitingProcessing(peer, _, _) = &self.state else {
+            return Err(WrongState(format!(
+                "Missing data for batch in state {:?}",
+                self.state
+            )));
+        };
+        self.failed_download_attempts.push(Some(*peer));
+        self.state =
+            if self.failed_download_attempts.len() >= B::max_batch_download_attempts() as usize {
+                BatchState::Failed
+            } else {
+                BatchState::AwaitingDownload
+            };
+        Ok(self.outcome())
+    }
+
     pub fn start_processing(&mut self) -> Result<(D, Duration), WrongState> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, data_columns, start_instant) => {

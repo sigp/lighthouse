@@ -1008,7 +1008,11 @@ impl TestRig {
         self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
             peer_id,
-            envelope: envelope.clone(),
+            envelope: envelope.map(|envelope| {
+                Arc::new(types::SignedExecutionPayloadEnvelope::Gloas(
+                    Arc::unwrap_or_clone(envelope),
+                ))
+            }),
         });
         // Stream termination
         self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
@@ -1033,7 +1037,9 @@ impl TestRig {
             self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
                 sync_request_id,
                 peer_id,
-                envelope: Some(envelope.clone()),
+                envelope: Some(Arc::new(types::SignedExecutionPayloadEnvelope::Gloas(
+                    envelope.as_ref().clone(),
+                ))),
             });
         }
         // Stream termination

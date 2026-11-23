@@ -38,6 +38,8 @@ pub enum HistoricalBlockError {
     IndexOutOfBounds,
     /// Logic error: should never occur.
     MissingOldestBlockRoot { slot: Slot },
+    /// Historical PQ block import is unavailable.
+    UnsupportedPq,
     /// A Gloas block with a revealed payload is missing its envelope. Caller should
     /// retry/penalize.
     MissingEnvelope { block_root: Hash256 },
@@ -85,6 +87,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         mut blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
+        if blocks
+            .iter()
+            .any(|block| block.as_block().fork_name_unchecked() == types::ForkName::Pq)
+        {
+            return Err(HistoricalBlockError::UnsupportedPq);
+        }
         let anchor_info = self.store.get_anchor_info();
         let data_info = self.store.get_data_info();
 

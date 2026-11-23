@@ -31,7 +31,8 @@ use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
     ExecutionBlockHash, ExecutionPayloadEnvelopeGloas, Hash256, SignedExecutionPayloadBidRef,
-    SignedExecutionPayloadEnvelopeGloas, Slot,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeGloas,
+    SignedExecutionPayloadEnvelopePq, Slot,
 };
 
 pub mod execution_pending_envelope;
@@ -136,6 +137,35 @@ impl<E: EthSpec> AvailableEnvelope<E> {
                 pq_auth: None,
             })
         }
+    }
+
+    pub fn from_rpc<T>(
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        columns: DataColumnSidecarList<E>,
+        bid: SignedExecutionPayloadBidRef<E>,
+        custody_context: &CustodyContext<T>,
+    ) -> Result<Self, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        match Arc::unwrap_or_clone(envelope) {
+            SignedExecutionPayloadEnvelope::Gloas(envelope) => {
+                Self::new(Arc::new(envelope), columns, bid, custody_context)
+            }
+            SignedExecutionPayloadEnvelope::Pq(envelope) => {
+                let (projected, auth) = envelope.into_projection();
+                let mut envelope = Self::new(Arc::new(projected), columns, bid, custody_context)?;
+                envelope.pq_auth = Some(Arc::new(auth));
+                Ok(envelope)
+            }
+        }
+    }
+
+    pub(super) fn pq_envelope(&self) -> Option<SignedExecutionPayloadEnvelopePq<E>> {
+        Some(SignedExecutionPayloadEnvelopePq::from_projection(
+            self.envelope.as_ref().clone(),
+            self.pq_auth.as_ref()?.as_ref().clone(),
+        ))
     }
 
     pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelopeGloas<E>> {
@@ -266,6 +296,7 @@ pub enum EnvelopeError {
         latest_finalized_slot: Slot,
     },
     /// An envelope list exceeds its spec limit
+    InvalidPqExecutionRequests(String),
     OperationListTooLong {
         kind: &'static str,
         length: usize,
@@ -307,6 +338,7 @@ impl EnvelopeError {
             | EnvelopeError::ExecutionRequestsRootMismatch { .. }
             | EnvelopeError::UnknownValidator { .. }
             | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::InvalidPqExecutionRequests(_)
             | EnvelopeError::OperationListTooLong { .. }
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),

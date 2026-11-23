@@ -18,7 +18,7 @@ use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch,
     EthSpec, ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelopeGloas, Slot,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
 /// Maximum length of error message.
@@ -639,10 +639,10 @@ pub enum RpcSuccessResponse<E: EthSpec> {
 
     /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE request. A None response signifies
     /// the end of the batch.
-    PayloadEnvelopesByRange(Arc<SignedExecutionPayloadEnvelopeGloas<E>>),
+    PayloadEnvelopesByRange(Arc<SignedExecutionPayloadEnvelope<E>>),
 
     /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT request.
-    PayloadEnvelopesByRoot(Arc<SignedExecutionPayloadEnvelopeGloas<E>>),
+    PayloadEnvelopesByRoot(Arc<SignedExecutionPayloadEnvelope<E>>),
 
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<E>>),

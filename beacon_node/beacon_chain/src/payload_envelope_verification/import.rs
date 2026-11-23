@@ -7,7 +7,7 @@ use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use store::StoreOp;
-use tracing::{debug, error, info, info_span, instrument, warn};
+use tracing::{debug, info, info_span, instrument, warn};
 use types::{
     BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
     SignedExecutionPayloadEnvelopeGloas,
@@ -261,9 +261,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(EnvelopeError::BlockRootNotInForkChoice(block_root));
         }
 
-        // TODO(gloas) add defensive check to see if payload envelope is already in fork choice
-        // Note that a duplicate cache/payload status table should prevent this from happening
-        // but it doesnt hurt to be defensive.
+        // Gossip and RPC may race for the same reveal. Preserve the first committed result.
+        if fork_choice_reader.is_payload_received(&block_root) {
+            return Ok(block_root);
+        }
 
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.
@@ -285,8 +286,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // corrupt the node's database permanently.
 
         // Store the envelope, its post-state, and any data columns.
-        // If the write fails, revert fork choice to the version from disk, else we can
-        // end up with envelopes in fork choice that are missing from disk.
+        // If the write fails, shut down and restore the last persisted fork choice on restart.
         // See https://github.com/sigp/lighthouse/issues/2028
         let pq_auth = signed_envelope.pq_auth.clone();
         let is_pq = pq_auth.is_some();
@@ -319,18 +319,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let db_span = info_span!("persist_payloads_and_blobs").entered();
 
-        if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
-            error!(
-                msg = "Restoring fork choice from disk",
-                error = ?e,
-                "Database write failed!"
-            );
-            return Err(e.into());
-            // TODO(gloas) handle db write failure
-            // return Err(self
-            //    .handle_import_block_db_write_error(fork_choice)
-            //    .err()
-            //    .unwrap_or(e.into()));
+        if let Err(error) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
+            drop(db_span);
+            self.handle_import_db_write_error(fork_choice, block_root);
+            return Err(error.into());
         }
 
         drop(db_span);
@@ -441,6 +433,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<(), EnvelopeError> {
+        if let Some(envelope) = available_envelope.pq_envelope() {
+            let verified = match self.verify_pq_envelope_for_rpc(Arc::new(envelope)).await {
+                Ok(verified) => verified,
+                Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            let (executed, _) = self.execute_pq_envelope(verified).await?;
+            let status = executed
+                .payload_verification_outcome
+                .payload_verification_status;
+            let chain = self.clone();
+            self.spawn_blocking_handle(
+                move || {
+                    chain.import_execution_payload_envelope(available_envelope, block_root, status)
+                },
+                "range_sync_pq_envelope_import",
+            )
+            .await
+            .map_err(|error| EnvelopeError::BeaconChainError(Box::new(error)))??;
+            return Ok(());
+        }
+
         let signed_envelope = available_envelope.envelope().clone();
 
         // Load the state snapshot for envelope processing

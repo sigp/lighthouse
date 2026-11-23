@@ -66,6 +66,7 @@ use logging::crit;
 use lru::LruCache;
 use lru_cache::LRUTimeCache;
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::ops::Sub;
 use std::sync::Arc;
@@ -75,7 +76,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ExecutionBlockHash, ForkContext, Hash256,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas, Slot, new_non_zero_usize,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, new_non_zero_usize,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -143,7 +144,7 @@ pub enum SyncMessage<E: EthSpec> {
     RpcPayloadEnvelope {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
     },
 
     /// A block with an unknown parent has been received.
@@ -166,6 +167,12 @@ pub enum SyncMessage<E: EthSpec> {
     /// payload envelope we have not seen. This triggers the manager to fetch the payload envelope
     /// for `block_root` via `ExecutionPayloadEnvelopesByRoot`.
     UnknownPayloadEnvelopeFromAttestation(PeerId, Hash256),
+
+    /// A downloaded range has a FULL child of a known block whose payload is missing locally.
+    MissingRangeParentPayload {
+        parent_root: Hash256,
+        peers: HashSet<PeerId>,
+    },
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -830,6 +837,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.prune_requests();
                 }
                 _ = register_metrics_interval.tick() => {
+                    if self.range_sync.resume_waiting_payloads(&mut self.network) {
+                        self.update_sync_state();
+                    }
                     self.network.register_metrics();
                     self.range_sync.register_metrics();
                     self.backfill_sync.register_metrics();
@@ -939,6 +949,31 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.handle_unknown_payload_envelope(peer_id, block_root);
                 }
             }
+            SyncMessage::MissingRangeParentPayload { parent_root, peers } => {
+                let parent = self
+                    .chain
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .get_block(&parent_root);
+                if let Some(block) = parent
+                    && !block.payload_received
+                    && let Some(hash) = block.execution_payload_block_hash
+                {
+                    let peers = {
+                        let info = self.network_globals().peers.read();
+                        peers
+                            .into_iter()
+                            .filter(|peer| info.is_connected(peer))
+                            .collect::<Vec<_>>()
+                    };
+                    let _ = self.block_lookups.search_payload_envelope(
+                        parent_root,
+                        hash,
+                        &peers,
+                        &mut self.network,
+                    );
+                }
+            }
             SyncMessage::Disconnect(peer_id) => {
                 debug!(%peer_id, "Received disconnected message");
                 self.peer_disconnect(&peer_id);
@@ -951,9 +986,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::BlockComponentProcessed {
                 process_type,
                 result,
-            } => self
-                .block_lookups
-                .on_processing_result(process_type, result, &mut self.network),
+            } => {
+                let component_imported = matches!(result, BlockProcessingResult::Imported(..));
+                self.block_lookups
+                    .on_processing_result(process_type, result, &mut self.network);
+                if component_imported && self.range_sync.resume_waiting_payloads(&mut self.network)
+                {
+                    self.update_sync_state();
+                }
+            }
+
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                     self.range_sync.handle_block_process_result(
@@ -1285,7 +1327,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
         match sync_request_id {
             SyncRequestId::SinglePayloadEnvelope { id } => self
@@ -1334,7 +1376,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>>,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
         if let Some(resp) = self
             .network
@@ -1353,7 +1395,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         id: PayloadEnvelopesByRangeRequestId,
         peer_id: PeerId,
-        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>>,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
         if let Some(resp) = self
             .network

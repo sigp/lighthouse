@@ -710,7 +710,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_lookup_envelope(
         self: &Arc<Self>,
         block_root: Hash256,
-        envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
+        envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let s = self.clone();

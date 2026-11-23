@@ -1226,7 +1226,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> impl Stream<
         Item = (
             Hash256,
-            Arc<Result<Option<Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>>, Error>>,
+            Arc<Result<Option<Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>>, Error>>,
         ),
     > {
         launch_payload_envelope_stream(self.clone(), block_roots, request_source)
@@ -1388,6 +1388,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>, Error> {
         Ok(self.store.get_signed_payload_envelope(block_root)?)
+    }
+
+    /// Read a locally retained payload, including its native fork authentication.
+    pub fn get_rpc_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<types::SignedExecutionPayloadEnvelope<T::EthSpec>>, Error> {
+        let Some(projected) = self.store.get_signed_payload_envelope(block_root)? else {
+            return Ok(None);
+        };
+        if self.spec.fork_name_at_slot::<T::EthSpec>(projected.slot()) == ForkName::Pq {
+            return Ok(self
+                .store
+                .get_pq_payload_envelope_auth(block_root)?
+                .map(|auth| {
+                    types::SignedExecutionPayloadEnvelope::Pq(
+                        types::SignedExecutionPayloadEnvelopePq::from_projection(projected, auth),
+                    )
+                }));
+        }
+        Ok(Some(types::SignedExecutionPayloadEnvelope::Gloas(
+            projected,
+        )))
     }
 
     /// Return the status of a block as it progresses through the various caches of the beacon
@@ -4915,7 +4938,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error = ?e,
                 "Database write failed!"
             );
-            self.handle_import_block_db_write_error(fork_choice, block_root);
+            self.handle_import_db_write_error(fork_choice, block_root);
             return Err(e.into());
         }
 
@@ -4989,13 +5012,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_root)
     }
 
-    /// Handle a database write failure during block import, which causes fork choice
-    /// to contain a block that the store does not.
+    /// Handle a database write failure after fork choice changed during import.
     ///
     /// Poison fork choice so the diverged version is never persisted, and shut down the
     /// node. On restart, the normal startup procedure loads the last consistent fork
     /// choice from disk.
-    fn handle_import_block_db_write_error(
+    pub(crate) fn handle_import_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is

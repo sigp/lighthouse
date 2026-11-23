@@ -9,10 +9,11 @@ use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::data::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, Epoch, EthSpec, Hash256, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, Epoch, EthSpec, ForkName, Hash256,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A wrapper around a `SignedBeaconBlock`. This varaint is constructed
@@ -94,6 +95,16 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         }
     }
 
+    pub fn has_execution_envelope(&self) -> bool {
+        matches!(
+            self,
+            Self::Gloas {
+                envelope: Some(_),
+                ..
+            }
+        )
+    }
+
     pub fn block_data(&self) -> &AvailableBlockData<E> {
         match self {
             Self::Base(block) => block.data(),
@@ -156,15 +167,30 @@ impl<E: EthSpec> RangeSyncBlock<E> {
                 .signed_execution_payload_bid()
                 .map_err(|e| format!("missing signed_execution_payload_bid: {e:?}"))?
                 .message();
-            // Skip the finalized-slot check; range sync imports historical (finalized) blocks.
-            let latest_finalized_slot = Slot::new(0);
-            verify_envelope_consistency(
-                envelope.message(),
-                &block,
-                execution_bid,
-                latest_finalized_slot,
-            )
-            .map_err(|e| format!("Inconsistent envelope: {e:?}"))?;
+            match (&envelope.pq_auth, block.fork_name_unchecked()) {
+                (Some(auth), ForkName::Pq) => {
+                    let message = envelope.message();
+                    if message.slot() != block.slot()
+                        || message.beacon_block_root != block_root
+                        || message.builder_index != execution_bid.builder_index()
+                        || message.payload.block_hash != execution_bid.block_hash()
+                        || auth.0.tree_hash_root() != execution_bid.execution_requests_root()
+                    {
+                        return Err("PQ envelope does not match its block or committed bid".into());
+                    }
+                }
+                (None, ForkName::Gloas | ForkName::Heze) => {
+                    // Range sync imports blocks before the peer's finalized slot.
+                    verify_envelope_consistency(
+                        envelope.message(),
+                        &block,
+                        execution_bid,
+                        Slot::new(0),
+                    )
+                    .map_err(|error| format!("Inconsistent envelope: {error:?}"))?;
+                }
+                _ => return Err("envelope variant does not match its block fork".into()),
+            }
             // Sync-only check, deliberately not part of gossip validation: needed before
             // recomputing the execution block hash, which takes this root as input.
             let parent_beacon_block_root = envelope.message().parent_beacon_block_root;

@@ -10,7 +10,7 @@ use crate::version::{
     execution_optimistic_finalized_beacon_response,
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
-use beacon_chain::payload_envelope_streamer::EnvelopeRequestSource;
+use beacon_chain::payload_envelope_streamer::{EnvelopeRequestSource, Error as StreamerError};
 use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::{
@@ -771,6 +771,13 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
                                 "execution payload envelope for block root {root}"
                             )));
                         }
+                        Err(BeaconChainError::EnvelopeStreamerError(
+                            StreamerError::MissingPqAuthentication(_),
+                        )) => {
+                            return Err(warp_utils::reject::custom_not_found(
+                                "PQ envelope authentication is unavailable".into(),
+                            ));
+                        }
                         Err(error) => {
                             return Err(warp_utils::reject::custom_server_error(format!(
                                 "failed to load execution payload envelope for block root \
@@ -780,59 +787,6 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
                     };
 
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(envelope.slot());
-                    if fork_name == ForkName::Pq {
-                        let store = chain.store.clone();
-                        let (requests, signature) = chain
-                            .task_executor
-                            .spawn_blocking_handle(
-                                move || store.get_pq_payload_envelope_auth(&root),
-                                "pq_envelope_auth",
-                            )
-                            .ok_or_else(|| {
-                                warp_utils::reject::custom_server_error("runtime shutdown".into())
-                            })?
-                            .await
-                            .map_err(|error| {
-                                warp_utils::reject::custom_server_error(error.to_string())
-                            })?
-                            .map_err(warp_utils::reject::unhandled_error)?
-                            .ok_or_else(|| {
-                                warp_utils::reject::custom_not_found(
-                                    "PQ envelope authentication is unavailable".into(),
-                                )
-                            })?;
-                        let message = &envelope.message;
-                        let signed = types::SignedExecutionPayloadEnvelopePq {
-                            message: types::ExecutionPayloadEnvelopePq {
-                                payload: message.payload.clone(),
-                                execution_requests: requests,
-                                builder_index: message.builder_index,
-                                beacon_block_root: message.beacon_block_root,
-                                parent_beacon_block_root: message.parent_beacon_block_root,
-                            },
-                            signature,
-                        };
-                        let response = match accept_header {
-                            Some(api_types::Accept::Ssz) => Builder::new()
-                                .status(200)
-                                .body(signed.as_ssz_bytes())
-                                .map(add_ssz_content_type_header)
-                                .map_err(|error| {
-                                    warp_utils::reject::custom_server_error(error.to_string())
-                                })?,
-                            _ => {
-                                let response = execution_optimistic_finalized_beacon_response(
-                                    ResponseIncludesVersion::Yes(fork_name),
-                                    execution_optimistic,
-                                    finalized,
-                                    &signed,
-                                )?;
-                                warp::reply::json(&response).into_response()
-                            }
-                        };
-                        return Ok(add_consensus_version_header(response, fork_name));
-                    }
-
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)

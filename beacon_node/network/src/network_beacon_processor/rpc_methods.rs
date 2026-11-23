@@ -30,6 +30,7 @@ fn payload_envelope_unavailable(error: &BeaconChainError) -> bool {
             | BeaconChainError::BlockHashMissingFromExecutionLayer(_)
             | BeaconChainError::EnvelopeStreamerError(
                 EnvelopeStreamerError::PayloadMissingFromExecutionLayer(_)
+                    | EnvelopeStreamerError::MissingPqAuthentication(_)
             )
     )
 }
@@ -620,13 +621,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(e) if payload_envelope_unavailable(e) => {
                     debug!(
                         block_root = ?root,
-                        reason = "execution layer not synced",
+                        error = ?e,
                         "Failed to fetch execution payload for payload envelopes by root request"
                     );
                     log_results(peer_id, requested_envelopes, send_envelope_count);
                     return Err((
                         RpcErrorResponse::ResourceUnavailable,
-                        "Execution layer not synced",
+                        "Execution payload envelope unavailable",
                     ));
                 }
                 Err(e) => {
@@ -1531,14 +1532,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(e) if payload_envelope_unavailable(e) => {
                     debug!(
                         block_root = ?root,
-                        reason = "execution layer not synced",
+                        error = ?e,
                         "Failed to fetch execution payload for envelope by range request"
                     );
                     log_results(peer_id, envelopes_sent);
                     // send the stream terminator
                     return Err((
                         RpcErrorResponse::ResourceUnavailable,
-                        "Execution layer not synced",
+                        "Execution payload envelope unavailable",
                     ));
                 }
                 Err(e) => {

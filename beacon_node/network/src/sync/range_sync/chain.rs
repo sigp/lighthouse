@@ -8,7 +8,7 @@ use crate::sync::batch::{
 };
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
-use crate::sync::{BatchProcessResult, network_context::SyncNetworkContext};
+use crate::sync::{BatchProcessResult, manager::SyncMessage, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RangeSyncBlock;
 use lighthouse_network::service::api_types::Id;
@@ -17,9 +17,10 @@ use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
+use std::time::{Duration, Instant};
 use strum::IntoStaticStr;
 use tracing::{Span, debug, error, instrument, warn};
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, EthSpec, ExecutionBlockHash, ForkName, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -31,6 +32,7 @@ pub const EPOCHS_PER_BATCH: u64 = 1;
 
 /// The maximum number of batches to queue before requesting more.
 const BATCH_BUFFER_SIZE: u8 = 5;
+const PQ_PARENT_PAYLOAD_LOOKUP_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is
@@ -39,6 +41,30 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// Should be checked, since a failed chain must be removed. A chain that requested being removed
 /// and continued is now in an inconsistent state.
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
+
+// A required parent might precede the requested range or be part of a previously imported
+// prefix. Let the established by-root lookup repair it before consuming the downloaded batch.
+fn missing_pq_parent_payload<E: EthSpec>(
+    blocks: &[RangeSyncBlock<E>],
+    parent_payload_status: impl Fn(Hash256) -> Option<(ExecutionBlockHash, bool)>,
+) -> Option<Hash256> {
+    let available_roots: HashSet<_> = blocks
+        .iter()
+        .filter(|block| block.has_execution_envelope())
+        .map(RangeSyncBlock::block_root)
+        .collect();
+    blocks
+        .iter()
+        .filter(|block| block.as_block().fork_name_unchecked() == ForkName::Pq)
+        .find_map(|block| {
+            let root = block.as_block().parent_root();
+            if available_roots.contains(&root) {
+                return None;
+            }
+            let (hash, received) = parent_payload_status(root)?;
+            (!received && block.as_block().is_parent_block_full(hash)).then_some(root)
+        })
+}
 
 type RpcBlocks<E> = Vec<RangeSyncBlock<E>>;
 type RangeSyncBatchInfo<E> = BatchInfo<E, RangeSyncBatchConfig<E>, RpcBlocks<E>>;
@@ -146,6 +172,8 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
 
+    pending_parent_payload: Option<(BatchId, Hash256, Instant)>,
+
     /// The span to track the lifecycle of the syncing chain.
     span: Span,
 }
@@ -196,6 +224,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             attempted_optimistic_starts: HashSet::default(),
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
+            pending_parent_payload: None,
             span,
         }
     }
@@ -345,6 +374,52 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 batch_id
             )));
         };
+
+        if let BatchState::AwaitingProcessing(peer, blocks, _) = batch.state()
+            && let Some(parent_root) = {
+                let fork_choice = network.chain.canonical_head.fork_choice_read_lock();
+                missing_pq_parent_payload(blocks, |root| {
+                    let parent = fork_choice.get_block(&root)?;
+                    Some((
+                        parent.execution_payload_block_hash?,
+                        parent.payload_received,
+                    ))
+                })
+            }
+        {
+            if let Some((pending_batch, pending_root, started)) = self.pending_parent_payload
+                && (pending_batch, pending_root) == (batch_id, parent_root)
+            {
+                if started.elapsed() < PQ_PARENT_PAYLOAD_LOOKUP_TIMEOUT {
+                    return Ok(KeepChain);
+                }
+                self.pending_parent_payload = None;
+                debug!(%parent_root, %batch_id, "Retrying PQ range after parent payload lookup timed out");
+                return match batch.required_data_unavailable()? {
+                    BatchOperationOutcome::Continue => self.send_batch(network, batch_id),
+                    BatchOperationOutcome::Failed { .. } => Err(RemoveChain::ChainFailed {
+                        blacklist: false,
+                        failing_batch: batch_id,
+                    }),
+                };
+            }
+            self.pending_parent_payload = Some((batch_id, parent_root, Instant::now()));
+            let peers = self
+                .peers
+                .iter()
+                .copied()
+                .chain(std::iter::once(*peer))
+                .collect();
+            beacon_processor
+                .send_sync_message(SyncMessage::MissingRangeParentPayload { parent_root, peers });
+            return Ok(KeepChain);
+        }
+        if self
+            .pending_parent_payload
+            .is_some_and(|(pending, _, _)| pending == batch_id)
+        {
+            self.pending_parent_payload = None;
+        }
 
         // NOTE: We send empty batches to the processor in order to trigger the block processor
         // result callback. This is done, because an empty batch could end a chain and the logic
@@ -1102,6 +1177,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
+    pub fn resume_waiting_payload(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+    ) -> ProcessingResult {
+        if self.pending_parent_payload.is_some() {
+            self.process_completed_batches(network)
+        } else {
+            Ok(KeepChain)
+        }
+    }
+
     /// Kickstarts the chain by sending for processing batches that are ready and requesting more
     /// batches if needed.
     pub fn resume(
@@ -1307,5 +1393,49 @@ impl From<RangeSyncType> for SyncingChainType {
             RangeSyncType::Head => Self::Head,
             RangeSyncType::Finalized => Self::Finalized,
         }
+    }
+}
+
+#[cfg(test)]
+mod pq_tests {
+    use super::*;
+    use std::sync::Arc;
+    use types::{BeaconBlock, BeaconBlockPq, EmptyBlock, SignedBeaconBlock, Spec};
+
+    #[test]
+    fn range_repairs_only_a_known_full_parent_with_a_missing_payload() {
+        let spec = ForkName::Pq.make_genesis_spec(Spec::default_spec());
+        let parent_root = Hash256::repeat_byte(3);
+        let parent_hash = ExecutionBlockHash::from(Hash256::repeat_byte(4));
+        let candidate = |execution_parent| {
+            let mut child = BeaconBlockPq::<Spec>::empty(&spec);
+            child.parent_root = parent_root;
+            child
+                .body
+                .signed_execution_payload_bid
+                .message
+                .parent_block_hash = execution_parent;
+            let block = Arc::new(SignedBeaconBlock::with_empty_signature(BeaconBlock::Pq(
+                child,
+            )));
+            RangeSyncBlock::new_gloas(block.canonical_root(), block, None).unwrap()
+        };
+        let missing = |root| (root == parent_root).then_some((parent_hash, false));
+        assert_eq!(
+            missing_pq_parent_payload(&[candidate(parent_hash)], missing),
+            Some(parent_root)
+        );
+        assert_eq!(
+            missing_pq_parent_payload(&[candidate(ExecutionBlockHash::zero())], missing),
+            None
+        );
+        assert_eq!(
+            missing_pq_parent_payload(&[candidate(parent_hash)], |_| None),
+            None
+        );
+        assert_eq!(
+            missing_pq_parent_payload(&[candidate(parent_hash)], |_| Some((parent_hash, true))),
+            None
+        );
     }
 }

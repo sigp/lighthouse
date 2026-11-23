@@ -2,8 +2,9 @@ use crate::ForkVersionDecode;
 use crate::{
     Address, BeaconState, BeaconStateError, BlockAccessList, ChainSpec, Domain, Epoch, EthSpec,
     ExecutionBlockHash, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopePq,
-    ExecutionPayloadGloas, ExecutionRequestsGloas, Fork, ForkName, Hash256,
-    ProgressiveTransactions, ProgressiveWithdrawals, SignedRoot, Slot, Uint256, XmssSignature,
+    ExecutionPayloadGloas, ExecutionRequestsGloas, ExecutionRequestsPq, ExecutionRequestsRef, Fork,
+    ForkName, Hash256, ProgressiveTransactions, ProgressiveWithdrawals, SignedRoot, Slot, Uint256,
+    XmssSignature,
 };
 use bls::{PublicKey, Signature};
 use context_deserialize::{ContextDeserialize, context_deserialize};
@@ -48,6 +49,96 @@ pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {
     pub signature: Signature,
     #[superstruct(only(Pq), partial_getter(rename = "signature_pq"))]
     pub signature: XmssSignature,
+}
+
+impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
+    pub fn slot(&self) -> Slot {
+        self.payload().slot_number
+    }
+
+    pub fn payload(&self) -> &ExecutionPayloadGloas<E> {
+        match self {
+            Self::Gloas(envelope) => &envelope.message.payload,
+            Self::Pq(envelope) => &envelope.message.payload,
+        }
+    }
+
+    pub fn beacon_block_root(&self) -> Hash256 {
+        match self {
+            Self::Gloas(envelope) => envelope.message.beacon_block_root,
+            Self::Pq(envelope) => envelope.message.beacon_block_root,
+        }
+    }
+
+    pub fn parent_beacon_block_root(&self) -> Hash256 {
+        match self {
+            Self::Gloas(envelope) => envelope.message.parent_beacon_block_root,
+            Self::Pq(envelope) => envelope.message.parent_beacon_block_root,
+        }
+    }
+
+    pub fn execution_requests(&self) -> ExecutionRequestsRef<'_, E> {
+        match self {
+            Self::Gloas(envelope) => {
+                ExecutionRequestsRef::Gloas(&envelope.message.execution_requests)
+            }
+            Self::Pq(envelope) => ExecutionRequestsRef::Pq(&envelope.message.execution_requests),
+        }
+    }
+}
+
+impl<E: EthSpec> SignedExecutionPayloadEnvelopePq<E> {
+    pub fn from_projection(
+        projected: SignedExecutionPayloadEnvelopeGloas<E>,
+        (execution_requests, signature): (ExecutionRequestsPq<E>, XmssSignature),
+    ) -> Self {
+        let message = projected.message;
+        Self {
+            message: ExecutionPayloadEnvelopePq {
+                payload: message.payload,
+                execution_requests,
+                builder_index: message.builder_index,
+                beacon_block_root: message.beacon_block_root,
+                parent_beacon_block_root: message.parent_beacon_block_root,
+            },
+            signature,
+        }
+    }
+
+    /// Shared payload storage separates the exact PQ authentication from its Gloas metadata.
+    pub fn into_projection(
+        self,
+    ) -> (
+        SignedExecutionPayloadEnvelopeGloas<E>,
+        (ExecutionRequestsPq<E>, XmssSignature),
+    ) {
+        let message = self.message;
+        let projected = SignedExecutionPayloadEnvelopeGloas {
+            message: ExecutionPayloadEnvelopeGloas {
+                payload: message.payload,
+                execution_requests: message.execution_requests.common_requests(),
+                builder_index: message.builder_index,
+                beacon_block_root: message.beacon_block_root,
+                parent_beacon_block_root: message.parent_beacon_block_root,
+            },
+            signature: Signature::empty(),
+        };
+        (projected, (message.execution_requests, self.signature))
+    }
+
+    pub fn min_size() -> usize {
+        Self {
+            message: ExecutionPayloadEnvelopePq {
+                payload: ExecutionPayloadGloas::default(),
+                execution_requests: Default::default(),
+                builder_index: 0,
+                beacon_block_root: Hash256::ZERO,
+                parent_beacon_block_root: Hash256::ZERO,
+            },
+            signature: XmssSignature::empty(),
+        }
+        .ssz_bytes_len()
+    }
 }
 
 impl<E: EthSpec> SignedExecutionPayloadEnvelopeGloas<E> {

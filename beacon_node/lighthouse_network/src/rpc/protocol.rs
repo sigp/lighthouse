@@ -21,7 +21,7 @@ use types::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopePq,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -65,6 +65,9 @@ pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN: LazyLock<usize> =
 
 pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX: LazyLock<usize> =
     LazyLock::new(SignedExecutionPayloadEnvelopeGloas::<MainnetEthSpec>::max_size);
+
+static SIGNED_PQ_EXECUTION_PAYLOAD_ENVELOPE_MIN: LazyLock<usize> =
+    LazyLock::new(SignedExecutionPayloadEnvelopePq::<MainnetEthSpec>::min_size);
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
@@ -160,7 +163,14 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
 }
 
 /// Returns the rpc limits for payload_envelope_by_range and payload_envelope_by_root responses.
-pub fn rpc_payload_limits() -> RpcLimits {
+fn rpc_payload_limits(response_fork: Option<ForkName>, spec: &ChainSpec) -> RpcLimits {
+    if response_fork == Some(ForkName::Pq) {
+        // PQ has progressive request lists. The network packet limit bounds the entire response.
+        return RpcLimits::new(
+            *SIGNED_PQ_EXECUTION_PAYLOAD_ENVELOPE_MIN,
+            usize::try_from(spec.max_payload_size).unwrap_or(usize::MAX),
+        );
+    }
     RpcLimits::new(
         *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN,
         *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX,
@@ -454,7 +464,7 @@ impl SupportedProtocol {
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
-        if fork_context.fork_exists(ForkName::Gloas) {
+        if fork_context.fork_exists(ForkName::Gloas) || fork_context.fork_exists(ForkName::Pq) {
             supported.extend_from_slice(&[
                 ProtocolId::new(
                     SupportedProtocol::PayloadEnvelopesByRangeV1,
@@ -619,7 +629,11 @@ impl ProtocolId {
     }
 
     /// Returns min and max size for messages of given protocol id responses.
-    pub fn rpc_response_limits<E: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
+    pub fn rpc_response_limits<E: EthSpec>(
+        &self,
+        fork_context: &ForkContext,
+        response_fork: Option<ForkName>,
+    ) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessageV1 as Encode>::ssz_fixed_len(),
@@ -629,8 +643,9 @@ impl ProtocolId {
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlocksByHead => rpc_block_limits_by_fork(fork_context.current_fork_name()),
-            Protocol::PayloadEnvelopesByRange => rpc_payload_limits(),
-            Protocol::PayloadEnvelopesByRoot => rpc_payload_limits(),
+            Protocol::PayloadEnvelopesByRoot | Protocol::PayloadEnvelopesByRange => {
+                rpc_payload_limits(response_fork, &fork_context.spec)
+            }
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::DataColumnsByRoot => {
@@ -1208,7 +1223,7 @@ mod tests {
             }
 
             PayloadEnvelopesByRangeV1 | PayloadEnvelopesByRootV1 => {
-                fork_context.fork_exists(ForkName::Gloas)
+                fork_context.fork_exists(ForkName::Gloas) || fork_context.fork_exists(ForkName::Pq)
             }
 
             BlocksByHeadV1 => fork_context.fork_exists(ForkName::Fulu),

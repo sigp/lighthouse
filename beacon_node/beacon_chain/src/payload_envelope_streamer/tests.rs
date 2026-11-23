@@ -169,7 +169,7 @@ fn mock_canonical_head(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &
 
 fn unwrap_result(
     result: &Arc<PayloadEnvelopeResult<E>>,
-) -> &Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>> {
+) -> &Option<Arc<SignedExecutionPayloadEnvelope<E>>> {
     result
         .as_ref()
         .as_ref()
@@ -197,7 +197,7 @@ async fn assert_stream_matches(
             let expected_envelope = entry.envelope.as_ref().unwrap();
             assert_eq!(
                 envelope.as_ref(),
-                expected_envelope,
+                &SignedExecutionPayloadEnvelope::Gloas(expected_envelope.clone()),
                 "envelope mismatch at index {i}"
             );
         } else {
@@ -221,7 +221,11 @@ async fn stream_envelopes_by_range() {
     mock_envelopes(&mut mock, &chain);
     mock_canonical_head(&mut mock, &chain);
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     assert_stream_matches(&mut stream, &chain, None).await;
 }
@@ -236,7 +240,11 @@ async fn stream_envelopes_by_range_mixed() {
     mock_envelopes(&mut mock, &chain);
     mock_canonical_head(&mut mock, &chain);
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     assert_stream_matches(&mut stream, &chain, None).await;
 }
@@ -254,7 +262,11 @@ async fn stream_envelopes_by_range_before_split() {
     mock_envelopes(&mut mock, &chain);
     mock_canonical_head(&mut mock, &chain);
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     assert_stream_matches(&mut stream, &chain, Some(split_slot)).await;
 }
@@ -274,7 +286,11 @@ async fn stream_envelopes_by_range_checks_unaligned_split_block() {
         .times(1)
         .returning(|_| Ok(false));
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(vec![block_root]);
     let (_, result) = stream.next().await.expect("should get one result");
     assert!(unwrap_result(&result).is_none());
@@ -287,7 +303,11 @@ async fn stream_envelopes_empty_roots() {
     mock.expect_get_split()
         .return_const((Slot::new(0), Hash256::ZERO));
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(vec![]);
     assert!(
         stream.next().await.is_none(),
@@ -304,7 +324,11 @@ async fn stream_envelopes_single_root() {
     mock_envelopes(&mut mock, &chain);
     mock_canonical_head(&mut mock, &chain);
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(vec![chain[1].block_root]);
 
     let (root, result) = stream.next().await.expect("should get one result");
@@ -313,7 +337,7 @@ async fn stream_envelopes_single_root() {
         .as_ref()
         .expect("should have envelope");
     assert_eq!(
-        envelope.block_hash(),
+        envelope.payload().block_hash,
         chain[1].envelope.as_ref().unwrap().block_hash(),
     );
 
@@ -347,7 +371,11 @@ async fn stream_reconstructs_pruned_envelopes() {
                 .collect())
         });
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     assert_stream_matches(&mut stream, &chain, Some(Slot::new(5))).await;
 }
@@ -381,7 +409,11 @@ async fn stream_batches_pruned_envelope_requests() {
                 .collect())
         });
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     assert_stream_matches(&mut stream, &chain, Some(Slot::new(66))).await;
 }
@@ -399,7 +431,11 @@ async fn stream_rejects_invalid_payload_body_response_length() {
         .times(1)
         .returning(|_| Ok(vec![]));
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     let (_, result) = stream.next().await.expect("should get one result");
     assert!(matches!(
@@ -427,7 +463,11 @@ async fn stream_handles_payload_missing_from_execution_layer() {
         .times(1)
         .returning(|block_hashes| Ok(vec![None; block_hashes.len()]));
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     let (_, result) = stream.next().await.expect("should get one result");
     assert!(matches!(
@@ -456,7 +496,11 @@ async fn stream_rejects_payload_body_with_wrong_hash() {
         .times(1)
         .return_once(move |_| Ok(vec![Some(wrong_body)]));
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     let (_, result) = stream.next().await.expect("should get one result");
     assert!(matches!(
@@ -484,7 +528,11 @@ async fn stream_rejects_payload_body_without_withdrawals() {
         .times(1)
         .return_once(move |_| Ok(vec![Some(body)]));
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     let (_, result) = stream.next().await.expect("should get one result");
     assert!(matches!(
@@ -512,7 +560,11 @@ async fn stream_rejects_payload_body_without_block_access_list() {
         .times(1)
         .return_once(move |_| Ok(vec![Some(body)]));
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
     let (_, result) = stream.next().await.expect("should get one result");
     assert!(matches!(
@@ -535,7 +587,11 @@ async fn stream_envelopes_by_root() {
     mock_envelopes(&mut mock, &chain);
     mock.expect_block_has_canonical_payload().times(0);
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRoot);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRoot,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
 
     // Every envelope should come back as Some, even the non-canonical ones.
@@ -551,7 +607,7 @@ async fn stream_envelopes_by_root() {
             .unwrap_or_else(|| panic!("expected Some at index {i} for ByRoot request"));
         let expected_envelope = entry.envelope.as_ref().unwrap();
         assert_eq!(
-            envelope.block_hash(),
+            envelope.payload().block_hash,
             expected_envelope.block_hash(),
             "block_hash mismatch at index {i}"
         );
@@ -575,7 +631,11 @@ async fn stream_envelopes_error() {
         ))
     });
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
 
     for (i, entry) in chain.iter().enumerate() {
@@ -607,7 +667,11 @@ async fn stream_envelopes_by_range_unknown_roots() {
         .map(|i| Hash256::from_low_u64_be(i * 1000))
         .collect();
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRange,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(unknown_roots.clone());
 
     for (i, expected_root) in unknown_roots.iter().enumerate() {
@@ -637,7 +701,11 @@ async fn stream_envelopes_by_root_missing_envelopes() {
     mock_envelopes(&mut mock, &chain);
     mock.expect_block_has_canonical_payload().times(0);
 
-    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRoot);
+    let streamer = PayloadEnvelopeStreamer::new(
+        mock,
+        EnvelopeRequestSource::ByRoot,
+        Arc::new(E::default_spec()),
+    );
     let mut stream = streamer.launch_stream(roots(&chain));
 
     for (i, entry) in chain.iter().enumerate() {
@@ -653,7 +721,7 @@ async fn stream_envelopes_by_root_missing_envelopes() {
                 .as_ref()
                 .unwrap_or_else(|| panic!("expected Some at index {i}"));
             assert_eq!(
-                envelope.block_hash(),
+                envelope.payload().block_hash,
                 entry_envelope.block_hash(),
                 "block_hash mismatch at index {i}"
             );
@@ -666,4 +734,78 @@ async fn stream_envelopes_by_root_missing_envelopes() {
     }
 
     assert!(stream.next().await.is_none(), "stream should be exhausted");
+}
+
+#[test]
+fn reconstruct_pq_envelope_with_complete_execution_requests() {
+    use types::{
+        ExecutionPayloadEnvelopePq, ExecutionRequestsPq, VoluntaryExitRequest, XmssPublicKey,
+    };
+
+    let mut envelope = SignedExecutionPayloadEnvelopePq::<E> {
+        message: ExecutionPayloadEnvelopePq {
+            payload: ExecutionPayloadGloas::default(),
+            execution_requests: ExecutionRequestsPq::default(),
+            builder_index: 7,
+            beacon_block_root: Hash256::repeat_byte(2),
+            parent_beacon_block_root: Hash256::repeat_byte(3),
+        },
+        signature: XmssSignature::empty(),
+    };
+    envelope
+        .message
+        .execution_requests
+        .voluntary_exits
+        .push(VoluntaryExitRequest {
+            pubkey: XmssPublicKey::from([4; 32]),
+        })
+        .unwrap();
+    let payload = &envelope.message.payload;
+    let parent = Some(envelope.message.parent_beacon_block_root);
+    let requests = &envelope.message.execution_requests;
+    let (pq_hash, _) = execution_layer::calculate_execution_block_hash(
+        ExecutionPayloadRef::Gloas(payload),
+        parent,
+        Some(ExecutionRequestsRef::Pq(requests)),
+    );
+    let (projected_hash, _) = execution_layer::calculate_execution_block_hash(
+        ExecutionPayloadRef::Gloas(payload),
+        parent,
+        Some(ExecutionRequestsRef::Gloas(&requests.common_requests())),
+    );
+    assert_ne!(pq_hash, projected_hash);
+    envelope.message.payload.block_hash = pq_hash;
+    let body = payload_body(&envelope.message.payload);
+    let (projected, auth) = envelope.clone().into_projection();
+    let summary = SignedExecutionPayloadEnvelopeSummary::from(&projected);
+    let recovered = reconstruct_envelope_from_body(summary, body, Some(Box::new(auth)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        recovered.as_ref(),
+        &SignedExecutionPayloadEnvelope::Pq(envelope)
+    );
+}
+
+#[tokio::test]
+async fn range_skips_pq_authentication_for_a_canonical_empty_split_block() {
+    let entries = build_chain(1, &[], &[], &[1]);
+    let entry = &entries[0];
+    let root = entry.block_root;
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split().return_const((entry.slot + 1, root));
+    let summary = SignedExecutionPayloadEnvelopeSummary::from(entry.envelope.as_ref().unwrap());
+    mock.expect_get_payload_envelope_summary()
+        .returning(move |_| Ok(Some(summary.clone())));
+    mock.expect_block_has_canonical_payload()
+        .with(mockall::predicate::eq(root))
+        .returning(|_| Ok(false));
+    // The stored reveal must remain absent from range responses even if auth is unavailable.
+    let spec = ForkName::Pq.make_genesis_spec(E::default_spec());
+    let streamer =
+        PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange, Arc::new(spec));
+    let mut stream = streamer.launch_stream(vec![root]);
+    let (returned_root, result) = stream.next().await.unwrap();
+    assert_eq!(returned_root, root);
+    assert!(result.as_ref().as_ref().unwrap().is_none());
 }

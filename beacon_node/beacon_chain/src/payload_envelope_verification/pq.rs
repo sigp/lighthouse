@@ -1,4 +1,7 @@
-use super::{AvailabilityPendingExecutedEnvelope, EnvelopeError, load_snapshot_from_state_root};
+use super::{
+    AvailabilityPendingExecutedEnvelope, EnvelopeError, EnvelopeSource,
+    load_snapshot_from_state_root,
+};
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     PayloadVerificationOutcome, metrics,
@@ -13,8 +16,7 @@ use state_processing::{
 use std::sync::Arc;
 use store::DatabaseBlock;
 use types::{
-    EthSpec, ExecutionPayloadEnvelopeGloas, ExecutionRequestsRef, ForkName, SignedBeaconBlock,
-    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelopeGloas,
+    EthSpec, ExecutionRequestsRef, ForkName, SignedBeaconBlock, SignedExecutionPayloadBid,
     SignedExecutionPayloadEnvelopePq,
 };
 
@@ -35,6 +37,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         envelope: Arc<SignedExecutionPayloadEnvelopePq<T::EthSpec>>,
     ) -> Result<VerifiedPqEnvelope<T>, EnvelopeError> {
+        self.verify_pq_envelope(envelope, EnvelopeSource::Gossip)
+            .await
+    }
+
+    pub async fn verify_pq_envelope_for_rpc(
+        self: &Arc<Self>,
+        envelope: Arc<SignedExecutionPayloadEnvelopePq<T::EthSpec>>,
+    ) -> Result<VerifiedPqEnvelope<T>, EnvelopeError> {
+        self.verify_pq_envelope(envelope, EnvelopeSource::Rpc).await
+    }
+
+    async fn verify_pq_envelope(
+        self: &Arc<Self>,
+        envelope: Arc<SignedExecutionPayloadEnvelopePq<T::EthSpec>>,
+        source: EnvelopeSource,
+    ) -> Result<VerifiedPqEnvelope<T>, EnvelopeError> {
         let chain = Arc::clone(self);
         let observed = self.slot_clock.now_duration();
         self.task_executor.spawn_blocking_handle(move || {
@@ -42,7 +60,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let block_root = message.beacon_block_root;
             let slot = message.payload.slot_number;
             let finalized = chain.canonical_head.cached_head().finalized_checkpoint().epoch.start_slot(T::EthSpec::slots_per_epoch());
-            if slot < finalized {
+            if source == EnvelopeSource::Gossip && slot < finalized {
                 return Err(EnvelopeError::PriorToFinalization { payload_slot: slot, latest_finalized_slot: finalized });
             }
             let proto_block = chain.canonical_head.fork_choice_read_lock().get_block(&block_root)
@@ -58,7 +76,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             let snapshot = load_snapshot_from_state_root::<T>(block_root, proto_block.state_root, &chain.store)?;
             state_processing::per_block_processing::verify_pq_execution_request_list_lengths(&message.execution_requests)
-                .map_err(|error| EnvelopeError::InternalError(format!("invalid PQ execution request counts: {error:?}")))?;
+                .map_err(|error| EnvelopeError::InvalidPqExecutionRequests(format!("{error:?}")))?;
             let _signature_timer = metrics::start_timer(&metrics::PQ_XMSS_VERIFY_SECONDS);
             verify_pq_execution_payload_envelope(&snapshot.pre_state, &envelope, snapshot.state_root, &chain.spec)?;
             drop(_signature_timer);
@@ -77,10 +95,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     max: chain.config.max_network_size,
                 });
             }
-            if let Some(timestamp) = observed {
+            if source == EnvelopeSource::Gossip && let Some(timestamp) = observed {
                 chain.envelope_times_cache.write().set_time_observed(block_root, slot, timestamp, None);
             }
-            if let Some(timestamp) = chain.slot_clock.now_duration() {
+            if source == EnvelopeSource::Gossip && let Some(timestamp) = chain.slot_clock.now_duration() {
                 chain.envelope_times_cache.write().set_time_consensus_verified(block_root, slot, timestamp);
             }
             Ok(VerifiedPqEnvelope { envelope, bid, block: Arc::new(SignedBeaconBlock::Pq(block)) })
@@ -93,6 +111,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         verified: VerifiedPqEnvelope<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        let (envelope, bid) = self.execute_pq_envelope(verified).await?;
+        self.check_envelope_availability_and_import(envelope, &bid)
+            .await
+    }
+
+    pub(super) async fn execute_pq_envelope(
+        self: &Arc<Self>,
+        verified: VerifiedPqEnvelope<T>,
+    ) -> Result<
+        (
+            AvailabilityPendingExecutedEnvelope<T::EthSpec>,
+            Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+        ),
+        EnvelopeError,
+    > {
         let VerifiedPqEnvelope { envelope, bid, .. } = verified;
         let message = &envelope.message;
         let block_root = message.beacon_block_root;
@@ -106,31 +139,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .write()
                 .set_time_executed(block_root, slot, timestamp);
         }
-        let projected = SignedExecutionPayloadEnvelopeGloas {
-            message: ExecutionPayloadEnvelopeGloas {
-                payload: message.payload.clone(),
-                execution_requests: message.execution_requests.common_requests(),
-                builder_index: message.builder_index,
-                beacon_block_root: block_root,
-                parent_beacon_block_root: message.parent_beacon_block_root,
-            },
-            signature: bls::Signature::empty(),
-        };
-        self.check_envelope_availability_and_import(
+        let (projected, auth) = Arc::unwrap_or_clone(envelope).into_projection();
+        Ok((
             AvailabilityPendingExecutedEnvelope {
                 envelope: Arc::new(projected),
-                pq_auth: Some(Arc::new((
-                    message.execution_requests.clone(),
-                    envelope.signature.clone(),
-                ))),
+                pq_auth: Some(Arc::new(auth)),
                 block_root,
                 payload_verification_outcome: PayloadVerificationOutcome {
                     payload_verification_status: status,
                 },
             },
-            &bid,
-        )
-        .await
+            bid,
+        ))
     }
 }
 
