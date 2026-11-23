@@ -576,7 +576,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         self.handle_gossip(id, source, message, should_process);
                     }
                     _ => {
-                        // all else is handled by the router
+                        // everything else is dispatched straight to the beacon processor
                         self.handle_gossip(id, source, message, true);
                     }
                 }
@@ -1188,12 +1188,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             Response::BlocksByHead(_) => {
                 debug!("BlocksByHead response received but not requested by lighthouse");
             }
-            // Light client responses should not be received
+            // Lighthouse only serves light client requests and never issues them, so these
+            // responses should never be received.
             Response::LightClientBootstrap(_)
             | Response::LightClientOptimisticUpdate(_)
             | Response::LightClientFinalityUpdate(_)
             | Response::LightClientUpdatesByRange(_) => {
-                tracing::error!("Should not have reached this match bracket");
+                crit!(%peer_id, "Light client response received but not requested by lighthouse");
             }
         }
     }
@@ -1410,7 +1411,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )
     }
 
-    /// Handle RPC messages.
+    /// Handle gossip messages.
     /// Note: `should_process` is currently only useful for the `Attestation` variant.
     /// if `should_process` is `false`, we only propagate the message on successful verification,
     /// else, we propagate **and** import into the beacon chain.
