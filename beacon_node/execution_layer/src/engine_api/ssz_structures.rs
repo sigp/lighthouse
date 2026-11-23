@@ -1282,10 +1282,10 @@ mod test {
     use types::execution::RequestType;
     use types::{
         Address, BuilderDepositRequest, BuilderExitRequest, ConsolidationRequest, DepositRequest,
-        Hash256, MainnetEthSpec, WithdrawalRequest,
+        Hash256, Spec, WithdrawalRequest,
     };
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn deposit_request() -> DepositRequest {
         DepositRequest {
