@@ -2202,7 +2202,7 @@ async fn reconstructed_columns_notify_after_deferred_block_import() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -2269,7 +2269,7 @@ async fn reconstructed_columns_notify_after_deferred_envelope_import() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
