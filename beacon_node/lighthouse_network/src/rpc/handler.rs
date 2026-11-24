@@ -999,14 +999,14 @@ where
             &self.fork_context.spec,
         );
 
-        // If we received a goodbye, shutdown the connection.
+        // If we received a goodbye, shutdown the connection. A goodbye is never answered, so its
+        // substream is not kept: report the request, then immediately report the stream as closed.
+        //
+        // Requests that expect no responses (e.g. zero-count range requests) keep their substream
+        // like any other request, so that they count towards the concurrent request limit until
+        // the application terminates their response stream.
         if let RequestType::Goodbye(_) = req {
             self.shutdown(None);
-        }
-
-        // Requests that expect no responses (goodbye and degenerate zero-count requests) do not
-        // keep their substream: report the request, then immediately report the stream as closed.
-        if max_responses == 0 {
             self.events_out.push(HandlerEvent::Ok(RPCReceived::Request(
                 super::InboundRequestId {
                     connection_id: self.connection_id,
