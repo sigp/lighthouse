@@ -2723,6 +2723,14 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // POST validator/execution_payload_bids
+    let post_validator_execution_payload_bids = post_validator_execution_payload_bids(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // GET validator/blinded_blocks/{slot}
     let get_validator_blinded_blocks = get_validator_blinded_blocks(
         eth_v1.clone(),
@@ -3433,6 +3441,9 @@ pub async fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::ExecutionPayloadBid => {
                                     event_handler.subscribe_execution_payload_bid()
                                 }
+                                api_types::EventTopic::BestExecutionPayloadBid => {
+                                    event_handler.subscribe_best_execution_payload_bid()
+                                }
                                 api_types::EventTopic::ProposerPreferences => {
                                     event_handler.subscribe_proposer_preferences()
                                 }
@@ -3677,6 +3688,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_register_validator)
                     .uor(post_validator_builder_preferences)
                     .uor(post_validator_blocks_v4)
+                    .uor(post_validator_execution_payload_bids)
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)

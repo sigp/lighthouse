@@ -2568,6 +2568,45 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST validator/execution_payload_bids`
+    pub async fn post_validator_execution_payload_bids<E: EthSpec>(
+        &self,
+        bids: &[SignedExecutionPayloadBid<E>],
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("execution_payload_bids");
+
+        self.post_with_timeout_and_consensus_header(path, &bids, self.timeouts.default, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/execution_payload_bids` (SSZ)
+    pub async fn post_validator_execution_payload_bids_ssz<E: EthSpec>(
+        &self,
+        bids: &Vec<SignedExecutionPayloadBid<E>>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("execution_payload_bids");
+
+        let ssz_body = bids.as_ssz_bytes();
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
     /// `GET config/fork_schedule`
     pub async fn get_config_fork_schedule(&self) -> Result<GenericResponse<Vec<Fork>>, Error> {
         let mut path = self.eth_path(V1)?;

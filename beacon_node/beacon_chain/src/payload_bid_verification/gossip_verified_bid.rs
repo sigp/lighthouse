@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
+    events::ServerSentEventHandler,
     observed_execution_payloads::ObservedExecutionPayloads,
     payload_bid_verification::{
         PayloadBidError,
@@ -11,7 +12,9 @@ use crate::{
     proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
 };
 use educe::Educe;
-use eth2::types::{EventKind, ForkVersionedResponse};
+use eth2::types::{
+    BestExecutionPayloadBidSource, EventKind, ForkVersionedResponse, SseBestExecutionPayloadBid,
+};
 use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
@@ -30,23 +33,6 @@ pub(crate) fn verify_bid_slot(bid_slot: Slot, current_slot: Slot) -> Result<(), 
     } else {
         Err(PayloadBidError::InvalidBidSlot { bid_slot })
     }
-}
-
-fn verify_bid_payment_and_blobs<E: EthSpec>(
-    bid: ExecutionPayloadBidRef<E>,
-    spec: &ChainSpec,
-) -> Result<(), PayloadBidError> {
-    // Execution payments are used by off protocol builders. In protocol bids
-    // should always have this value set to zero.
-    if bid.execution_payment() != 0 {
-        return Err(PayloadBidError::ExecutionPaymentNonZero {
-            execution_payment: bid.execution_payment(),
-        });
-    }
-
-    verify_bid_block_hash_not_parent(bid)?;
-
-    verify_bid_blobs(bid, spec)
 }
 
 /// Reject a bid whose `block_hash` equals its `parent_block_hash`.
@@ -107,7 +93,7 @@ pub(crate) fn verify_direct_bid_consistency<E: EthSpec>(
     }
 
     // Mirrors the consensus assert in `process_execution_payload_bid`. The gossip path applies
-    // this earlier (via `verify_bid_payment_and_blobs`); repeating it here keeps the direct path
+    // this earlier (in `verify_bid_conditions`); repeating it here keeps the direct path
     // covered without depending on the gossip caller's composition.
     verify_bid_block_hash_not_parent(bid)?;
 
@@ -268,6 +254,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
     pub store: &'a BeaconStore<T>,
+    pub event_handler: Option<&'a ServerSentEventHandler<T::EthSpec>>,
 }
 
 /// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
@@ -293,7 +280,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         let bid_slot = signed_bid.message().slot();
         let bid_parent = BidParent::from_bid(signed_bid.message());
-        let bid_parent_block_root = signed_bid.message().parent_block_root();
         let bid_value = signed_bid.message().value();
         let current_slot = ctx
             .slot_clock
@@ -328,155 +314,212 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             });
         }
 
-        let cached_head = ctx.canonical_head.cached_head();
-
-        // Check the descendant rule before the bid fields that follow it in the gossip spec. Delay
-        // reporting an unknown parent until after those fields have been checked.
-        let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-        let parent_block = fork_choice.get_block(&bid_parent_block_root);
-        if let Some(parent_block) = parent_block.as_ref()
-            && bid_slot <= parent_block.slot
-        {
-            return Err(PayloadBidError::BidNotDescendantOfParent {
-                bid_slot,
-                parent_slot: parent_block.slot,
+        // Execution payments are used by off protocol builders. In protocol bids
+        // should always have this value set to zero.
+        if signed_bid.message().execution_payment() != 0 {
+            return Err(PayloadBidError::ExecutionPaymentNonZero {
+                execution_payment: signed_bid.message().execution_payment(),
             });
         }
 
-        verify_bid_payment_and_blobs(signed_bid.message(), ctx.spec)?;
-
-        let parent_block = parent_block.ok_or(PayloadBidError::ParentBlockRootUnknown {
-            parent_block_root: bid_parent_block_root,
-        })?;
-        drop(fork_choice);
-
-        let snapshot_state = &cached_head.snapshot.beacon_state;
-
-        // At the Gloas fork boundary the head snapshot is still a pre-Gloas state, so we must
-        // use the advanced state instead.
-        // TODO(post-gloas) this can be removed after the gloas fork
-        let advanced_state;
-        let head_state = if ctx
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(bid_slot)
-            .gloas_enabled()
-            && !snapshot_state.fork_name_unchecked().gloas_enabled()
-        {
-            let (_, state) = ctx
-                .store
-                .get_advanced_hot_state(
-                    cached_head.head_block_root(),
-                    bid_slot,
-                    cached_head.head_state_root(),
-                )
-                .map_err(|e| {
-                    PayloadBidError::InternalError(format!(
-                        "failed to load advanced head state: {e:?}"
-                    ))
-                })?
-                .ok_or_else(|| {
-                    PayloadBidError::InternalError("advanced head state unavailable".to_string())
-                })?;
-            if !state.fork_name_unchecked().gloas_enabled() {
-                return Err(PayloadBidError::InternalError(
-                    "head state not yet advanced to Gloas".to_string(),
-                ));
-            }
-            advanced_state = state;
-            &advanced_state
-        } else {
-            snapshot_state
-        };
-
-        // Look up the preferences keyed by the dependent root that is canonical from our head's
-        // perspective, so we don't pick up preferences cached for a competing branch's proposer.
-        let proposal_epoch = bid_slot.epoch(T::EthSpec::slots_per_epoch());
-        let dependent_root = head_state.proposer_shuffling_decision_root_at_epoch(
-            proposal_epoch,
-            cached_head.head_block_root(),
-            ctx.spec,
-        )?;
-
-        let Some(proposer_preferences) = ctx
-            .gossip_verified_proposer_preferences_cache
-            .get_preferences(&bid_slot, dependent_root)
-        else {
-            return Err(PayloadBidError::NoProposerPreferences { slot: bid_slot });
-        };
-
-        if signed_bid.message().fee_recipient() != proposer_preferences.message.fee_recipient {
-            return Err(PayloadBidError::InvalidFeeRecipient);
-        }
-
-        let parent_gas_limit = ctx
-            .observed_execution_payloads
-            .get_gas_limit(signed_bid.message().parent_block_hash())
-            .ok_or(PayloadBidError::ParentExecutionPayloadUnknown {
-                parent_block_hash: signed_bid.message().parent_block_hash(),
-            })?;
-        if !is_gas_limit_target_compatible(
-            parent_gas_limit,
-            signed_bid.message().gas_limit(),
-            proposer_preferences.message.target_gas_limit,
-        )? {
-            return Err(PayloadBidError::InvalidGasLimit);
-        }
-
-        let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-
-        // TODO(gloas) should we reprocess a dropped bid when the head changes to its parent?
-        if !is_bid_compatible_with_head(&cached_head, &fork_choice, signed_bid.message(), ctx.spec)?
-        {
-            return Err(PayloadBidError::BidNotCompatibleWithHead {
-                parent_block_root: bid_parent_block_root,
-            });
-        }
-
-        drop(fork_choice);
-
-        // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
-        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
-        let expected_randao = if bid_parent_block_root == cached_head.head_block_root() {
-            cached_head.head_random()?
-        } else {
-            // Head compatibility also permits a bid on the head's parent.
-            cached_head.parent_random()?
-        };
-        if signed_bid.message().prev_randao() != expected_randao {
-            return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
-        }
-
-        verify_bid_state_conditions(signed_bid.message(), head_state, ctx.spec)?;
-
-        if parent_payload_exits_builder::<T>(
-            signed_bid.message(),
-            &parent_block,
-            head_state,
-            ctx.store,
-        )? {
-            return Err(PayloadBidError::BuilderExitPending {
-                builder_index: signed_bid.message().builder_index(),
-            });
-        }
-
-        execution_payload_bid_signature_set(
-            head_state,
-            |i| get_builder_pubkey_from_state(head_state, i),
-            signed_bid.to_ref(),
-            ctx.spec,
-        )
-        .map_err(|_| PayloadBidError::BadSignature)?
-        .ok_or(PayloadBidError::BadSignature)?
-        .verify()
-        .then_some(())
-        .ok_or(PayloadBidError::BadSignature)?;
+        verify_bid_conditions(&signed_bid, ctx)?;
 
         let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
 
-        ctx.gossip_verified_payload_bid_cache
+        let beats_highest = ctx
+            .gossip_verified_payload_bid_cache
+            .beats_highest_gossip_or_fed_bid(&gossip_verified_bid.signed_bid);
+        let is_inserted = ctx
+            .gossip_verified_payload_bid_cache
             .observe_bid(gossip_verified_bid.clone());
 
+        if beats_highest && is_inserted {
+            emit_best_execution_payload_bid(
+                ctx.event_handler,
+                BestExecutionPayloadBidSource::Gossip,
+                &gossip_verified_bid.signed_bid,
+                ctx.spec,
+            );
+        }
+
         Ok(gossip_verified_bid)
+    }
+}
+
+/// Verify the `execution_payload_bid` gossip conditions shared by gossip and validator-fed bids.
+///
+/// This is every gossip condition except the highest-value check, the one-bid-per-builder check
+/// and the zero `execution_payment` rule, which apply to gossip only and are checked in
+/// [`GossipVerifiedPayloadBid::new`]. It neither reads nor updates the bid cache.
+pub(crate) fn verify_bid_conditions<T: BeaconChainTypes>(
+    signed_bid: &SignedExecutionPayloadBid<T::EthSpec>,
+    ctx: &GossipVerificationContext<'_, T>,
+) -> Result<(), PayloadBidError> {
+    let bid_slot = signed_bid.message().slot();
+    let bid_parent_block_root = signed_bid.message().parent_block_root();
+    let cached_head = ctx.canonical_head.cached_head();
+
+    // Check the descendant rule before the bid fields that follow it in the gossip spec. Delay
+    // reporting an unknown parent until after those fields have been checked.
+    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+    let parent_block = fork_choice.get_block(&bid_parent_block_root);
+    if let Some(parent_block) = parent_block.as_ref()
+        && bid_slot <= parent_block.slot
+    {
+        return Err(PayloadBidError::BidNotDescendantOfParent {
+            bid_slot,
+            parent_slot: parent_block.slot,
+        });
+    }
+
+    verify_bid_block_hash_not_parent(signed_bid.message())?;
+
+    verify_bid_blobs(signed_bid.message(), ctx.spec)?;
+
+    let parent_block = parent_block.ok_or(PayloadBidError::ParentBlockRootUnknown {
+        parent_block_root: bid_parent_block_root,
+    })?;
+    drop(fork_choice);
+
+    let snapshot_state = &cached_head.snapshot.beacon_state;
+
+    // At the Gloas fork boundary the head snapshot is still a pre-Gloas state, so we must
+    // use the advanced state instead.
+    // TODO(post-gloas) this can be removed after the gloas fork
+    let advanced_state;
+    let head_state = if ctx
+        .spec
+        .fork_name_at_slot::<T::EthSpec>(bid_slot)
+        .gloas_enabled()
+        && !snapshot_state.fork_name_unchecked().gloas_enabled()
+    {
+        let (_, state) = ctx
+            .store
+            .get_advanced_hot_state(
+                cached_head.head_block_root(),
+                bid_slot,
+                cached_head.head_state_root(),
+            )
+            .map_err(|e| {
+                PayloadBidError::InternalError(format!("failed to load advanced head state: {e:?}"))
+            })?
+            .ok_or_else(|| {
+                PayloadBidError::InternalError("advanced head state unavailable".to_string())
+            })?;
+        if !state.fork_name_unchecked().gloas_enabled() {
+            return Err(PayloadBidError::InternalError(
+                "head state not yet advanced to Gloas".to_string(),
+            ));
+        }
+        advanced_state = state;
+        &advanced_state
+    } else {
+        snapshot_state
+    };
+
+    // Look up the preferences keyed by the dependent root that is canonical from our head's
+    // perspective, so we don't pick up preferences cached for a competing branch's proposer.
+    let proposal_epoch = bid_slot.epoch(T::EthSpec::slots_per_epoch());
+    let dependent_root = head_state.proposer_shuffling_decision_root_at_epoch(
+        proposal_epoch,
+        cached_head.head_block_root(),
+        ctx.spec,
+    )?;
+
+    let Some(proposer_preferences) = ctx
+        .gossip_verified_proposer_preferences_cache
+        .get_preferences(&bid_slot, dependent_root)
+    else {
+        return Err(PayloadBidError::NoProposerPreferences { slot: bid_slot });
+    };
+
+    if signed_bid.message().fee_recipient() != proposer_preferences.message.fee_recipient {
+        return Err(PayloadBidError::InvalidFeeRecipient);
+    }
+
+    let parent_gas_limit = ctx
+        .observed_execution_payloads
+        .get_gas_limit(signed_bid.message().parent_block_hash())
+        .ok_or(PayloadBidError::ParentExecutionPayloadUnknown {
+            parent_block_hash: signed_bid.message().parent_block_hash(),
+        })?;
+    if !is_gas_limit_target_compatible(
+        parent_gas_limit,
+        signed_bid.message().gas_limit(),
+        proposer_preferences.message.target_gas_limit,
+    )? {
+        return Err(PayloadBidError::InvalidGasLimit);
+    }
+
+    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+
+    // TODO(gloas) should we reprocess a dropped bid when the head changes to its parent?
+    if !is_bid_compatible_with_head(&cached_head, &fork_choice, signed_bid.message(), ctx.spec)? {
+        return Err(PayloadBidError::BidNotCompatibleWithHead {
+            parent_block_root: bid_parent_block_root,
+        });
+    }
+
+    drop(fork_choice);
+
+    // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
+    // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
+    let expected_randao = if bid_parent_block_root == cached_head.head_block_root() {
+        cached_head.head_random()?
+    } else {
+        // Head compatibility also permits a bid on the head's parent.
+        cached_head.parent_random()?
+    };
+    if signed_bid.message().prev_randao() != expected_randao {
+        return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
+    }
+
+    verify_bid_state_conditions(signed_bid.message(), head_state, ctx.spec)?;
+
+    if parent_payload_exits_builder::<T>(
+        signed_bid.message(),
+        &parent_block,
+        head_state,
+        ctx.store,
+    )? {
+        return Err(PayloadBidError::BuilderExitPending {
+            builder_index: signed_bid.message().builder_index(),
+        });
+    }
+
+    execution_payload_bid_signature_set(
+        head_state,
+        |i| get_builder_pubkey_from_state(head_state, i),
+        signed_bid.to_ref(),
+        ctx.spec,
+    )
+    .map_err(|_| PayloadBidError::BadSignature)?
+    .ok_or(PayloadBidError::BadSignature)?
+    .verify()
+    .then_some(())
+    .ok_or(PayloadBidError::BadSignature)
+}
+
+/// Emit a `best_execution_payload_bid` event for `signed_bid`, if anyone is subscribed.
+pub(crate) fn emit_best_execution_payload_bid<E: EthSpec>(
+    event_handler: Option<&ServerSentEventHandler<E>>,
+    source: BestExecutionPayloadBidSource,
+    signed_bid: &SignedExecutionPayloadBid<E>,
+    spec: &ChainSpec,
+) {
+    if let Some(event_handler) = event_handler
+        && event_handler.has_best_execution_payload_bid_subscribers()
+    {
+        event_handler.register(EventKind::BestExecutionPayloadBid(Box::new(
+            ForkVersionedResponse {
+                version: spec.fork_name_at_slot::<E>(signed_bid.message().slot()),
+                metadata: Default::default(),
+                data: SseBestExecutionPayloadBid {
+                    source,
+                    signed_bid: signed_bid.clone(),
+                },
+            },
+        )));
     }
 }
 
@@ -492,6 +535,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
+            event_handler: self.event_handler.as_ref(),
         }
     }
 

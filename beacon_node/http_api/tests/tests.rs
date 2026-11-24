@@ -4287,6 +4287,133 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_validator_execution_payload_bids_indexed_failures(self) -> Self {
+        let (bid, fork_name) = self.make_signed_execution_payload_bid();
+
+        let err = self
+            .client
+            .post_validator_execution_payload_bids(&[bid.clone(), bid], fork_name)
+            .await
+            .unwrap_err();
+
+        match err {
+            Error::ServerIndexedMessage(IndexedErrorMessage {
+                code,
+                message: _,
+                failures,
+            }) => {
+                assert_eq!(code, 400);
+                assert_eq!(
+                    failures.iter().map(|f| f.index).collect::<Vec<_>>(),
+                    vec![0, 1]
+                );
+            }
+            _ => panic!("query did not fail correctly"),
+        }
+
+        self
+    }
+
+    pub async fn test_post_validator_execution_payload_bids_oversize_list_returns_400(
+        self,
+    ) -> Self {
+        let (bid, fork_name) = self.make_signed_execution_payload_bid();
+
+        let err = self
+            .client
+            .post_validator_execution_payload_bids(&vec![bid; 65], fork_name)
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(!matches!(err, Error::ServerIndexedMessage(_)));
+
+        self
+    }
+
+    pub async fn test_post_validator_execution_payload_bids_ssz_indexed_failures(self) -> Self {
+        let (bid, fork_name) = self.make_signed_execution_payload_bid();
+
+        let err = self
+            .client
+            .post_validator_execution_payload_bids_ssz(&vec![bid.clone(), bid], fork_name)
+            .await
+            .unwrap_err();
+
+        match err {
+            Error::ServerIndexedMessage(IndexedErrorMessage {
+                code,
+                message: _,
+                failures,
+            }) => {
+                assert_eq!(code, 400);
+                assert_eq!(
+                    failures.iter().map(|f| f.index).collect::<Vec<_>>(),
+                    vec![0, 1]
+                );
+            }
+            _ => panic!("query did not fail correctly"),
+        }
+
+        self
+    }
+
+    pub async fn test_post_validator_execution_payload_bids_missing_consensus_version_header_returns_400(
+        self,
+    ) -> Self {
+        let (bid, _) = self.make_signed_execution_payload_bid();
+
+        let mut url = self.client.server().expose_full().clone();
+        url.path_segments_mut()
+            .unwrap()
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push("execution_payload_bids");
+
+        let response = reqwest::Client::new()
+            .post(url)
+            .json(&vec![bid])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_post_validator_execution_payload_bids_while_syncing_returns_503(
+        self,
+    ) -> Self {
+        let original_slot = self.chain.slot().unwrap();
+        let (bid, fork_name) = self.make_signed_execution_payload_bid();
+
+        let network_globals = self.ctx.network_globals.as_ref().unwrap();
+        *network_globals.sync_state.write() = SyncState::SyncingFinalized {
+            start_slot: Slot::new(0),
+            target_slot: Slot::new(u64::MAX),
+        };
+
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
+        let tolerance = self.chain.config.sync_tolerance_epochs * E::slots_per_epoch();
+        self.chain
+            .slot_clock
+            .set_slot(head_slot.as_u64() + tolerance + 1);
+
+        let err = self
+            .client
+            .post_validator_execution_payload_bids(&[bid], fork_name)
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.status(), Some(StatusCode::SERVICE_UNAVAILABLE));
+
+        *network_globals.sync_state.write() = SyncState::Synced;
+        self.chain.slot_clock.set_slot(original_slot.as_u64());
+
+        self
+    }
+
     pub async fn test_get_config_fork_schedule(self) -> Self {
         let result = self.client.get_config_fork_schedule().await.unwrap().data;
 
@@ -12747,6 +12874,25 @@ async fn post_beacon_execution_payload_bids() {
         .test_post_beacon_execution_payload_bids_json()
         .await
         .test_post_beacon_execution_payload_bids_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_execution_payload_bids() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_post_validator_execution_payload_bids_indexed_failures()
+        .await
+        .test_post_validator_execution_payload_bids_oversize_list_returns_400()
+        .await
+        .test_post_validator_execution_payload_bids_ssz_indexed_failures()
+        .await
+        .test_post_validator_execution_payload_bids_missing_consensus_version_header_returns_400()
+        .await
+        .test_post_validator_execution_payload_bids_while_syncing_returns_503()
         .await;
 }
 
