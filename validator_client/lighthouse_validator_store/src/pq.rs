@@ -36,6 +36,7 @@ use validator_store::{AttestationToSign, DoppelgangerStatus, ValidatorStore};
 use xmss::{LeafIndex, SUBTREE_LEAVES};
 
 const PQ_KEY_LOAD_LOG_INTERVAL: Duration = Duration::from_secs(5);
+const PQ_XMSS_TREE_LOG_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PreparationWindow {
@@ -395,31 +396,51 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
 
     async fn prepare_pq_xmss_window(&self, window: PreparationWindow) {
         let pubkeys: Vec<_> = self.voting_pubkeys(DoppelgangerStatus::ignored);
-        let entries = {
+        let pending = {
             let entries = self.pq_keys.entries.lock();
             pubkeys
                 .into_iter()
                 .filter_map(|pubkey| Some((pubkey, Arc::clone(entries.get(&pubkey)?))))
+                .filter(|(_, key)| {
+                    key.xmss_ready.load(Ordering::Relaxed)
+                        && *key.prepared_window.lock() != Some(window)
+                })
                 .collect::<Vec<_>>()
         };
+        if pending.is_empty() {
+            return;
+        }
 
-        for (pubkey, key) in entries {
+        let total = pending.len();
+        let started = Instant::now();
+        let mut last_progress = started;
+        let (mut prepared, mut failed) = (0_usize, 0_usize);
+        info!(
+            keys = total,
+            slot = ?self.slot_clock.now_or_genesis(),
+            ?window,
+            "Generating PQ XMSS signing trees"
+        );
+
+        for (pubkey, key) in pending {
             if self.pq_xmss_window() != Some(window) {
-                break;
-            }
-            if !key.xmss_ready.load(Ordering::Relaxed)
-                || *key.prepared_window.lock() == Some(window)
-            {
-                continue;
+                info!(
+                    keys = total,
+                    prepared,
+                    failed,
+                    elapsed_s = started.elapsed().as_secs(),
+                    "Stopped generating PQ XMSS signing trees, signing window changed"
+                );
+                return;
             }
 
             // A tree already building can finish after shutdown, but the cancellation
             // check stops the worker before it starts the next tree.
             let (cancel, alive) = oneshot::channel::<()>();
             let Some(work) = self.task_executor.spawn_blocking_handle(
-                move || -> Result<(), xmss::Error> {
+                move || -> Result<bool, xmss::Error> {
                     let Some(signer) = key.xmss.get() else {
-                        return Ok(());
+                        return Ok(false);
                     };
                     let started = Instant::now();
                     for leaf in window.leaves() {
@@ -428,20 +449,21 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                                 .key
                                 .prepare_with_cancel(leaf, || cancel.is_closed())?
                         {
-                            return Ok(());
+                            return Ok(false);
                         }
                     }
-                    if !cancel.is_closed() {
-                        signer.persist(pubkey);
-                        *key.prepared_window.lock() = Some(window);
-                        debug!(
-                            ?pubkey,
-                            ?window,
-                            elapsed_ms = started.elapsed().as_millis(),
-                            "Prepared rolling PQ XMSS signing trees"
-                        );
+                    if cancel.is_closed() {
+                        return Ok(false);
                     }
-                    Ok(())
+                    signer.persist(pubkey);
+                    *key.prepared_window.lock() = Some(window);
+                    debug!(
+                        ?pubkey,
+                        ?window,
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "Prepared rolling PQ XMSS signing trees"
+                    );
+                    Ok(true)
                 },
                 "pq_xmss_prepare_window",
             ) else {
@@ -450,10 +472,35 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
 
             let result = work.await;
             drop(alive);
-            if let Ok(Err(error)) = result {
-                warn!(?pubkey, %error, "Unable to prepare rolling PQ XMSS signing trees");
+            match result {
+                Ok(Ok(true)) => prepared += 1,
+                Ok(Ok(false)) => {}
+                Ok(Err(error)) => {
+                    failed += 1;
+                    warn!(?pubkey, %error, "Unable to prepare rolling PQ XMSS signing trees");
+                }
+                Err(_) => failed += 1,
+            }
+
+            if last_progress.elapsed() >= PQ_XMSS_TREE_LOG_INTERVAL {
+                last_progress = Instant::now();
+                info!(
+                    keys = total,
+                    prepared,
+                    failed,
+                    elapsed_s = started.elapsed().as_secs(),
+                    "PQ XMSS signing tree generation in progress"
+                );
             }
         }
+
+        info!(
+            keys = total,
+            prepared,
+            failed,
+            elapsed_s = started.elapsed().as_secs(),
+            "Finished generating PQ XMSS signing trees"
+        );
     }
 
     pub(super) fn local_pq_public_key(&self, pubkey: &PublicKeyBytes) -> Option<XmssPublicKey> {
