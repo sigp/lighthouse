@@ -403,12 +403,6 @@ impl From<AvailabilityCheckError> for BlockError {
 /// the execution payload.
 #[derive(Debug, IntoStaticStr)]
 pub enum ExecutionPayloadError {
-    /// There's no eth1 connection (mandatory after merge)
-    ///
-    /// ## Peer scoring
-    ///
-    /// As this is our fault, do not penalize the peer
-    NoExecutionConnection,
     /// Error occurred during engine_executePayload
     ///
     /// ## Peer scoring
@@ -452,8 +446,6 @@ impl ExecutionPayloadError {
         // always forced to consider here whether or not to penalize a peer when
         // we add a new error condition.
         match self {
-            // The peer has nothing to do with this error, do not penalize them.
-            ExecutionPayloadError::NoExecutionConnection => false,
             // The peer has nothing to do with this error, do not penalize them.
             ExecutionPayloadError::RequestFailed(_) => false,
             // An honest optimistic node may propagate blocks which are rejected by an EE, do not
@@ -2259,22 +2251,18 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
     impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
     impl Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 > {
-    let get_pubkey = move |validator_index| {
-        // Disallow access to any validator pubkeys that are not in the current beacon state.
-        if validator_index < state.validators().len() {
-            validator_pubkey_cache
-                .get(validator_index)
-                .map(Cow::Borrowed)
-        } else {
-            None
-        }
-    };
+    // The pubkey cache can lag behind `state`: validators may be added to the registry by epoch
+    // processing before any block from that epoch has been imported. Keys for validators beyond the
+    // end of the cache are read from `state`, and validators that are not in `state` are rejected.
+    let get_pubkey =
+        move |validator_index| validator_pubkey_cache.get_for_state(state, validator_index);
 
-    let decompressor = move |pk_bytes| {
-        // Map compressed pubkey to validator index.
-        let validator_index = validator_pubkey_cache.get_index(pk_bytes)?;
-        // Map validator index to pubkey (respecting guard on unknown validators).
-        get_pubkey(validator_index)
+    let decompressor = move |pk_bytes: &'a PublicKeyBytes| {
+        // Use the cached key if `pk_bytes` belongs to a cached validator, otherwise decompress it.
+        validator_pubkey_cache
+            .get_pubkey_from_pubkey_bytes(pk_bytes)
+            .map(Cow::Borrowed)
+            .or_else(|| pk_bytes.decompress().ok().map(Cow::Owned))
     };
 
     BlockSignatureVerifier::new(state, get_pubkey, decompressor, spec)

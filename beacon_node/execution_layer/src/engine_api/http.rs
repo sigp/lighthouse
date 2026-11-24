@@ -1684,9 +1684,11 @@ mod test {
             // Create rpc clients that include JWT auth headers if `with_auth` is true.
             let (rpc_client, echo_client) = if with_auth {
                 let rpc_auth =
-                    Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
+                    Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None)
+                        .unwrap();
                 let echo_auth =
-                    Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
+                    Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None)
+                        .unwrap();
                 (
                     Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None).unwrap()),
                     Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None).unwrap()),

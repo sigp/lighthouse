@@ -432,11 +432,10 @@ mod tests {
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use types::{
         BuilderPendingPayment, BuilderPendingWithdrawal, Epoch, ExecutionBlockHash,
-        ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName, MinimalEthSpec,
+        ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName, Spec,
     };
 
-    type E = MinimalEthSpec;
-    const SPE: u64 = 8; // MinimalEthSpec::slots_per_epoch()
+    type E = Spec;
     /// A payment weight above any quorum a 64-validator state can produce.
     const CHARGED: u64 = u64::MAX;
 
@@ -521,10 +520,11 @@ mod tests {
 
     /// Set the pending payment for the block at `slot`, if the state still holds its epoch.
     fn set_payment(state: &mut BeaconState<E>, slot: Slot, amount: u64, weight: u64) {
-        let epoch = slot.epoch(SPE);
-        let slot_in_epoch = (slot.as_u64() % SPE) as usize;
+        let spe = E::slots_per_epoch();
+        let epoch = slot.epoch(spe);
+        let slot_in_epoch = (slot.as_u64() % spe) as usize;
         let index = if epoch == state.current_epoch() {
-            SPE as usize + slot_in_epoch
+            spe as usize + slot_in_epoch
         } else if epoch + 1 == state.current_epoch() {
             slot_in_epoch
         } else {
@@ -680,14 +680,12 @@ mod tests {
 
     #[test]
     fn window_counts_only_missed_payloads_in_last_epoch() {
-        // 12 slots of history; window is the last SPE (8) slots: 5..=12.
+        // 4 + spe slots of history; window is the last spe slots: 5..=4 + spe.
         // slots 1..=4 (outside window): missing, missing, missing, missing
         // slots 5..=12 (inside):        missing, none, present, missing, none, none, missing, present
-        let state = state_with_history(&[
-            Some(false),
-            Some(false),
-            Some(false),
-            Some(false),
+        let spe = E::slots_per_epoch() as usize;
+        let mut history = vec![Some(false); 4];
+        history.extend([
             Some(false),
             None,
             Some(true),
@@ -697,7 +695,9 @@ mod tests {
             Some(false),
             Some(true),
         ]);
-        assert_eq!(state.slot(), Slot::new(13));
+        history.resize(4 + spe, None);
+        let state = state_with_history(&history);
+        assert_eq!(state.slot(), Slot::new(4 + spe as u64 + 1));
         assert_eq!(
             count_missed_payloads_in_window(&state, &criteria(&state)).unwrap(),
             3
@@ -783,14 +783,16 @@ mod tests {
 
     #[test]
     fn consecutive_missed_stops_at_previous_epoch() {
-        // Every block in slots 1..=17 missed its payload. The state is at slot 18 (epoch 2) and
-        // holds payments for epochs 1 and 2 only, so the walk stops at slot 8.
-        let history = vec![Some(false); 17];
+        // Every block since genesis missed its payload. The state is in epoch 2 and holds payments
+        // for epochs 1 and 2 only, so the walk stops at the first slot of epoch 1.
+        let spe = E::slots_per_epoch();
+        let history = vec![Some(false); 2 * spe as usize + 1];
         let state = state_with_history(&history);
         assert_eq!(state.current_epoch(), Epoch::new(2));
+        // Slots `spe..=2 * spe + 1`.
         assert_eq!(
             count_consecutive_missed_payloads(&state, &criteria(&state), 100).unwrap(),
-            10
+            spe as usize + 2
         );
     }
 
@@ -845,7 +847,7 @@ mod tests {
             ban_slots: 1,
             ..config(3, 8)
         });
-        assert_eq!(cb.config().ban_slots, SPE);
+        assert_eq!(cb.config().ban_slots, E::slots_per_epoch());
         let cb = CircuitBreaker::new::<E>(CircuitBreakerConfig {
             ban_slots: 64,
             ..config(3, 8)
@@ -954,7 +956,7 @@ mod tests {
         let total = 32 * 32_000_000_000u64;
         assert_eq!(
             builder_payment_quorum::<E>(total, &spec),
-            Some(total / SPE * 6 / 10)
+            Some(total / E::slots_per_epoch() * 6 / 10)
         );
         assert_eq!(builder_payment_quorum::<E>(0, &spec), Some(0));
         let mut zero_denominator = spec.clone();
