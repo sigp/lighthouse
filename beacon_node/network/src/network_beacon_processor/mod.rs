@@ -45,7 +45,7 @@ use {
 
 pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
-pub use gossip_methods::ReprocessAllowance;
+pub use gossip_methods::{PartialGossipOutcome, ReprocessAllowance};
 
 pub type Error<T> = Box<TrySendError<BeaconWorkEvent<T>>>;
 
@@ -257,7 +257,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     seen_timestamp,
                     topic,
                 )
-                .await
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
