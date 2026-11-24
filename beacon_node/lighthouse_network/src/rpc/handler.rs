@@ -1000,29 +1000,16 @@ where
         );
 
         // If we received a goodbye, shutdown the connection. A goodbye is never answered, so its
-        // substream is not kept: report the request, then immediately report the stream as closed.
+        // substream is not kept.
         //
         // Requests that expect no responses (e.g. zero-count range requests) keep their substream
         // like any other request, so that they count towards the concurrent request limit until
         // the application terminates their response stream.
-        if let RequestType::Goodbye(_) = req {
+        let is_goodbye = matches!(req, RequestType::Goodbye(_));
+        if is_goodbye {
             self.shutdown(None);
-            self.events_out.push(HandlerEvent::Ok(RPCReceived::Request(
-                super::InboundRequestId {
-                    connection_id: self.connection_id,
-                    substream_id: self.current_inbound_substream_id,
-                },
-                req,
-            )));
-            self.events_out.push(HandlerEvent::InboundStreamClosed(
-                self.current_inbound_substream_id,
-            ));
-            self.current_inbound_substream_id.0 += 1;
-            return;
-        }
-
-        // Store the stream and tag the output.
-        if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+        } else if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+            // Store the stream and tag the output.
             let delay_key = self
                 .inbound_substreams_delay
                 .insert(self.current_inbound_substream_id, RESP_TIMEOUT);
@@ -1056,6 +1043,13 @@ where
             },
             req,
         )));
+        // Every reported request is followed by a report of its substream closing. As no substream
+        // is kept for a goodbye, report it as closed right away.
+        if is_goodbye {
+            self.events_out.push(HandlerEvent::InboundStreamClosed(
+                self.current_inbound_substream_id,
+            ));
+        }
         self.current_inbound_substream_id.0 += 1;
     }
 
