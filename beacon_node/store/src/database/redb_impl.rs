@@ -287,9 +287,7 @@ impl Redb {
 
     pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {
         let open_db = self.db.read();
-        let mut tx = Self::begin_write(&open_db)?;
-
-        tx.set_durability(redb::Durability::None);
+        let tx = Self::begin_write(&open_db)?;
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
 
@@ -309,9 +307,7 @@ impl Redb {
         mut f: impl FnMut(&[u8]) -> Result<bool, Error>,
     ) -> Result<(), Error> {
         let open_db = self.db.read();
-        let mut tx = Self::begin_write(&open_db)?;
-
-        tx.set_durability(redb::Durability::None);
+        let tx = Self::begin_write(&open_db)?;
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
@@ -370,7 +366,6 @@ mod tests {
         .unwrap();
         copy_and_open_without_repair(dir.path());
 
-        // These deletes are non-durable, so they are persisted by the next durable commit.
         let (key_0, key_1, value_2) = (key(0), key(1), value(2));
         db.delete_batch(col, HashSet::from([key_0.as_slice(), key_1.as_slice()]))
             .unwrap();
