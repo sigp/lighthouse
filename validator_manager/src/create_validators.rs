@@ -168,7 +168,7 @@ pub fn cli_app() -> Command {
                 .long(BUILDER_PROPOSALS_FLAG)
                 .help(
                     "When provided, all created validators will attempt to create \
-                    blocks via builder rather than the local EL.",
+                    blocks via builder rather than the local EL. Has no effect post Gloas.",
                 )
                 .required(false)
                 .value_parser(["true", "false"])
@@ -210,7 +210,7 @@ pub fn cli_app() -> Command {
                     "Defines the boost factor, \
                     a percentage multiplier to apply to the builder's payload value \
                     when choosing between a builder payload header and payload from \
-                    the local execution node.",
+                    the local execution node. Has no effect post Gloas.",
                 )
                 .display_order(0),
         )
@@ -219,7 +219,7 @@ pub fn cli_app() -> Command {
                 .long(PREFER_BUILDER_PROPOSALS_FLAG)
                 .help(
                     "If this flag is set, Lighthouse will always prefer blocks \
-                    constructed by builders, regardless of payload value.",
+                    constructed by builders, regardless of payload value. Has no effect post Gloas.",
                 )
                 .required(false)
                 .value_parser(["true", "false"])
