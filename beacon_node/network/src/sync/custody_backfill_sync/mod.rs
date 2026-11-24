@@ -160,7 +160,8 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// custody backfill sync will attempt to fetch.
     /// The criteria to start custody sync is:
     /// - The earliest data column epoch's custodied columns != previous epoch's custodied columns
-    /// - The earliest data column epoch is a finalied epoch
+    /// - The earliest data column epoch is a finalized epoch
+    /// - Every block to backfill has a finalized child block
     pub fn should_start_custody_backfill_sync(&mut self) -> bool {
         let Some(da_boundary_epoch) = self
             .beacon_chain
