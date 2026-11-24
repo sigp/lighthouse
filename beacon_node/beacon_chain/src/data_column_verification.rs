@@ -28,11 +28,11 @@ use tracing::{debug, instrument};
 use tree_hash::TreeHash;
 use types::data::{
     ColumnIndex, PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas,
-    PartialDataColumnHeader, PartialDataColumnSidecarError, PartialDataColumnSidecarFulu,
-    PartialDataColumnSidecarRef,
+    PartialDataColumnHeader, PartialDataColumnRef, PartialDataColumnSidecarError,
+    PartialDataColumnSidecarFulu, PartialDataColumnSidecarRef,
 };
 use types::{
-    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
+    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, Hash256,
     KzgCommitment, PartialDataColumnView, SignedBeaconBlockHeader, SignedExecutionPayloadBid, Slot,
 };
 
@@ -343,12 +343,21 @@ impl From<BeaconStateError> for GossipPartialDataColumnError {
     }
 }
 
+/// Payload bid for a column's block, carried from gossip verification so it enters the cache with
+/// the columns rather than via a separate lookup.
+#[derive(Debug, Clone)]
+pub enum ColumnBid<E: EthSpec> {
+    PreGloas,
+    Bid(Arc<SignedExecutionPayloadBid<E>>),
+}
+
 /// A wrapper around a `DataColumnSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Debug, Clone)]
 pub struct GossipVerifiedDataColumn<T: BeaconChainTypes, O: ObservationStrategy = Observe> {
     block_root: Hash256,
     data_column: KzgVerifiedDataColumn<T::EthSpec>,
+    bid: ColumnBid<T::EthSpec>,
     _phantom: PhantomData<O>,
 }
 
@@ -358,12 +367,12 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         subnet_id: DataColumnSubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        let data_column = match column_sidecar.as_ref() {
+        let (data_column, bid) = match column_sidecar.as_ref() {
             DataColumnSidecar::Fulu(column_sidecar_fulu) => {
                 let header = &column_sidecar_fulu.signed_block_header;
                 // We only process slashing info if the gossip verification failed
                 // since we do not process the data column any further in that case.
-                validate_data_column_sidecar_for_gossip_fulu::<T, O>(
+                let data_column = validate_data_column_sidecar_for_gossip_fulu::<T, O>(
                     column_sidecar.clone(),
                     subnet_id,
                     chain,
@@ -373,18 +382,23 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                         chain,
                         BlockSlashInfo::from_early_error_data_column(header.clone(), e),
                     )
-                })?
+                })?;
+                (data_column, ColumnBid::PreGloas)
             }
-            DataColumnSidecar::Gloas(_) => validate_data_column_sidecar_for_gossip_gloas::<T, O>(
-                column_sidecar.clone(),
-                subnet_id,
-                chain,
-            )?,
+            DataColumnSidecar::Gloas(_) => {
+                let (data_column, bid) = validate_data_column_sidecar_for_gossip_gloas::<T, O>(
+                    column_sidecar.clone(),
+                    subnet_id,
+                    chain,
+                )?;
+                (data_column, ColumnBid::Bid(bid))
+            }
         };
 
         Ok(GossipVerifiedDataColumn {
             block_root: column_sidecar.block_root(),
             data_column,
+            bid,
             _phantom: PhantomData,
         })
     }
@@ -396,13 +410,14 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        match column_sidecar.as_ref() {
+        let bid = match column_sidecar.as_ref() {
             DataColumnSidecar::Fulu(data_column_fulu) => {
                 verify_data_column_sidecar_with_commitments_len(
                     &column_sidecar,
                     data_column_fulu.kzg_commitments.len(),
                     &chain.spec,
                 )?;
+                ColumnBid::PreGloas
             }
             DataColumnSidecar::Gloas(_) => {
                 let bid = load_gloas_payload_bid(column_sidecar.block_root(), chain)?.ok_or(
@@ -413,11 +428,12 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 )?;
                 verify_data_column_sidecar_with_commitments_len(
                     &column_sidecar,
-                    bid.message.blob_kzg_commitments.len(),
+                    bid.message().blob_kzg_commitments().len(),
                     &chain.spec,
                 )?;
+                ColumnBid::Bid(bid)
             }
-        }
+        };
 
         // Check if the data column is already in the DA checker cache. This happens when data columns
         // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
@@ -432,6 +448,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
             Some(_) => Ok(Self {
                 block_root: column_sidecar.block_root(),
                 data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
+                bid,
                 _phantom: Default::default(),
             }),
             None => {
@@ -444,12 +461,20 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
-    pub fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
+    pub fn __new_for_testing(
+        column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
+        bid: ColumnBid<T::EthSpec>,
+    ) -> Self {
         Self {
             block_root: column_sidecar.block_root(),
             data_column: KzgVerifiedDataColumn::__new_for_testing(column_sidecar),
+            bid,
             _phantom: Default::default(),
         }
+    }
+
+    pub(crate) fn bid(&self) -> &ColumnBid<T::EthSpec> {
+        &self.bid
     }
 
     pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
@@ -526,7 +551,10 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
         let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
         let seen_timestamp = timestamp_now();
-        validate_data_columns_with_commitments(kzg, data_columns.iter(), kzg_commitments)?;
+        validate_data_columns_with_commitments(
+            kzg,
+            data_columns.iter().map(|c| (c, kzg_commitments)),
+        )?;
         Ok(data_columns
             .into_iter()
             .map(|column| Self {
@@ -605,20 +633,6 @@ impl<E: EthSpec> KzgVerifiedPartialDataColumn<E> {
             Self::Gloas(column) => column.data.index,
         }
     }
-
-    pub fn block_root(&self) -> Hash256 {
-        match self {
-            Self::Fulu(column) => column.data.block_root,
-            Self::Gloas(column) => column.data.block_root,
-        }
-    }
-
-    pub fn sidecar(&self) -> PartialDataColumnSidecarRef<'_, E> {
-        match self {
-            Self::Fulu(column) => PartialDataColumnSidecarRef::Fulu(&column.data.sidecar),
-            Self::Gloas(column) => PartialDataColumnSidecarRef::Gloas(&column.data.sidecar),
-        }
-    }
 }
 
 /// Wrapper over a `PartialDataColumnHeader` for which we have completed gossip verification.
@@ -639,6 +653,11 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         if header.kzg_commitments.is_empty() {
             return Err(GossipDataColumnError::UnexpectedDataColumn.into());
         }
+        verify_commitments_len_within_max_blobs(
+            header.kzg_commitments.len(),
+            column_slot.epoch(E::slots_per_epoch()),
+            &chain.spec,
+        )?;
 
         let header_hash = header.signed_block_header.message.canonical_root();
         if group_id != header_hash {
@@ -667,7 +686,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         };
         // Only cache the header if the block data is not already imported. This avoids
         // reintroducing (and regossiping) headers of already available blocks.
-        let newly_cached = if !chain.is_block_data_imported(group_id, column_slot) {
+        let newly_cached = if !chain.is_block_data_imported(group_id) {
             assembler.init(group_id, header.clone())
         } else {
             false
@@ -834,22 +853,12 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
     /// `Arc<PartialDataColumnGloas>`.
     pub fn from_asserted_custody(kzg_verified: KzgVerifiedPartialDataColumn<E>) -> Self {
         match kzg_verified {
-            KzgVerifiedPartialDataColumn::Fulu(KzgVerifiedPartialDataColumnFulu {
-                data,
-                latest_cell_timestamp,
-            }) => KzgVerifiedCustodyPartialDataColumnFulu {
-                data,
-                latest_cell_timestamp,
+            KzgVerifiedPartialDataColumn::Fulu(column) => {
+                KzgVerifiedCustodyPartialDataColumnFulu::from_asserted_custody(column).into()
             }
-            .into(),
-            KzgVerifiedPartialDataColumn::Gloas(KzgVerifiedPartialDataColumnGloas {
-                data,
-                latest_cell_timestamp,
-            }) => KzgVerifiedCustodyPartialDataColumnGloas {
-                data,
-                latest_cell_timestamp,
+            KzgVerifiedPartialDataColumn::Gloas(column) => {
+                KzgVerifiedCustodyPartialDataColumnGloas::from_asserted_custody(column).into()
             }
-            .into(),
         }
     }
 
@@ -871,6 +880,14 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
+    /// Mark a verified Fulu partial as a custody column. Caller must check custody first.
+    pub(crate) fn from_asserted_custody(column: KzgVerifiedPartialDataColumnFulu<E>) -> Self {
+        Self {
+            data: column.data,
+            latest_cell_timestamp: column.latest_cell_timestamp,
+        }
+    }
+
     pub fn into_inner(self) -> Arc<PartialDataColumnFulu<E>> {
         self.data
     }
@@ -1006,6 +1023,14 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnGloas<E> {
+    /// Mark a verified Gloas partial as a custody column. Caller must check custody first.
+    pub(crate) fn from_asserted_custody(column: KzgVerifiedPartialDataColumnGloas<E>) -> Self {
+        Self {
+            data: column.data,
+            latest_cell_timestamp: column.latest_cell_timestamp,
+        }
+    }
+
     /// Re-wrap a partial column from the cache. Its cells were verified on the way in, and
     /// `PendingColumn` keeps no timestamps, so this stamps the current time.
     pub(crate) fn from_cached(data: Arc<PartialDataColumnGloas<E>>) -> Self {
@@ -1076,31 +1101,27 @@ pub fn verify_kzg_for_data_column_with_commitments<E: EthSpec>(
     })
 }
 
-/// Complete kzg verification for a `VerifiablePartialDataColumn`. Only the cells we are still
-/// missing are verified (others are already cached).
-///
-/// The returned column holds every cell of the input. The skipped cells match cached cells that
-/// an earlier call verified, so the whole column is verified.
+/// Verify the missing cells in a partial column. Skipped cells match previously verified cache entries.
 ///
 /// Returns an error if the kzg verification check fails.
 #[instrument(skip_all, level = "debug")]
-pub fn verify_kzg_for_partial_data_column<T: BeaconChainTypes>(
-    data_column: PartialDataColumn<T::EthSpec>,
+fn verify_kzg_for_partial_data_column<T: BeaconChainTypes>(
+    data_column: PartialDataColumnRef<'_, T::EthSpec>,
     kzg_commitments: &[KzgCommitment],
     chain: &BeaconChain<T>,
-    seen_timestamp: Duration,
-) -> Result<KzgVerifiedPartialDataColumn<T::EthSpec>, GossipPartialDataColumnError> {
+) -> Result<(), GossipPartialDataColumnError> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
+    let column_index = *data_column.index();
 
     // Dedup against the store the partial will be merged into: Fulu partials live in the DA
     // checker's assembler, Gloas partials in the pending payload cache.
     let missing_cells_result = match &data_column {
-        PartialDataColumn::Fulu(_) => chain
+        PartialDataColumnRef::Fulu(_) => chain
             .data_availability_checker
-            .missing_cells_for_partial_column_sidecar(&data_column),
-        PartialDataColumn::Gloas(_) => chain
+            .missing_cells_for_partial_column_sidecar(data_column),
+        PartialDataColumnRef::Gloas(_) => chain
             .pending_payload_cache
-            .missing_cells_for_partial_column_sidecar(&data_column),
+            .missing_cells_for_partial_column_sidecar(data_column),
     };
     let cells_to_verify = match missing_cells_result {
         Ok(Some(cells_to_verify)) => cells_to_verify,
@@ -1110,27 +1131,12 @@ pub fn verify_kzg_for_partial_data_column<T: BeaconChainTypes>(
 
     validate_partial_data_columns(
         &chain.kzg,
-        iter::once((*data_column.index(), cells_to_verify)),
+        iter::once((column_index, cells_to_verify)),
         kzg_commitments,
     )
     .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
 
-    // `cells_to_verify` borrowed `data_column` and was consumed by the verification above, so the
-    // column is now uniquely owned and can be moved straight into its variant without cloning the
-    // cell data.
-    let latest_cell_timestamp = seen_timestamp;
-    Ok(match data_column {
-        PartialDataColumn::Fulu(data) => KzgVerifiedPartialDataColumnFulu {
-            data: Arc::new(data),
-            latest_cell_timestamp,
-        }
-        .into(),
-        PartialDataColumn::Gloas(data) => KzgVerifiedPartialDataColumnGloas {
-            data: Arc::new(data),
-            latest_cell_timestamp,
-        }
-        .into(),
-    })
+    Ok(())
 }
 
 /// Complete kzg verification for a list of `DataColumnSidecar`s.
@@ -1228,6 +1234,9 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     Ok(kzg_verified)
 }
 
+/// A KZG-verified Gloas data column paired with the slot-checked bid it was validated against.
+type ValidatedGloasColumn<E> = (KzgVerifiedDataColumn<E>, Arc<SignedExecutionPayloadBid<E>>);
+
 #[instrument(
     skip_all,
     name = "validate_data_column_sidecar_for_gossip_gloas",
@@ -1240,7 +1249,7 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: DataColumnSubnetId,
     chain: &BeaconChain<T>,
-) -> Result<KzgVerifiedDataColumn<T::EthSpec>, GossipDataColumnError> {
+) -> Result<ValidatedGloasColumn<T::EthSpec>, GossipDataColumnError> {
     let DataColumnSidecar::Gloas(_) = data_column.as_ref() else {
         return Err(GossipDataColumnError::InvalidVariant);
     };
@@ -1263,13 +1272,13 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
             slot: column_slot,
         },
     )?;
-    if bid.message.slot != column_slot {
+    if bid.message().slot() != column_slot {
         return Err(GossipDataColumnError::BlockSlotMismatch {
-            block_slot: bid.message.slot,
+            block_slot: bid.message().slot(),
             data_column_slot: column_slot,
         });
     }
-    let kzg_commitments = &bid.message.blob_kzg_commitments;
+    let kzg_commitments = bid.message().blob_kzg_commitments();
     verify_data_column_sidecar_with_commitments_len(
         &data_column,
         kzg_commitments.len(),
@@ -1299,7 +1308,7 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
         observe_gossip_data_column(&data_column, chain)?;
     }
 
-    Ok(kzg_verified)
+    Ok((kzg_verified, bid))
 }
 
 #[instrument(skip_all, level = "debug")]
@@ -1368,19 +1377,18 @@ fn validate_partial_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes>(
         header
     };
 
-    let slot = header.as_header().slot();
-    let column: PartialDataColumn<T::EthSpec> = (*column).into();
     match validate_partial_data_column_common(
-        Box::new(column),
+        PartialDataColumnRef::Fulu(&column),
         header.as_header().kzg_commitments.as_ref(),
         chain,
-        seen_timestamp,
     ) {
-        Ok(column) => PartialColumnVerificationResult::Ok {
-            column,
-            slot,
-            verified_header: Some(header),
-        },
+        Ok(()) => PartialColumnVerificationResult::Ok(GossipVerifiedPartialDataColumn::PreGloas {
+            column: KzgVerifiedPartialDataColumnFulu {
+                data: Arc::new(*column),
+                latest_cell_timestamp: seen_timestamp,
+            },
+            header,
+        }),
         Err(err) => PartialColumnVerificationResult::ErrWithValidHeader { err, header },
     }
 }
@@ -1401,8 +1409,8 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
         return PartialColumnVerificationResult::Err(e.into());
     }
 
-    // The bid carries the commitments. It is gossip-verified and inserted into the pending
-    // payload cache on its own path - we don't cache anything from this code path.
+    // The bid carries the commitments. Return the same bid after verification so partial-column
+    // processing does not need to look it up again.
     let bid = match load_gloas_payload_bid(block_root, chain) {
         Ok(Some(bid)) => bid,
         Ok(None) => {
@@ -1416,10 +1424,10 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
         }
     };
 
-    if slot != bid.message.slot {
+    if slot != bid.slot() {
         return PartialColumnVerificationResult::Err(GossipPartialDataColumnError::IncorrectSlot {
             group_id_slot: slot,
-            block_slot: bid.message.slot,
+            block_slot: bid.slot(),
         });
     }
 
@@ -1428,18 +1436,18 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
         return PartialColumnVerificationResult::Err(GossipPartialDataColumnError::EmptyMessage);
     }
 
-    let column: PartialDataColumn<T::EthSpec> = (*column).into();
     match validate_partial_data_column_common(
-        Box::new(column),
-        bid.message.blob_kzg_commitments.as_ref(),
+        PartialDataColumnRef::Gloas(&column),
+        bid.message().blob_kzg_commitments().as_ref(),
         chain,
-        seen_timestamp,
     ) {
-        Ok(column) => PartialColumnVerificationResult::Ok {
-            column,
-            slot,
-            verified_header: None,
-        },
+        Ok(()) => PartialColumnVerificationResult::Ok(GossipVerifiedPartialDataColumn::PostGloas {
+            column: KzgVerifiedPartialDataColumnGloas {
+                data: Arc::new(*column),
+                latest_cell_timestamp: seen_timestamp,
+            },
+            bid,
+        }),
         Err(err) => PartialColumnVerificationResult::Err(err),
     }
 }
@@ -1447,11 +1455,10 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
 /// Shared structural + KZG checks for partial data columns, agnostic to which fork the
 /// commitments came from (Fulu header vs Gloas bid).
 fn validate_partial_data_column_common<T: BeaconChainTypes>(
-    column: Box<PartialDataColumn<T::EthSpec>>,
+    column: PartialDataColumnRef<'_, T::EthSpec>,
     kzg_commitments: &[KzgCommitment],
     chain: &BeaconChain<T>,
-    seen_timestamp: Duration,
-) -> Result<KzgVerifiedPartialDataColumn<T::EthSpec>, GossipPartialDataColumnError> {
+) -> Result<(), GossipPartialDataColumnError> {
     // The number of cells and proofs must match the population count of the bitmap.
     let bitmap_num_set = column.sidecar().cells_present_bitmap().num_set_bits();
     let cells_len = column.sidecar().column().len();
@@ -1477,30 +1484,76 @@ fn validate_partial_data_column_common<T: BeaconChainTypes>(
 
     // We do not have to check block related data here, as we create the verifiable column from a
     // gossip accepted block.
-    verify_kzg_for_partial_data_column(*column, kzg_commitments, chain, seen_timestamp)
+    verify_kzg_for_partial_data_column(column, kzg_commitments, chain)
 }
 
-/// The result of a `validate_partial_data_column_sidecar_for_gossip` call. The `verified_header`
-/// is only set for Fulu, where the header travels with the partial column on gossip and may be
-/// newly cached during this call. For Gloas, the bid that backs the verification arrives on its
-/// own gossip path and is never cached as part of partial-column processing — there is nothing
-/// to return.
-pub enum PartialColumnVerificationResult<E: EthSpec> {
-    /// Verification succeeded fully.
-    Ok {
-        column: KzgVerifiedPartialDataColumn<E>,
-        slot: Slot,
-        verified_header: Option<GossipVerifiedPartialDataColumnHeader<E>>,
+/// A gossip-verified partial column paired with the header or bid used to verify it.
+pub enum GossipVerifiedPartialDataColumn<E: EthSpec> {
+    /// Pre-Gloas partials use the Fulu column format and a gossip-verified header.
+    PreGloas {
+        column: KzgVerifiedPartialDataColumnFulu<E>,
+        header: GossipVerifiedPartialDataColumnHeader<E>,
     },
+    /// Gloas and later partials use the Gloas column format and their beacon block's bid.
+    PostGloas {
+        column: KzgVerifiedPartialDataColumnGloas<E>,
+        bid: Arc<SignedExecutionPayloadBid<E>>,
+    },
+}
+
+impl<E: EthSpec> GossipVerifiedPartialDataColumn<E> {
+    /// Borrow the verified partial column without its header or bid.
+    pub fn as_partial_column(&self) -> PartialDataColumnRef<'_, E> {
+        match self {
+            Self::PreGloas { column, .. } => PartialDataColumnRef::Fulu(&column.data),
+            Self::PostGloas { column, .. } => PartialDataColumnRef::Gloas(&column.data),
+        }
+    }
+
+    /// Return the slot from the verified header or bid.
+    pub fn slot(&self) -> Slot {
+        match self {
+            Self::PreGloas { header, .. } => header.as_header().slot(),
+            Self::PostGloas { bid, .. } => bid.slot(),
+        }
+    }
+
+    /// Return the verified header for pre-Gloas partials.
+    pub fn header(&self) -> Option<&GossipVerifiedPartialDataColumnHeader<E>> {
+        match self {
+            Self::PreGloas { header, .. } => Some(header),
+            Self::PostGloas { .. } => None,
+        }
+    }
+}
+
+/// The result of a `validate_partial_data_column_sidecar_for_gossip` call.
+pub enum PartialColumnVerificationResult<E: EthSpec> {
+    /// Verification succeeded with the paired header or bid.
+    Ok(GossipVerifiedPartialDataColumn<E>),
     /// Verification of the column failed, but the Fulu header is valid. Gloas has no equivalent
-    /// variant because the bid that would correspond to the header is not produced as a result
-    /// of this verification.
+    /// because its bid arrives independently of the partial column.
     ErrWithValidHeader {
         err: GossipPartialDataColumnError,
         header: GossipVerifiedPartialDataColumnHeader<E>,
     },
     /// Verification of the column or its commitments-source failed.
     Err(GossipPartialDataColumnError),
+}
+
+fn verify_commitments_len_within_max_blobs(
+    commitments_len: usize,
+    epoch: Epoch,
+    spec: &ChainSpec,
+) -> Result<(), GossipDataColumnError> {
+    let max_blobs_per_block = spec.max_blobs_per_block(epoch) as usize;
+    if commitments_len > max_blobs_per_block {
+        return Err(GossipDataColumnError::MaxBlobsPerBlockExceeded {
+            max_blobs_per_block,
+            commitments_len,
+        });
+    }
+    Ok(())
 }
 
 fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
@@ -1520,14 +1573,7 @@ fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
 
     let cells_len = data_column.column().len();
     let proofs_len = data_column.kzg_proofs().len();
-    let max_blobs_per_block = spec.max_blobs_per_block(data_column.epoch()) as usize;
-
-    if commitments_len > max_blobs_per_block {
-        return Err(GossipDataColumnError::MaxBlobsPerBlockExceeded {
-            max_blobs_per_block,
-            commitments_len,
-        });
-    }
+    verify_commitments_len_within_max_blobs(commitments_len, data_column.epoch(), spec)?;
 
     if cells_len != commitments_len {
         return Err(GossipDataColumnError::InconsistentCommitmentsLength {
@@ -1546,8 +1592,11 @@ fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
     Ok(())
 }
 
-/// Loads the Gloas payload bid for `block_root` from the `pending_payload_cache`, the
+/// Resolves the Gloas payload bid for `block_root` from the `pending_payload_cache`, the
 /// `early_attester_cache`, or the on-disk store (in that order).
+///
+/// Pure read: must not write to `pending_payload_cache`. A bid is cached only with the component
+/// it was validated against, so inserting one here, before that check, would be a bug.
 ///
 /// The store fallback is a synchronous disk read, so this must be called from a blocking
 /// context, never directly on the async runtime.
@@ -1566,7 +1615,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                 .body()
                 .signed_execution_payload_bid()
                 .map_err(BeaconChainError::BeaconStateError)?
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         )
     } else {
         match chain
@@ -1580,7 +1629,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                     .body()
                     .signed_execution_payload_bid()
                     .map_err(BeaconChainError::BeaconStateError)?
-                    .clone(),
+                    .clone_as_signed_execution_payload_bid(),
             ),
             Some(DatabaseBlock::Blinded(block)) => Arc::new(
                 block
@@ -1588,17 +1637,13 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                     .body()
                     .signed_execution_payload_bid()
                     .map_err(BeaconChainError::BeaconStateError)?
-                    .clone(),
+                    .clone_as_signed_execution_payload_bid(),
             ),
             None => {
                 return Ok(None);
             }
         }
     };
-
-    chain
-        .pending_payload_cache
-        .insert_bid(block_root, bid.clone());
 
     Ok(Some(bid))
 }
@@ -1891,13 +1936,12 @@ mod test {
     use std::time::UNIX_EPOCH;
     use types::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
-        ForkName, Hash256, MainnetEthSpec, PartialDataColumn, PartialDataColumnFulu,
-        PartialDataColumnGloas, PartialDataColumnHeader, PartialDataColumnSidecarFulu,
-        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, Slot,
-        test_utils::test_unstructured,
+        ForkName, Hash256, PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas,
+        PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas, Slot,
+        Spec, test_utils::test_unstructured,
     };
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     // TODO(gloas) make this generic over gloas/fulu
     #[tokio::test]
@@ -1971,7 +2015,7 @@ mod test {
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .clone();
+            .clone_as_signed_execution_payload_bid();
 
         // Put the block on disk only, so the bid can only be found via the store fallback.
         harness.chain.store.put_block(&block_root, block).unwrap();
@@ -1994,13 +2038,13 @@ mod test {
             .expect("bid should be loaded from the store");
         assert_eq!(*bid, expected_bid);
 
-        // The disk-loaded bid should be promoted into the pending payload cache.
+        // Pure read: resolving a bid from the store must NOT insert it into the cache.
         assert!(
             harness
                 .chain
                 .pending_payload_cache
                 .get_bid(&block_root)
-                .is_some()
+                .is_none()
         );
 
         // An unknown block root yields no bid.
@@ -2382,10 +2426,13 @@ mod test {
         for i in 0..present_cells {
             bitmap.set(i, true).unwrap();
         }
-        let column: ProgressiveVariableList<_> =
-            (0..present_cells).map(|_| Cell::<E>::default()).collect();
-        let kzg_proofs: ProgressiveVariableList<_> =
-            (0..present_cells).map(|_| KzgProof::empty()).collect();
+        let column: ProgressiveVariableList<_, _> = ProgressiveVariableList::new(
+            (0..present_cells).map(|_| Cell::<E>::default()).collect(),
+        )
+        .unwrap();
+        let kzg_proofs: ProgressiveVariableList<_, _> =
+            ProgressiveVariableList::new((0..present_cells).map(|_| KzgProof::empty()).collect())
+                .unwrap();
         PartialDataColumnGloas {
             block_root,
             slot,
@@ -2399,27 +2446,26 @@ mod test {
         .into()
     }
 
-    /// Register a Gloas bid for `block_root` at `slot` in the chain's pending payload cache.
-    fn insert_gloas_bid(
-        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-        block_root: Hash256,
-        slot: Slot,
-    ) {
-        let mut bid = SignedExecutionPayloadBid::<E>::empty();
-        bid.message.slot = slot;
-        harness
-            .chain
-            .pending_payload_cache
-            .insert_bid(block_root, Arc::new(bid));
-    }
-
     async fn gloas_partial_slot_mismatch_returns_error(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     ) {
-        let block_root = Hash256::repeat_byte(0xb2);
-        insert_gloas_bid(harness, block_root, Slot::new(1));
-        // The column's slot disagrees with the registered bid's slot.
-        let column = gloas_partial_column(block_root, Slot::new(2), 1);
+        // A real imported block, whose bid resolves via load_gloas_payload_bid.
+        let head = harness.chain.head_snapshot();
+        let block_root = head.beacon_block_root;
+        let bid_slot = head
+            .beacon_block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .slot();
+        // A column slot that differs from the bid's but still passes the finalized/future gates.
+        let column_slot = if bid_slot == Slot::new(1) {
+            Slot::new(2)
+        } else {
+            Slot::new(1)
+        };
+        let column = gloas_partial_column(block_root, column_slot, 1);
         let result = validate_partial_data_column_sidecar_for_gossip(
             Box::new(column),
             &harness.chain,

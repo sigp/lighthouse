@@ -9,7 +9,7 @@ use educe::Educe;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::ProgressiveBitList;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitList, BitVector, ProgressiveVariableList};
+use ssz_types::{BitList, BitVector};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
@@ -270,19 +270,11 @@ impl<E: EthSpec> Attestation<E> {
     }
 
     pub fn is_aggregation_bits_zero(&self) -> bool {
-        match self {
-            Attestation::Base(att) => att.aggregation_bits.is_zero(),
-            Attestation::Electra(att) => att.aggregation_bits.is_zero(),
-            Attestation::Gloas(att) => att.aggregation_bits.is_zero(),
-        }
+        self.to_ref().is_aggregation_bits_zero()
     }
 
     pub fn num_set_aggregation_bits(&self) -> usize {
-        match self {
-            Attestation::Base(att) => att.aggregation_bits.num_set_bits(),
-            Attestation::Electra(att) => att.aggregation_bits.num_set_bits(),
-            Attestation::Gloas(att) => att.aggregation_bits.num_set_bits(),
-        }
+        self.to_ref().num_set_aggregation_bits()
     }
 
     pub fn get_aggregation_bit(&self, index: usize) -> Result<bool, ssz::BitfieldError> {
@@ -316,12 +308,11 @@ impl<E: EthSpec> Attestation<E> {
         }
     }
 
-    pub fn get_aggregation_bits(&self) -> Vec<u64> {
-        match self {
-            Self::Base(attn) => attn.get_aggregation_bits(),
-            Self::Electra(attn) => attn.get_aggregation_bits(),
-            Self::Gloas(attn) => attn.get_aggregation_bits(),
-        }
+    pub fn get_aggregation_bits<'a>(&'a self) -> Vec<u64> {
+        map_attestation_ref!(&'a _, self.to_ref(), |attestation, cons| {
+            cons(attestation);
+            attestation.get_aggregation_bits()
+        })
     }
 }
 
@@ -329,46 +320,41 @@ impl<'a, E: EthSpec> AttestationRefMut<'a, E> {
     /// Consuming variant of `data_mut` that ties the returned reference to the underlying
     /// attestation rather than to `self`, making it usable from closures.
     pub fn into_data_mut(self) -> &'a mut AttestationData {
-        match self {
-            Self::Base(att) => &mut att.data,
-            Self::Electra(att) => &mut att.data,
-            Self::Gloas(att) => &mut att.data,
-        }
+        map_attestation_ref_mut!(&'a _, self, |attestation, cons| {
+            let _: fn(_) -> AttestationRefMut<'a, E> = cons;
+            &mut attestation.data
+        })
     }
 
     /// Consuming variant of `signature_mut`, see [`Self::into_data_mut`].
     pub fn into_signature_mut(self) -> &'a mut AggregateSignature {
-        match self {
-            Self::Base(att) => &mut att.signature,
-            Self::Electra(att) => &mut att.signature,
-            Self::Gloas(att) => &mut att.signature,
-        }
+        map_attestation_ref_mut!(&'a _, self, |attestation, cons| {
+            let _: fn(_) -> AttestationRefMut<'a, E> = cons;
+            &mut attestation.signature
+        })
     }
 }
 
-impl<E: EthSpec> AttestationRef<'_, E> {
+impl<'a, E: EthSpec> AttestationRef<'a, E> {
     pub fn clone_as_attestation(self) -> Attestation<E> {
-        match self {
-            Self::Base(att) => Attestation::Base(att.clone()),
-            Self::Electra(att) => Attestation::Electra(att.clone()),
-            Self::Gloas(att) => Attestation::Gloas(att.clone()),
-        }
+        map_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.clone().into()
+        })
     }
 
     pub fn is_aggregation_bits_zero(self) -> bool {
-        match self {
-            Self::Base(att) => att.aggregation_bits.is_zero(),
-            Self::Electra(att) => att.aggregation_bits.is_zero(),
-            Self::Gloas(att) => att.aggregation_bits.is_zero(),
-        }
+        map_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.aggregation_bits.is_zero()
+        })
     }
 
     pub fn num_set_aggregation_bits(&self) -> usize {
-        match self {
-            Self::Base(att) => att.aggregation_bits.num_set_bits(),
-            Self::Electra(att) => att.aggregation_bits.num_set_bits(),
-            Self::Gloas(att) => att.aggregation_bits.num_set_bits(),
-        }
+        map_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.aggregation_bits.num_set_bits()
+        })
     }
 
     pub fn committee_index(&self) -> Option<u64> {
@@ -380,29 +366,16 @@ impl<E: EthSpec> AttestationRef<'_, E> {
     }
 
     pub fn set_aggregation_bits(&self) -> Vec<usize> {
-        match self {
-            Self::Base(att) => att
+        map_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation
                 .aggregation_bits
                 .iter()
                 .enumerate()
                 .filter(|(_i, bit)| *bit)
                 .map(|(i, _bit)| i)
-                .collect::<Vec<_>>(),
-            Self::Electra(att) => att
-                .aggregation_bits
-                .iter()
-                .enumerate()
-                .filter(|(_i, bit)| *bit)
-                .map(|(i, _bit)| i)
-                .collect::<Vec<_>>(),
-            Self::Gloas(att) => att
-                .aggregation_bits
-                .iter()
-                .enumerate()
-                .filter(|(_i, bit)| *bit)
-                .map(|(i, _bit)| i)
-                .collect::<Vec<_>>(),
-        }
+                .collect()
+        })
     }
 }
 
@@ -827,10 +800,9 @@ impl SingleAttestation {
     ) -> Result<IndexedAttestation<E>, ssz_types::Error> {
         if fork_name.gloas_enabled() {
             Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
-                attesting_indices: ProgressiveVariableList::new(vec![self.attester_index]),
+                attesting_indices: vec![self.attester_index].try_into()?,
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-                _phantom: std::marker::PhantomData,
             }))
         } else if fork_name.electra_enabled() {
             Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
@@ -862,8 +834,7 @@ mod tests {
     fn size_of_base() {
         use std::mem::size_of;
 
-        let aggregation_bits =
-            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxValidatorsPerCommittee>>();
+        let aggregation_bits = size_of::<BitList<<Spec as EthSpec>::MaxValidatorsPerCommittee>>();
         let attestation_data = size_of::<AttestationData>();
         let signature = size_of::<AggregateSignature>();
 
@@ -873,21 +844,16 @@ mod tests {
 
         let attestation_expected = aggregation_bits + attestation_data + signature;
         assert_eq!(attestation_expected, 576);
-        assert_eq!(
-            size_of::<AttestationBase<MainnetEthSpec>>(),
-            attestation_expected
-        );
+        assert_eq!(size_of::<AttestationBase<Spec>>(), attestation_expected);
     }
 
     #[test]
     fn size_of_electra() {
         use std::mem::size_of;
 
-        let aggregation_bits =
-            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxValidatorsPerSlot>>();
+        let aggregation_bits = size_of::<BitList<<Spec as EthSpec>::MaxValidatorsPerSlot>>();
         let attestation_data = size_of::<AttestationData>();
-        let committee_bits =
-            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxCommitteesPerSlot>>();
+        let committee_bits = size_of::<BitList<<Spec as EthSpec>::MaxCommitteesPerSlot>>();
         let signature = size_of::<AggregateSignature>();
 
         assert_eq!(aggregation_bits, 144);
@@ -897,18 +863,15 @@ mod tests {
 
         let attestation_expected = aggregation_bits + committee_bits + attestation_data + signature;
         assert_eq!(attestation_expected, 720);
-        assert_eq!(
-            size_of::<AttestationElectra<MainnetEthSpec>>(),
-            attestation_expected
-        );
+        assert_eq!(size_of::<AttestationElectra<Spec>>(), attestation_expected);
     }
 
     mod base {
         use super::*;
-        ssz_and_tree_hash_tests!(AttestationBase<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttestationBase<Spec>);
     }
     mod electra {
         use super::*;
-        ssz_and_tree_hash_tests!(AttestationElectra<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttestationElectra<Spec>);
     }
 }

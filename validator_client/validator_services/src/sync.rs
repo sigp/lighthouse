@@ -225,6 +225,32 @@ impl SyncDutiesMap {
         })
     }
 
+    /// Store a selection proof for `validator_index`, as `fill_in_aggregation_proofs` does.
+    #[cfg(test)]
+    pub(crate) fn insert_proof(
+        &self,
+        committee_period: u64,
+        validator_index: u64,
+        slot: Slot,
+        subnet_id: SyncSubnetId,
+        proof: SyncSelectionProof,
+    ) {
+        let committees = self.committees.read();
+        let validators = committees
+            .get(&committee_period)
+            .expect("duties should exist for period")
+            .validators
+            .read();
+        validators
+            .get(&validator_index)
+            .and_then(Option::as_ref)
+            .expect("validator should have a sync duty")
+            .aggregation_duties
+            .proofs
+            .write()
+            .insert((slot, subnet_id), proof);
+    }
+
     /// Prune duties for past sync committee periods from the map.
     fn prune(&self, current_sync_committee_period: u64) {
         self.committees

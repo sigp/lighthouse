@@ -1,5 +1,8 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
-use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, beacon_head_monitor::HeadEvent};
+use beacon_node_fallback::{
+    ApiTopic, BeaconNodeFallback,
+    beacon_head_monitor::{HeadEvent, head_event_or_deadline},
+};
 use futures::StreamExt;
 use logging::crit;
 use slot_clock::SlotClock;
@@ -7,8 +10,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::sync::Mutex;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, broadcast};
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use tree_hash::TreeHash;
@@ -24,7 +26,7 @@ pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> 
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: Option<TaskExecutor>,
     chain_spec: Option<Arc<ChainSpec>>,
-    head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
+    head_monitor_rx: Option<broadcast::Receiver<HeadEvent>>,
     disable: bool,
 }
 
@@ -79,7 +81,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
 
     pub fn head_monitor_rx(
         mut self,
-        head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
+        head_monitor_rx: Option<broadcast::Receiver<HeadEvent>>,
     ) -> Self {
         self.head_monitor_rx = head_monitor_rx;
         self
@@ -105,7 +107,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
                 chain_spec: self
                     .chain_spec
                     .ok_or("Cannot build AttestationService without chain_spec")?,
-                head_monitor_rx: self.head_monitor_rx,
+                head_monitor_rx: Mutex::new(self.head_monitor_rx),
                 disable: self.disable,
                 latest_attested_slot: Mutex::new(Slot::default()),
             }),
@@ -121,7 +123,7 @@ pub struct Inner<S, T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
-    head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
+    head_monitor_rx: Mutex<Option<broadcast::Receiver<HeadEvent>>>,
     disable: bool,
     latest_attested_slot: Mutex<Slot>,
 }
@@ -191,6 +193,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let executor = self.executor.clone();
 
         let interval_fut = async move {
+            let mut head_monitor_rx = self.head_monitor_rx.lock().await.take();
             loop {
                 let Some(now) = self.slot_clock.now_duration() else {
                     error!("Failed to read slot clock");
@@ -206,16 +209,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 };
 
-                let beacon_node_data = if self.head_monitor_rx.is_some() {
-                    tokio::select! {
-                        _ = sleep(duration_to_attestation_deadline) => None,
-                        event = self.poll_for_head_events() =>
-                            event.map(|event| (event.beacon_node_index, event.beacon_block_root)),
-                    }
-                } else {
-                    sleep(duration_to_attestation_deadline).await;
-                    None
-                };
+                let beacon_node_data = head_event_or_deadline(
+                    &mut head_monitor_rx,
+                    &self.slot_clock,
+                    duration_to_attestation_deadline,
+                )
+                .await
+                .map(|event| (event.beacon_node_index, event.beacon_block_root));
 
                 let Some(current_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock after trigger");
@@ -242,30 +242,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         executor.spawn(interval_fut, "attestation_service");
         Ok(())
-    }
-
-    async fn poll_for_head_events(&self) -> Option<HeadEvent> {
-        let Some(receiver) = &self.head_monitor_rx else {
-            return None;
-        };
-        let mut receiver = receiver.lock().await;
-        loop {
-            match receiver.recv().await {
-                Some(head_event) => {
-                    // Only return head events for the current slot - this ensures the
-                    // block for this slot has been produced before triggering attestation
-                    let current_slot = self.slot_clock.now()?;
-                    if head_event.slot == current_slot {
-                        return Some(head_event);
-                    }
-                    // Head event is for a previous slot, keep waiting
-                }
-                None => {
-                    warn!("Head monitor channel closed unexpectedly");
-                    return None;
-                }
-            }
-        }
     }
 
     /// Spawn only one new task for attestation post-Electra
@@ -853,11 +829,11 @@ mod tests {
     use futures::future::FutureExt;
     use parking_lot::RwLock;
     use slot_clock::ManualSlotClock;
-    use types::{Epoch, MainnetEthSpec};
+    use types::{Epoch, Spec};
 
     #[test]
     fn duration_to_attestation_deadline_is_fork_aware() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
         let mut spec = E::default_spec();
         let gloas_fork_epoch = Epoch::new(1);
@@ -868,25 +844,28 @@ mod tests {
         let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
         let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
         let last_pre_gloas_slot = first_gloas_slot - 1;
+        let due = |bps| spec.compute_slot_component_duration(bps).unwrap();
+        let pre_gloas_due = due(spec.attestation_due_bps);
+        let gloas_due = due(spec.attestation_due_bps_gloas);
 
         let test_cases = [
             (
                 "pre-genesis",
                 genesis_time - Duration::from_secs(1),
                 slot_clock.genesis_slot(),
-                Duration::from_millis(4999),
+                Duration::from_secs(1) + pre_gloas_due,
             ),
             (
                 "pre-Gloas",
                 slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
                 last_pre_gloas_slot,
-                Duration::from_millis(15999),
+                slot_duration + pre_gloas_due,
             ),
             (
                 "post-Gloas",
                 slot_clock.start_of(last_pre_gloas_slot).unwrap(),
                 first_gloas_slot,
-                Duration::from_millis(15000),
+                slot_duration + gloas_due,
             ),
         ];
 

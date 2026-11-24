@@ -1,4 +1,6 @@
-use crate::{BuilderHttpClient, Error as BuilderClientError};
+use crate::bid_streams::{StreamBid, StreamFallback};
+use crate::metrics;
+use crate::{BidStreams, BuilderHttpClient, Error as BuilderClientError};
 use bls::PublicKeyBytes;
 use eth2::types::{
     BuilderEntry, BuilderPreferenceEntry, BuilderPreferences, BuilderPreferencesRequest,
@@ -51,13 +53,22 @@ pub struct BidRequestContext {
     pub fork_name: ForkName,
 }
 
+impl BidRequestContext {
+    /// Whether `other` builds on the same parent block and execution payload.
+    pub(crate) fn same_parent_as(&self, other: &Self) -> bool {
+        self.executed_ancestor_hash == other.executed_ancestor_hash
+            && self.parent_root == other.parent_root
+    }
+}
+
 /// Orchestrates direct builder bid requests.
 ///
 /// Fans `getExecutionPayloadBid` out to the builders a proposer configured and returns the validated
-/// bids for the block producer to rank against the local and gossip payloads. Stateless — it holds
-/// no bids between requests.
-pub struct Builders {
+/// bids for the block producer to rank against the local and gossip payloads. With bid streams
+/// enabled, an entry's stream bid can stand in for the request (see [`BidStreams`]).
+pub struct Builders<E: EthSpec> {
     client: Arc<BuilderHttpClient>,
+    bid_streams: Option<Arc<BidStreams<E>>>,
 }
 
 /// A single failed builder-preference submission, identified by its position in the submitted list.
@@ -68,9 +79,23 @@ pub struct SubmissionFailure {
     pub error: BuilderClientError,
 }
 
-impl Builders {
+impl<E: EthSpec> Builders<E> {
     pub fn new(client: Arc<BuilderHttpClient>) -> Self {
-        Self { client }
+        Self {
+            client,
+            bid_streams: None,
+        }
+    }
+
+    /// Use `bid_streams` for the entries that have a stream bid at block production.
+    pub fn with_bid_streams(mut self, bid_streams: Arc<BidStreams<E>>) -> Self {
+        self.bid_streams = Some(bid_streams);
+        self
+    }
+
+    /// The bid streams, when enabled.
+    pub fn bid_streams(&self) -> Option<&BidStreams<E>> {
+        self.bid_streams.as_deref()
     }
 
     /// Forward a signed beacon block to the builder that won this slot's bid, via
@@ -78,7 +103,7 @@ impl Builders {
     ///
     /// Submitted as JSON: the builder's SSZ preference from bid time isn't carried across the
     /// `Eth-Builder-Url` header round-trip, and builders must accept JSON.
-    pub async fn forward_signed_block<E: EthSpec>(
+    pub async fn forward_signed_block(
         &self,
         builder_url: &SensitiveUrl,
         block: &SignedBeaconBlock<E>,
@@ -109,9 +134,12 @@ impl Builders {
     /// does not hold up the others. A failure, timeout, empty (204) response, or validation error
     /// for one builder is isolated: it is logged and that bid is skipped.
     ///
+    /// With bid streams enabled, an entry's bid comes from its stream or a request, as described
+    /// in [`crate::bid_streams`], and the proposal's streams are closed.
+    ///
     /// Returns every bid that passed validation; the block producer turns each into a selection
     /// candidate and ranks them.
-    pub async fn request_and_validate_bids<E: EthSpec, F, Fut, Err>(
+    pub async fn request_and_validate_bids<F, Fut, Err>(
         &self,
         ctx: &BidRequestContext,
         entries: &[BuilderEntry],
@@ -141,54 +169,109 @@ impl Builders {
             targets.push((url, entry));
         }
 
-        // Run one pipeline per builder — request, then the producer's `validate` callback — and let
-        // them run concurrently across builders. Each request carries its own timeout, so a slow
-        // builder cannot delay the others.
-        let client = &self.client;
-        let validate = &validate;
-        let pipelines = targets.iter().map(|(url, entry)| async move {
-            let response = client
-                .get_execution_payload_bid::<E>(
-                    url,
-                    ctx.slot,
-                    ctx.executed_ancestor_hash,
-                    ctx.parent_root,
-                    &ctx.proposer_pubkey,
-                    &entry.auth,
-                    ctx.fork_name,
-                )
-                .await;
+        // Block production either uses the stream bids or requests over HTTP, so the streams
+        // have nothing left to do: taking the bids closes them.
+        let stream_bids: Vec<_> = match self.bid_streams.as_deref() {
+            Some(bid_streams) => bid_streams
+                .take_bids(ctx, targets.iter().map(|(_, entry)| *entry))
+                .into_iter()
+                .map(Some)
+                .collect(),
+            None => targets.iter().map(|_| None).collect(),
+        };
 
-            match response {
-                Ok(Some(bid)) => {
-                    let direct_bid = DirectBid {
-                        signed_bid: Arc::new(bid),
-                        builder_url: url.clone(),
-                        max_execution_payment: entry.max_execution_payment,
-                        builder_boost_factor: entry.builder_boost_factor,
-                        min_bid: entry.min_bid,
-                    };
+        // Run one pipeline per builder and let them run concurrently across builders. Each
+        // request carries its own timeout, so a slow builder cannot delay the others.
+        let pipelines = targets
+            .iter()
+            .zip(stream_bids)
+            .map(|((url, entry), stream_bid)| {
+                self.bid_for_entry(ctx, url, entry, stream_bid, &validate)
+            });
+        join_all(pipelines).await.into_iter().flatten().collect()
+    }
 
-                    if let Err(error) =
-                        validate(direct_bid.signed_bid.clone(), entry.builder_pubkeys.clone()).await
-                    {
-                        warn!(url = ?url, %error, "Builder bid failed validation");
-                        return None;
+    /// One entry's bid: its stream bid or a request, as described in [`crate::bid_streams`].
+    /// `stream_bid` is `None` without bid streams.
+    async fn bid_for_entry<F, Fut, Err>(
+        &self,
+        ctx: &BidRequestContext,
+        url: &SensitiveUrl,
+        entry: &BuilderEntry,
+        stream_bid: Option<Result<StreamBid, StreamFallback>>,
+        validate: &F,
+    ) -> Option<DirectBid<E>>
+    where
+        F: Fn(Arc<SignedExecutionPayloadBid<E>>, BuilderPubkeys) -> Fut,
+        Fut: Future<Output = Result<(), Err>>,
+        Err: Display,
+    {
+        let (Some(bid_streams), Some(stream_bid)) = (self.bid_streams.as_deref(), stream_bid)
+        else {
+            return self.request_bid(ctx, url, entry, validate).await;
+        };
+        match stream_bid {
+            Ok(stream_bid) => {
+                match validate_stream_bid(bid_streams, ctx, url, entry, stream_bid, validate).await
+                {
+                    Ok(direct_bid) => return Some(direct_bid),
+                    Err(error) => {
+                        warn!(url = ?url, %error, "Streamed builder bid failed validation");
+                        record_fallback(url, StreamFallback::InvalidBid);
                     }
-                    Some(direct_bid)
-                }
-                Ok(None) => {
-                    debug!(url = ?url, "Builder returned no bid");
-                    None
-                }
-                Err(error) => {
-                    warn!(url = ?url, error = %error, "Builder bid request failed");
-                    None
                 }
             }
-        });
+            Err(StreamFallback::NoBid) => {
+                record_fallback(url, StreamFallback::NoBid);
+                return None;
+            }
+            Err(fallback) => record_fallback(url, fallback),
+        }
+        self.request_bid(ctx, url, entry, validate).await
+    }
 
-        join_all(pipelines).await.into_iter().flatten().collect()
+    /// Request a bid from the entry's builder and validate it.
+    async fn request_bid<F, Fut, Err>(
+        &self,
+        ctx: &BidRequestContext,
+        url: &SensitiveUrl,
+        entry: &BuilderEntry,
+        validate: &F,
+    ) -> Option<DirectBid<E>>
+    where
+        F: Fn(Arc<SignedExecutionPayloadBid<E>>, BuilderPubkeys) -> Fut,
+        Fut: Future<Output = Result<(), Err>>,
+        Err: Display,
+    {
+        let response = self
+            .client
+            .get_execution_payload_bid::<E>(
+                url,
+                ctx.slot,
+                ctx.executed_ancestor_hash,
+                ctx.parent_root,
+                &ctx.proposer_pubkey,
+                &entry.auth,
+                ctx.fork_name,
+            )
+            .await;
+
+        match response {
+            Ok(Some(bid)) => validate_bid(url, entry, Arc::new(bid), "http", validate)
+                .await
+                .inspect_err(|error| {
+                    warn!(url = ?url, %error, "Builder bid failed validation");
+                })
+                .ok(),
+            Ok(None) => {
+                debug!(url = ?url, "Builder returned no bid");
+                None
+            }
+            Err(error) => {
+                warn!(url = ?url, error = %error, "Builder bid request failed");
+                None
+            }
+        }
     }
 
     /// Submit a proposer's builder preferences to each entry's builder, concurrently and
@@ -244,19 +327,76 @@ impl Builders {
     }
 }
 
+/// Validate `signed_bid` as the entry's bid, counting its `source` when it passes.
+async fn validate_bid<E, F, Fut, Err>(
+    url: &SensitiveUrl,
+    entry: &BuilderEntry,
+    signed_bid: Arc<SignedExecutionPayloadBid<E>>,
+    source: &'static str,
+    validate: &F,
+) -> Result<DirectBid<E>, Err>
+where
+    E: EthSpec,
+    F: Fn(Arc<SignedExecutionPayloadBid<E>>, BuilderPubkeys) -> Fut,
+    Fut: Future<Output = Result<(), Err>>,
+{
+    validate(signed_bid.clone(), entry.builder_pubkeys.clone()).await?;
+    metrics::inc_counter_vec(&metrics::BUILDER_BID_SOURCE, &[source]);
+    Ok(DirectBid {
+        signed_bid,
+        builder_url: url.clone(),
+        max_execution_payment: entry.max_execution_payment,
+        builder_boost_factor: entry.builder_boost_factor,
+        min_bid: entry.min_bid,
+    })
+}
+
+/// Decode and validate a stream bid, observing its age when it passes.
+async fn validate_stream_bid<E, F, Fut, Err>(
+    bid_streams: &BidStreams<E>,
+    ctx: &BidRequestContext,
+    url: &SensitiveUrl,
+    entry: &BuilderEntry,
+    stream_bid: StreamBid,
+    validate: &F,
+) -> Result<DirectBid<E>, String>
+where
+    E: EthSpec,
+    F: Fn(Arc<SignedExecutionPayloadBid<E>>, BuilderPubkeys) -> Fut,
+    Fut: Future<Output = Result<(), Err>>,
+    Err: Display,
+{
+    let signed_bid = bid_streams
+        .decode_bid(stream_bid.bid_ssz, ctx.fork_name)
+        .await?;
+    let direct_bid = validate_bid(url, entry, signed_bid, "stream", validate)
+        .await
+        .map_err(|error| error.to_string())?;
+    metrics::observe_duration(
+        &metrics::BUILDER_BID_STREAM_BID_AGE,
+        stream_bid.received_at.elapsed(),
+    );
+    Ok(direct_bid)
+}
+
+fn record_fallback(url: &SensitiveUrl, fallback: StreamFallback) {
+    debug!(url = ?url, reason = fallback.as_str(), "No usable builder stream bid");
+    metrics::inc_counter_vec(&metrics::BUILDER_BID_STREAM_FALLBACKS, &[fallback.as_str()]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use bls::Signature;
     use eth2::types::beacon_response::EmptyMetadata;
     use eth2::types::{
-        ExecutionPayloadBid, ForkName, ForkVersionedResponse, MainnetEthSpec, RequestAuth,
-        RequestAuthData, SignedExecutionPayloadBid, SignedRequestAuth,
+        ExecutionPayloadBidGloas, ForkName, ForkVersionedResponse, RequestAuth, RequestAuthData,
+        SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedRequestAuth, Spec,
     };
     use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER};
     use mockito::{Matcher, Mock, Server, ServerGuard};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     const BID_PATH: &str = r"^/eth/v1/builder/execution_payload_bid/.+$";
 
@@ -281,16 +421,16 @@ mod tests {
         let body = ForkVersionedResponse {
             version: ForkName::Gloas,
             metadata: EmptyMetadata {},
-            data: SignedExecutionPayloadBid::<E> {
-                message: ExecutionPayloadBid {
+            data: SignedExecutionPayloadBid::<E>::Gloas(SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
                     slot: Slot::new(1),
                     parent_block_hash: ExecutionBlockHash::zero(),
                     parent_block_root: Hash256::ZERO,
                     value,
-                    ..ExecutionPayloadBid::default()
+                    ..ExecutionPayloadBidGloas::default()
                 },
                 signature: Signature::empty(),
-            },
+            }),
         };
         serde_json::to_string(&body).unwrap()
     }
@@ -315,7 +455,7 @@ mod tests {
         }
     }
 
-    fn builders() -> Builders {
+    fn builders() -> Builders<E> {
         Builders::new(Arc::new(BuilderHttpClient::new(None, false).unwrap()))
     }
 
@@ -334,7 +474,10 @@ mod tests {
                 Ok::<(), String>(())
             })
             .await;
-        let mut values: Vec<u64> = bids.iter().map(|b| b.signed_bid.message.value).collect();
+        let mut values: Vec<u64> = bids
+            .iter()
+            .map(|b| b.signed_bid.message().value())
+            .collect();
         values.sort_unstable();
         assert_eq!(values, vec![100, 200]);
     }

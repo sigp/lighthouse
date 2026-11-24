@@ -3,7 +3,6 @@ use bls::PublicKeyBytes;
 use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
 use ssz_types::{BitVector, FixedVector};
-use std::marker::PhantomData;
 use std::{
     collections::{HashMap, HashSet},
     mem,
@@ -13,8 +12,8 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
-    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
-    PendingDeposit, ProgressiveKzgCommitments,
+    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBidGloas, ExecutionRequestsGloas,
+    Fork, PendingDeposit, ProgressiveKzgCommitments,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     is_builder_withdrawal_credential,
 };
@@ -121,7 +120,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        latest_execution_payload_bid: ExecutionPayloadBid {
+        latest_execution_payload_bid: ExecutionPayloadBidGloas {
             parent_block_hash: pre.latest_execution_payload_header.parent_hash,
             parent_block_root: pre.latest_block_header.parent_root,
             block_hash: pre.latest_execution_payload_header.block_hash,
@@ -132,9 +131,8 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
             slot: pre.latest_block_header.slot,
             value: 0,
             execution_payment: 0,
-            blob_kzg_commitments: ProgressiveKzgCommitments::default(),
+            blob_kzg_commitments: ProgressiveKzgCommitments::<E>::default(),
             execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
-            _phantom: PhantomData,
         },
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
@@ -319,7 +317,8 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     Ok(())
 }
 
-#[cfg(all(test, not(feature = "fake_crypto")))]
+// Too slow in debug builds.
+#[cfg(all(test, not(debug_assertions), not(feature = "fake_crypto")))]
 mod tests {
     use super::*;
     use crate::builder_deposits_cache::OnboardBuildersCache;
@@ -327,13 +326,14 @@ mod tests {
     use bls::{Keypair, SignatureBytes};
     use std::sync::Arc;
     use types::{
-        DepositData, Epoch, ForkName, MinimalEthSpec, Slot,
-        test_utils::generate_deterministic_keypairs,
+        DepositData, Epoch, ForkName, Slot, Spec, test_utils::generate_deterministic_keypairs,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
-    const VALIDATOR_COUNT: usize = 8;
+    fn validator_count() -> usize {
+        E::slots_per_epoch() as usize
+    }
 
     fn builder_credentials(spec: &ChainSpec) -> types::Hash256 {
         let mut credentials = [0u8; 32];
@@ -398,7 +398,7 @@ mod tests {
 
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
-            .deterministic_keypairs(VALIDATOR_COUNT)
+            .deterministic_keypairs(validator_count())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build();
@@ -406,8 +406,8 @@ mod tests {
         let mut pre_state = harness.get_current_state();
 
         // Fresh keypairs, distinct from the interop validator set.
-        let keypairs = generate_deterministic_keypairs(VALIDATOR_COUNT + 6);
-        let new_keys = &keypairs[VALIDATOR_COUNT..];
+        let keypairs = generate_deterministic_keypairs(validator_count() + 6);
+        let new_keys = &keypairs[validator_count()..];
 
         let existing_validator_pubkey = harness.validator_keypairs[0].pk.compress();
         let existing_validator_deposit = PendingDeposit {

@@ -470,7 +470,7 @@ mod tests {
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
     use types::{
-        Epoch, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage, Slot,
+        Epoch, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage, Slot, Spec,
     };
     use validator_test_rig::mock_validator_store::MockValidatorStore;
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
@@ -608,19 +608,23 @@ mod tests {
     async fn test_wait_for_attestation_slot_at_fork_boundary() {
         tokio::time::pause();
 
-        // Gloas activates at epoch 1, i.e. fork slot 32. The clock starts at slot 0.
+        // Gloas activates at epoch 1. The clock starts at slot 0.
         let harness =
             TestHarness::create_validators_with_gloas_fork_epoch(1, None, Epoch::new(1)).await;
         let service = &harness.service;
         let slot_clock = &harness.service.slot_clock;
+        let fork_slot = Epoch::new(1).start_slot(Spec::slots_per_epoch());
+        let last_pre_fork_slot = fork_slot - 1;
 
         // First iteration: the next slot (1) is pre-Gloas, so the service sleeps until one
-        // slot before the fork (slot 31 starts at 372s) and returns None.
+        // slot before the fork and returns None.
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
         assert!(service_wait.as_mut().now_or_never().is_none());
 
-        advance_time(slot_clock, Duration::from_secs(372)).await;
+        let to_last_pre_fork_slot =
+            slot_clock.start_of(last_pre_fork_slot).unwrap() - slot_clock.now_duration().unwrap();
+        advance_time(slot_clock, to_last_pre_fork_slot).await;
         assert!(
             service_wait.as_mut().now_or_never().is_none(),
             "Pre-Gloas sleep should not end before one slot ahead of the fork"
@@ -631,15 +635,19 @@ mod tests {
             None,
             "Pre-Gloas iteration should wake at the last pre-fork slot and return None"
         );
-        assert_eq!(slot_clock.now().unwrap(), Slot::new(31));
+        assert_eq!(slot_clock.now().unwrap(), last_pre_fork_slot);
 
-        // Second iteration: runs during slot 31, so it arms the attestation for the first
-        // Gloas slot (32) and wakes 75% into it (slot 32 starts at 384s, due at 393s).
+        // Second iteration: runs during the last pre-fork slot, so it arms the attestation for
+        // the first Gloas slot and wakes at that slot's payload attestation deadline.
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
         assert!(service_wait.as_mut().now_or_never().is_none());
 
-        advance_time(slot_clock, Duration::from_secs(20)).await;
+        // We are 1s into the last pre-fork slot.
+        let to_deadline = service.chain_spec.get_slot_duration()
+            + service.chain_spec.get_payload_attestation_due()
+            - Duration::from_secs(1);
+        advance_time(slot_clock, to_deadline).await;
         assert!(
             service_wait.as_mut().now_or_never().is_none(),
             "Should not fire before the payload attestation deadline of the fork slot"
@@ -647,7 +655,7 @@ mod tests {
         advance_time(slot_clock, Duration::from_secs(1)).await;
         assert_eq!(
             service_wait.as_mut().now_or_never().unwrap(),
-            Some(Slot::new(32)),
+            Some(fork_slot),
             "The first Gloas slot must be attested"
         );
     }
@@ -824,6 +832,32 @@ mod tests {
                 .unwrap()
                 .is_empty(),
             "No payload attestation should be published when there are no duties"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_payload_attestation_data_no_block() {
+        let mut test_harness = TestHarness::new_with_validators(1, None).await;
+
+        let attestation_slot = Slot::new(1);
+        // We have PTC duties
+        test_harness.insert_ptc_duties(attestation_slot);
+
+        // However, the beacon node has not received a block for the slot, so it returns a 204
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data_no_block(attestation_slot);
+
+        // A 204 is not an error, data production returns `None` so there is nothing to publish
+        let data = test_harness
+            .service
+            .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(attestation_slot))
+            .await
+            .unwrap();
+        assert!(
+            data.is_none(),
+            "Expected no data to be produced when there is no block for the slot"
         );
     }
 

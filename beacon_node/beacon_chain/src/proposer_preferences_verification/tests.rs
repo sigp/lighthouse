@@ -5,13 +5,12 @@ use bls::Signature;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use parking_lot::{Mutex, RwLock};
-use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
 use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec,
-    ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
+    Address, BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Hash256, ProposerPreferences,
+    SignedBeaconBlock, SignedProposerPreferences, Slot, Spec,
 };
 
 use crate::{
@@ -32,7 +31,7 @@ use crate::{
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 const NUM_VALIDATORS: usize = 64;
@@ -93,14 +92,17 @@ impl TestContext {
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), snapshot.clone())
             .expect("should create fork choice store");
-        let fork_choice =
+        let mut fork_choice =
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
+        let head_node = fork_choice
+            .get_head(Slot::new(0), &spec)
+            .expect("should run get_head");
 
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(snapshot),
-            PayloadStatus::Pending,
+            head_node,
             FastConfirmationMode::Disabled,
             &store,
             &spec,

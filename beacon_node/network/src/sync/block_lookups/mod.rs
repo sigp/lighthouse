@@ -570,6 +570,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.on_lookup_result(lookup_id, lookup_result, "processing_result", cx);
     }
 
+    pub fn has_lookup_for_block(&self, block_root: Hash256) -> bool {
+        self.single_block_lookups
+            .values()
+            .any(|lookup| lookup.is_for_block(block_root))
+    }
+
     pub fn has_any_awaiting_children(&self, block_root: Hash256) -> bool {
         self.single_block_lookups
             .iter()

@@ -5,15 +5,9 @@ use std::{
 
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
-use typenum::{
-    U0, U1, U2, U4, U8, U16, U17, U24, U32, U48, U64, U96, U128, U256, U512, U625, U1024, U2048,
-    U4096, U8192, U16384, U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728,
-    U1073741824, U1099511627776, UInt, Unsigned, bit::B0,
-};
+use typenum::{U, Unsigned};
 
 use crate::core::{ChainSpec, Epoch};
-
-type U5000 = UInt<UInt<UInt<U625, B0>, B0>, B0>; // 625 * 8 = 5000
 
 const MAINNET: &str = "mainnet";
 const MINIMAL: &str = "minimal";
@@ -99,7 +93,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxTransactionsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerLogsBloom: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type GasLimitDenominator: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MinGasLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxExtraDataBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * New in Capella
@@ -457,14 +450,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_ATTESTER_SLASHING_SIZE` constant for this specification.
     fn max_attester_slashing_size() -> usize;
 
-    /// Returns the `MAX_DATA_COLUMN_SIDECAR_SIZE` constant for this specification.
-    fn max_data_column_sidecar_size() -> usize;
-
-    /// Returns the `MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE` constant for this specification.
-    fn max_partial_data_column_sidecar_size() -> usize;
-
     /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE` constant for this specification.
     fn max_signed_execution_payload_bid_size() -> usize;
+
+    /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_HEZE` constant for this specification.
+    fn max_signed_execution_payload_bid_size_heze() -> usize;
+
+    /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant for this specification.
+    fn max_signed_inclusion_list_size() -> usize;
 
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn payload_timely_threshold() -> usize {
@@ -482,12 +475,73 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     }
 }
 
-/// Macro to inherit some type values from another EthSpec.
-#[macro_export]
-macro_rules! params_from_eth_spec {
-    ($spec_ty:ty { $($ty_name:ident),+ }) => {
-        $(type $ty_name = <$spec_ty as EthSpec>::$ty_name;)+
-    }
+/// Sets each typenum type from its preset const (the values are in `spec.rs`).
+macro_rules! preset_types {
+    ($spec:ident) => {
+        type GenesisEpoch = U<{ $spec::GENESIS_EPOCH }>;
+        type JustificationBitsLength = U<{ $spec::JUSTIFICATION_BITS_LENGTH }>;
+        type SubnetBitfieldLength = U<{ $spec::SUBNET_BITFIELD_LENGTH }>;
+        type MaxValidatorsPerCommittee = U<{ $spec::MAX_VALIDATORS_PER_COMMITTEE }>;
+        type MaxCommitteesPerSlot = U<{ $spec::MAX_COMMITTEES_PER_SLOT }>;
+        type MaxValidatorsPerSlot = U<{ $spec::MAX_VALIDATORS_PER_SLOT }>;
+        type SlotsPerEpoch = U<{ $spec::SLOTS_PER_EPOCH }>;
+        type EpochsPerEth1VotingPeriod = U<{ $spec::EPOCHS_PER_ETH1_VOTING_PERIOD }>;
+        type SlotsPerHistoricalRoot = U<{ $spec::SLOTS_PER_HISTORICAL_ROOT }>;
+        type EpochsPerHistoricalVector = U<{ $spec::EPOCHS_PER_HISTORICAL_VECTOR }>;
+        type EpochsPerSlashingsVector = U<{ $spec::EPOCHS_PER_SLASHINGS_VECTOR }>;
+        type HistoricalRootsLimit = U<{ $spec::HISTORICAL_ROOTS_LIMIT }>;
+        type ValidatorRegistryLimit = U<{ $spec::VALIDATOR_REGISTRY_LIMIT }>;
+        type BuilderPendingPaymentsLimit = U<{ $spec::BUILDER_PENDING_PAYMENTS_LIMIT }>;
+        type MaxProposerSlashings = U<{ $spec::MAX_PROPOSER_SLASHINGS }>;
+        type MaxAttesterSlashings = U<{ $spec::MAX_ATTESTER_SLASHINGS }>;
+        type MaxAttestations = U<{ $spec::MAX_ATTESTATIONS }>;
+        type MaxDeposits = U<{ $spec::MAX_DEPOSITS }>;
+        type MaxVoluntaryExits = U<{ $spec::MAX_VOLUNTARY_EXITS }>;
+        type SyncCommitteeSize = U<{ $spec::SYNC_COMMITTEE_SIZE }>;
+        type SyncCommitteeSubnetCount = U<{ $spec::SYNC_COMMITTEE_SUBNET_COUNT }>;
+        type MaxBytesPerTransaction = U<{ $spec::MAX_BYTES_PER_TRANSACTION }>;
+        type MaxTransactionsPerPayload = U<{ $spec::MAX_TRANSACTIONS_PER_PAYLOAD }>;
+        type BytesPerLogsBloom = U<{ $spec::BYTES_PER_LOGS_BLOOM }>;
+        type GasLimitDenominator = U<{ $spec::GAS_LIMIT_DENOMINATOR }>;
+        type MaxExtraDataBytes = U<{ $spec::MAX_EXTRA_DATA_BYTES }>;
+        type MaxBlsToExecutionChanges = U<{ $spec::MAX_BLS_TO_EXECUTION_CHANGES }>;
+        type MaxWithdrawalsPerPayload = U<{ $spec::MAX_WITHDRAWALS_PER_PAYLOAD }>;
+        type MaxBlobCommitmentsPerBlock = U<{ $spec::MAX_BLOB_COMMITMENTS_PER_BLOCK }>;
+        type BytesPerFieldElement = U<{ $spec::BYTES_PER_FIELD_ELEMENT }>;
+        type FieldElementsPerBlob = U<{ $spec::FIELD_ELEMENTS_PER_BLOB }>;
+        type FieldElementsPerCell = U<{ $spec::FIELD_ELEMENTS_PER_CELL }>;
+        type FieldElementsPerExtBlob = U<{ $spec::FIELD_ELEMENTS_PER_EXT_BLOB }>;
+        type BytesPerBlob = U<{ $spec::BYTES_PER_BLOB }>;
+        type BytesPerCell = U<{ $spec::BYTES_PER_CELL }>;
+        type MaxCellsPerBlock = U<{ $spec::MAX_CELLS_PER_BLOCK }>;
+        type KzgCommitmentInclusionProofDepth = U<{ $spec::KZG_COMMITMENT_INCLUSION_PROOF_DEPTH }>;
+        type KzgCommitmentsInclusionProofDepth =
+            U<{ $spec::KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH }>;
+        type CellsPerExtBlob = U<{ $spec::CELLS_PER_EXT_BLOB }>;
+        type NumberOfColumns = U<{ $spec::NUMBER_OF_COLUMNS }>;
+        type ProposerLookaheadSlots = U<{ $spec::PROPOSER_LOOKAHEAD_SLOTS }>;
+        type SyncSubcommitteeSize = U<{ $spec::SYNC_SUBCOMMITTEE_SIZE }>;
+        type MaxPendingAttestations = U<{ $spec::MAX_PENDING_ATTESTATIONS }>;
+        type SlotsPerEth1VotingPeriod = U<{ $spec::SLOTS_PER_ETH1_VOTING_PERIOD }>;
+        type PendingDepositsLimit = U<{ $spec::PENDING_DEPOSITS_LIMIT }>;
+        type PendingPartialWithdrawalsLimit = U<{ $spec::PENDING_PARTIAL_WITHDRAWALS_LIMIT }>;
+        type PendingConsolidationsLimit = U<{ $spec::PENDING_CONSOLIDATIONS_LIMIT }>;
+        type MaxConsolidationRequestsPerPayload =
+            U<{ $spec::MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD }>;
+        type MaxDepositRequestsPerPayload = U<{ $spec::MAX_DEPOSIT_REQUESTS_PER_PAYLOAD }>;
+        type MaxAttesterSlashingsElectra = U<{ $spec::MAX_ATTESTER_SLASHINGS_ELECTRA }>;
+        type MaxAttestationsElectra = U<{ $spec::MAX_ATTESTATIONS_ELECTRA }>;
+        type MaxWithdrawalRequestsPerPayload = U<{ $spec::MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD }>;
+        type MaxPendingDepositsPerEpoch = U<{ $spec::MAX_PENDING_DEPOSITS_PER_EPOCH }>;
+        type PTCSize = U<{ $spec::PTC_SIZE }>;
+        type PtcWindowLength = U<{ $spec::PTC_WINDOW_LENGTH }>;
+        type MaxPayloadAttestations = U<{ $spec::MAX_PAYLOAD_ATTESTATIONS }>;
+        type MaxBuildersPerWithdrawalsSweep = U<{ $spec::MAX_BUILDERS_PER_WITHDRAWALS_SWEEP }>;
+        type MaxBuilderDepositRequestsPerPayload =
+            U<{ $spec::MAX_BUILDER_DEPOSIT_REQUESTS_PER_PAYLOAD }>;
+        type MaxBuilderExitRequestsPerPayload = U<{ $spec::MAX_BUILDER_EXIT_REQUESTS_PER_PAYLOAD }>;
+        type InclusionListCommitteeSize = U<{ $spec::INCLUSION_LIST_COMMITTEE_SIZE }>;
+    };
 }
 
 /// Ethereum Foundation specifications.
@@ -496,67 +550,7 @@ macro_rules! params_from_eth_spec {
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
-    type JustificationBitsLength = U4;
-    type SubnetBitfieldLength = U64;
-    type MaxValidatorsPerCommittee = U2048;
-    type MaxCommitteesPerSlot = U64;
-    type MaxValidatorsPerSlot = U131072;
-    type GenesisEpoch = U0;
-    type SlotsPerEpoch = U32;
-    type EpochsPerEth1VotingPeriod = U64;
-    type SlotsPerHistoricalRoot = U8192;
-    type EpochsPerHistoricalVector = U65536;
-    type EpochsPerSlashingsVector = U8192;
-    type HistoricalRootsLimit = U16777216;
-    type ValidatorRegistryLimit = U1099511627776;
-    type BuilderPendingPaymentsLimit = U64; // 2 * SLOTS_PER_EPOCH = 2 * 32 = 64
-    type MaxProposerSlashings = U16;
-    type MaxAttesterSlashings = U2;
-    type MaxAttestations = U128;
-    type MaxDeposits = U16;
-    type MaxVoluntaryExits = U16;
-    type SyncCommitteeSize = U512;
-    type SyncCommitteeSubnetCount = U4;
-    type MaxBytesPerTransaction = U1073741824; // 1,073,741,824
-    type MaxTransactionsPerPayload = U1048576; // 1,048,576
-    type BytesPerLogsBloom = U256;
-    type GasLimitDenominator = U1024;
-    type MinGasLimit = U5000;
-    type MaxExtraDataBytes = U32;
-    type MaxBlobCommitmentsPerBlock = U4096;
-    type BytesPerFieldElement = U32;
-    type FieldElementsPerBlob = U4096;
-    type FieldElementsPerCell = U64;
-    type FieldElementsPerExtBlob = U8192;
-    type BytesPerBlob = U131072;
-    type BytesPerCell = U2048;
-    type MaxCellsPerBlock = U33554432;
-    type KzgCommitmentInclusionProofDepth = U17;
-    type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
-    type CellsPerExtBlob = U128;
-    type NumberOfColumns = U128;
-    type ProposerLookaheadSlots = U64; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
-    type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
-    type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
-    type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
-    type MaxBlsToExecutionChanges = U16;
-    type MaxWithdrawalsPerPayload = U16;
-    type PendingDepositsLimit = U134217728;
-    type PendingPartialWithdrawalsLimit = U134217728;
-    type PendingConsolidationsLimit = U262144;
-    type MaxConsolidationRequestsPerPayload = U2;
-    type MaxDepositRequestsPerPayload = U8192;
-    type MaxAttesterSlashingsElectra = U1;
-    type MaxAttestationsElectra = U8;
-    type MaxWithdrawalRequestsPerPayload = U16;
-    type MaxPendingDepositsPerEpoch = U16;
-    type PTCSize = U512;
-    type PtcWindowLength = U96; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
-    type MaxPayloadAttestations = U4;
-    type MaxBuildersPerWithdrawalsSweep = U16384;
-    type MaxBuilderDepositRequestsPerPayload = U64;
-    type MaxBuilderExitRequestsPerPayload = U16;
-    type InclusionListCommitteeSize = U16;
+    preset_types!(MainnetEthSpec);
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -574,16 +568,16 @@ impl EthSpec for MainnetEthSpec {
         2097616
     }
 
-    fn max_data_column_sidecar_size() -> usize {
-        8585272
-    }
-
-    fn max_partial_data_column_sidecar_size() -> usize {
-        8585741
-    }
-
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
+    }
+
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
     }
 }
 
@@ -593,70 +587,7 @@ impl EthSpec for MainnetEthSpec {
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
-    type MaxCommitteesPerSlot = U4;
-    type MaxValidatorsPerSlot = U8192;
-    type SlotsPerEpoch = U8;
-    type EpochsPerEth1VotingPeriod = U4;
-    type SlotsPerHistoricalRoot = U64;
-    type EpochsPerHistoricalVector = U64;
-    type EpochsPerSlashingsVector = U64;
-    type SyncCommitteeSize = U32;
-    type SyncSubcommitteeSize = U8; // 32 committee size / 4 sync committee subnet count
-    type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
-    type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
-    type MaxWithdrawalsPerPayload = U4;
-    type FieldElementsPerBlob = U4096;
-    type BytesPerBlob = U131072;
-    type MaxBlobCommitmentsPerBlock = U4096;
-    type KzgCommitmentInclusionProofDepth = U17;
-    type PendingPartialWithdrawalsLimit = U64;
-    type PendingConsolidationsLimit = U64;
-    type FieldElementsPerCell = U64;
-    type FieldElementsPerExtBlob = U8192;
-    type MaxCellsPerBlock = U33554432;
-    type BytesPerCell = U2048;
-    type KzgCommitmentsInclusionProofDepth = U4;
-    type CellsPerExtBlob = U128;
-    type NumberOfColumns = U128;
-    type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
-    type BuilderPendingPaymentsLimit = U16; // 2 * SLOTS_PER_EPOCH = 2 * 8 = 16
-    type PTCSize = U16;
-    type PtcWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
-    type MaxBuildersPerWithdrawalsSweep = U16;
-
-    params_from_eth_spec!(MainnetEthSpec {
-        JustificationBitsLength,
-        SubnetBitfieldLength,
-        SyncCommitteeSubnetCount,
-        MaxValidatorsPerCommittee,
-        GenesisEpoch,
-        HistoricalRootsLimit,
-        ValidatorRegistryLimit,
-        MaxProposerSlashings,
-        MaxAttesterSlashings,
-        MaxAttestations,
-        MaxDeposits,
-        MaxVoluntaryExits,
-        MaxBytesPerTransaction,
-        MaxTransactionsPerPayload,
-        BytesPerLogsBloom,
-        GasLimitDenominator,
-        MinGasLimit,
-        MaxExtraDataBytes,
-        MaxBlsToExecutionChanges,
-        BytesPerFieldElement,
-        PendingDepositsLimit,
-        MaxPendingDepositsPerEpoch,
-        MaxConsolidationRequestsPerPayload,
-        MaxAttesterSlashingsElectra,
-        MaxAttestationsElectra,
-        MaxDepositRequestsPerPayload,
-        MaxWithdrawalRequestsPerPayload,
-        MaxPayloadAttestations,
-        MaxBuilderDepositRequestsPerPayload,
-        MaxBuilderExitRequestsPerPayload,
-        InclusionListCommitteeSize
-    });
+    preset_types!(MinimalEthSpec);
 
     fn default_spec() -> ChainSpec {
         ChainSpec::minimal()
@@ -674,16 +605,16 @@ impl EthSpec for MinimalEthSpec {
         131536
     }
 
-    fn max_data_column_sidecar_size() -> usize {
-        8585272
-    }
-
-    fn max_partial_data_column_sidecar_size() -> usize {
-        8585741
-    }
-
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
+    }
+
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
     }
 }
 
@@ -693,67 +624,7 @@ impl EthSpec for MinimalEthSpec {
 pub struct GnosisEthSpec;
 
 impl EthSpec for GnosisEthSpec {
-    type JustificationBitsLength = U4;
-    type SubnetBitfieldLength = U64;
-    type MaxValidatorsPerCommittee = U2048;
-    type MaxCommitteesPerSlot = U64;
-    type MaxValidatorsPerSlot = U131072;
-    type GenesisEpoch = U0;
-    type SlotsPerEpoch = U16;
-    type EpochsPerEth1VotingPeriod = U64;
-    type SlotsPerHistoricalRoot = U8192;
-    type EpochsPerHistoricalVector = U65536;
-    type EpochsPerSlashingsVector = U8192;
-    type HistoricalRootsLimit = U16777216;
-    type ValidatorRegistryLimit = U1099511627776;
-    type BuilderPendingPaymentsLimit = U32; // 2 * SLOTS_PER_EPOCH = 2 * 16 = 32
-    type MaxProposerSlashings = U16;
-    type MaxAttesterSlashings = U2;
-    type MaxAttestations = U128;
-    type MaxDeposits = U16;
-    type MaxVoluntaryExits = U16;
-    type SyncCommitteeSize = U512;
-    type SyncCommitteeSubnetCount = U4;
-    type MaxBytesPerTransaction = U1073741824; // 1,073,741,824
-    type MaxTransactionsPerPayload = U1048576; // 1,048,576
-    type BytesPerLogsBloom = U256;
-    type GasLimitDenominator = U1024;
-    type MinGasLimit = U5000;
-    type MaxExtraDataBytes = U32;
-    type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
-    type MaxPendingAttestations = U2048; // 128 max attestations * 16 slots per epoch
-    type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
-    type MaxBlsToExecutionChanges = U16;
-    type MaxWithdrawalsPerPayload = U8;
-    type MaxBlobCommitmentsPerBlock = U4096;
-    type FieldElementsPerBlob = U4096;
-    type BytesPerFieldElement = U32;
-    type BytesPerBlob = U131072;
-    type KzgCommitmentInclusionProofDepth = U17;
-    type PendingDepositsLimit = U134217728;
-    type PendingPartialWithdrawalsLimit = U134217728;
-    type PendingConsolidationsLimit = U262144;
-    type MaxConsolidationRequestsPerPayload = U2;
-    type MaxDepositRequestsPerPayload = U8192;
-    type MaxAttesterSlashingsElectra = U1;
-    type MaxAttestationsElectra = U8;
-    type MaxWithdrawalRequestsPerPayload = U16;
-    type MaxPendingDepositsPerEpoch = U16;
-    type FieldElementsPerCell = U64;
-    type FieldElementsPerExtBlob = U8192;
-    type MaxCellsPerBlock = U33554432;
-    type BytesPerCell = U2048;
-    type KzgCommitmentsInclusionProofDepth = U4;
-    type CellsPerExtBlob = U128;
-    type NumberOfColumns = U128;
-    type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
-    type PTCSize = U512;
-    type PtcWindowLength = U48; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
-    type MaxPayloadAttestations = U2;
-    type MaxBuildersPerWithdrawalsSweep = U16384;
-    type MaxBuilderDepositRequestsPerPayload = U64;
-    type MaxBuilderExitRequestsPerPayload = U16;
-    type InclusionListCommitteeSize = U16;
+    preset_types!(GnosisEthSpec);
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
@@ -771,22 +642,22 @@ impl EthSpec for GnosisEthSpec {
         2097616
     }
 
-    fn max_data_column_sidecar_size() -> usize {
-        8585272
-    }
-
-    fn max_partial_data_column_sidecar_size() -> usize {
-        8585741
-    }
-
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
+    }
+
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec, Spec};
     use typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
@@ -816,5 +687,11 @@ mod test {
     #[test]
     fn gnosis_spec() {
         assert_valid_spec::<GnosisEthSpec>();
+    }
+
+    /// Whichever preset was compiled in must be a valid one.
+    #[test]
+    fn compiled_spec() {
+        assert_valid_spec::<Spec>();
     }
 }

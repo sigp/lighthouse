@@ -12,15 +12,14 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
 use types::{
-    ChainSpec, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot,
-    test_utils::generate_deterministic_keypair,
+    ChainSpec, Epoch, EthSpec, Hash256, Slot, Spec, test_utils::generate_deterministic_keypair,
 };
 use validator_store::ValidatorStore;
 
 use crate::mock_beacon_node::MockBeaconNode;
 
 pub type S = LighthouseValidatorStore<ManualSlotClock, E>;
-type E = MainnetEthSpec;
+type E = Spec;
 
 pub struct ValidatorClientHarness {
     pub mock_beacon_node_1: MockBeaconNode<E>,
@@ -40,10 +39,17 @@ impl ValidatorClientHarness {
     }
 
     pub async fn new_with_config(num_validators: usize, config: &ValidatorStoreConfig) -> Self {
-        let mut default_spec = MainnetEthSpec::default_spec();
+        let mut default_spec = E::default_spec();
         default_spec.gloas_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(default_spec);
+        Self::new_with_spec_and_config(num_validators, default_spec, config).await
+    }
 
+    pub async fn new_with_spec_and_config(
+        num_validators: usize,
+        spec: ChainSpec,
+        config: &ValidatorStoreConfig,
+    ) -> Self {
+        let spec = Arc::new(spec);
         let test_runtime = TestRuntime::default();
         let executor = test_runtime.task_executor.clone();
         let slot_duration = spec.get_slot_duration();

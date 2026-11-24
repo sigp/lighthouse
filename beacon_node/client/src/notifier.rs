@@ -1,6 +1,6 @@
 use crate::metrics;
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, ExecutionStatus,
+    BeaconChain, BeaconChainTypes, ExecutionVerdict,
     bellatrix_readiness::GenesisExecutionPayloadStatus,
 };
 use execution_layer::{
@@ -167,37 +167,32 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         );
                 }
                 SyncState::CustodyBackFillSyncing { .. } => {
-                    match beacon_chain.store.get_data_column_custody_info() {
-                        Ok(data_column_custody_info) => {
-                            if let Some(earliest_data_column_slot) = data_column_custody_info
-                                .and_then(|info| info.earliest_data_column_slot)
-                                && let Some(da_boundary) = beacon_chain
-                                    .custody_context
-                                    .column_data_availability_boundary()
-                            {
-                                sync_distance = earliest_data_column_slot.saturating_sub(
-                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch()),
-                                );
+                    if let Some(earliest_data_column_slot) = beacon_chain
+                        .store
+                        .get_data_column_custody_info()
+                        .and_then(|info| info.earliest_data_column_slot)
+                        && let Some(da_boundary) = beacon_chain
+                            .custody_context
+                            .column_data_availability_boundary()
+                    {
+                        sync_distance = earliest_data_column_slot
+                            .saturating_sub(da_boundary.start_slot(T::EthSpec::slots_per_epoch()));
 
-                                // We keep track of our starting point for custody backfill sync
-                                // so we can measure our speed of progress.
-                                if original_earliest_data_column_slot.is_none() {
-                                    original_earliest_data_column_slot =
-                                        Some(earliest_data_column_slot)
-                                }
-
-                                if let Some(original_earliest_data_column_slot) =
-                                    original_earliest_data_column_slot
-                                {
-                                    speedo.observe(
-                                        original_earliest_data_column_slot
-                                            .saturating_sub(earliest_data_column_slot),
-                                        Instant::now(),
-                                    );
-                                }
-                            }
+                        // We keep track of our starting point for custody backfill sync
+                        // so we can measure our speed of progress.
+                        if original_earliest_data_column_slot.is_none() {
+                            original_earliest_data_column_slot = Some(earliest_data_column_slot)
                         }
-                        Err(e) => error!(error=?e, "Unable to get data column custody info"),
+
+                        if let Some(original_earliest_data_column_slot) =
+                            original_earliest_data_column_slot
+                        {
+                            speedo.observe(
+                                original_earliest_data_column_slot
+                                    .saturating_sub(earliest_data_column_slot),
+                                Instant::now(),
+                            );
+                        }
                     }
                 }
                 SyncState::SyncingFinalized { .. }
@@ -367,29 +362,34 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     head_root.short().to_string()
                 };
 
+                // `cached_head.head_hash()` is `None` only pre-merge. Default to zero (display only).
+                let head_hash = beacon_chain
+                    .canonical_head
+                    .cached_head()
+                    .head_hash()
+                    .unwrap_or_else(ExecutionBlockHash::zero);
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
-                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
-                    Ok(ExecutionStatus::Valid(hash)) => {
+                    Ok(ExecutionVerdict::Valid) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
-                        format!("{} (verified)", hash)
+                        format!("{} (verified)", head_hash)
                     }
-                    Ok(ExecutionStatus::Optimistic(hash)) => {
+                    Ok(ExecutionVerdict::Optimistic) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",
-                            execution_block_hash = ?hash,
+                            execution_block_hash = ?head_hash,
                             "Head is optimistic"
                         );
-                        format!("{} (unverified)", hash)
+                        format!("{} (unverified)", head_hash)
                     }
-                    Ok(ExecutionStatus::Invalid(hash)) => {
+                    Ok(ExecutionVerdict::Invalid) => {
                         crit!(
                             msg = "this scenario may be unrecoverable",
-                            execution_block_hash = ?hash,
+                            execution_block_hash = ?head_hash,
                             "Head execution payload is invalid"
                         );
-                        format!("{} (invalid)", hash)
+                        format!("{} (invalid)", head_hash)
                     }
                     Err(_) => "unknown".to_string(),
                 };
@@ -450,7 +450,7 @@ async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
                 }
             }
         } else {
-            Err("No execution endpoint".to_string())
+            return;
         };
 
         if let Err(readiness) = readiness {
@@ -621,6 +621,7 @@ async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &B
                 "Unable to check genesis which has already occurred"
             );
         }
+        Ok(GenesisExecutionPayloadStatus::NoExecutionLayer) => {}
         Err(e) => {
             error!(
                 error = ?e,

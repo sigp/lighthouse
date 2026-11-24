@@ -6,6 +6,7 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::kzg_utils::min_columns_for_reconstruction;
 use crate::{BeaconChainTypes, BlockProcessStatus};
 use hashlink::lru_cache::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -607,7 +608,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             return ReconstructColumnsDecision::No("not enough columns");
         };
 
-        let total_column_count = T::EthSpec::number_of_columns();
         let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
         let received_column_count = pending_components.verified_data_columns.len();
 
@@ -617,7 +617,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if received_column_count >= sampling_column_count {
             return ReconstructColumnsDecision::No("all sampling columns received");
         }
-        if received_column_count < total_column_count / 2 {
+        if received_column_count < min_columns_for_reconstruction::<T::EthSpec>() {
             return ReconstructColumnsDecision::No("not enough columns");
         }
 
@@ -763,7 +763,7 @@ mod test {
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::info;
-    use types::{DataColumnSubnetId, MinimalEthSpec};
+    use types::{DataColumnSubnetId, Spec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -947,7 +947,7 @@ mod test {
 
     #[tokio::test]
     async fn overflow_cache_test_insert_components() {
-        type E = MinimalEthSpec;
+        type E = Spec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
         let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
@@ -1085,9 +1085,9 @@ mod pending_components_tests {
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use state_processing::ConsensusContext;
-    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
+    use types::{BeaconState, ForkName, SignedBeaconBlock, Slot, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     type Setup<E> = (
         SignedBeaconBlock<E>,
@@ -1160,7 +1160,7 @@ mod pending_components_tests {
             block: Arc::new(block),
             import_data: BlockImportData {
                 block_root: Default::default(),
-                state: BeaconState::new(0, Default::default(), &ChainSpec::minimal()),
+                state: BeaconState::new(0, Default::default(), &E::default_spec()),
                 parent_block: dummy_parent,
                 consensus_context: ConsensusContext::new(Slot::new(0)),
             },

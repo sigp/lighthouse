@@ -8,6 +8,9 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 name = "beacon_node_fallback"
 path = "src/lib.rs"
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 bls = { workspace = true }
 clap = { workspace = true }
@@ -25,4 +28,5 @@ types = { workspace = true }
 validator_metrics = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 validator_test_rig = { workspace = true }

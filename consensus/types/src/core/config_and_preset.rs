@@ -59,6 +59,11 @@ impl ConfigAndPreset {
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
+        if !spec.is_gloas_scheduled() {
+            // Remove gas limit schedule for backwards-compatibility.
+            config.gas_limit_schedule.set_skip_serializing();
+        }
+
         if spec.is_heze_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
             let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
@@ -171,13 +176,19 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "compounding_withdrawal_prefix".to_uppercase() => u8_hex(spec.compounding_withdrawal_prefix_byte),
         "unset_deposit_requests_start_index".to_uppercase() => spec.unset_deposit_requests_start_index.to_string().into(),
         "full_exit_request_amount".to_uppercase() => spec.full_exit_request_amount.to_string().into(),
+        // Gloas
+        "builder_payment_threshold_numerator".to_uppercase() => spec.builder_payment_threshold_numerator.to_string().into(),
+        "builder_payment_threshold_denominator".to_uppercase() => spec.builder_payment_threshold_denominator.to_string().into(),
+        "builder_withdrawal_prefix".to_uppercase() => u8_hex(spec.builder_withdrawal_prefix_byte),
+        "builder_index_self_build".to_uppercase() => consts::gloas::BUILDER_INDEX_SELF_BUILD.to_string().into(),
+        "builder_index_flag".to_uppercase() => consts::gloas::BUILDER_INDEX_FLAG.to_string().into(),
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Epoch, MainnetEthSpec};
+    use crate::{Epoch, GasLimitSchedule, GasLimitScheduleEntry, MainnetEthSpec};
     use std::fs::File;
     use tempfile::NamedTempFile;
 
@@ -226,6 +237,38 @@ mod test {
         assert_eq!(
             extra_fields.get("ATTESTATION_SUBNET_PREFIX_BITS"),
             Some(&Value::String("6".to_string()))
+        );
+    }
+
+    #[test]
+    fn gas_limit_schedule_in_config_spec() {
+        let mut spec = ChainSpec::mainnet();
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&spec);
+        let json = serde_json::to_value(&config).expect("should serialize");
+        assert!(
+            json.get("GAS_LIMIT_SCHEDULE").is_none(),
+            "GAS_LIMIT_SCHEDULE is hidden while Gloas is not scheduled"
+        );
+
+        spec.gloas_fork_epoch = Some(Epoch::new(42));
+        spec.gas_limit_schedule = GasLimitSchedule::new(vec![
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(100),
+                gas_limit: 75_000_000,
+            },
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(42),
+                gas_limit: 60_000_000,
+            },
+        ]);
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&spec);
+        let json = serde_json::to_value(&config).expect("should serialize");
+        assert_eq!(
+            json.get("GAS_LIMIT_SCHEDULE"),
+            Some(&serde_json::json!([
+                {"EPOCH": "42", "GAS_LIMIT": "60000000"},
+                {"EPOCH": "100", "GAS_LIMIT": "75000000"},
+            ]))
         );
     }
 

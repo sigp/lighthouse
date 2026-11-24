@@ -29,7 +29,7 @@ use std::vec::Vec;
 use strum::VariantNames;
 use task_executor::TaskExecutor;
 use tokio::{
-    sync::{RwLock, mpsc},
+    sync::{RwLock, broadcast, mpsc},
     time::sleep,
 };
 use tracing::{debug, error, warn};
@@ -462,7 +462,7 @@ pub struct BeaconNodeFallback<T> {
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
-    head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
+    head_monitor_send: Option<broadcast::Sender<HeadEvent>>,
     payload_available_send: Option<Arc<mpsc::Sender<PayloadAvailableEvent>>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
@@ -501,9 +501,16 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     /// validator client is connected in the `BeaconNodeFallback`. This also initializes the
     /// beacon_head_cache under the assumption the beacon_head_cache will always be needed when
     /// head_monitor_send is set.
-    pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
+    pub fn set_head_send(&mut self, head_monitor_send: broadcast::Sender<HeadEvent>) {
         self.head_monitor_send = Some(head_monitor_send);
         self.beacon_head_cache = Some(Arc::new(BeaconHeadCache::new()));
+    }
+
+    /// Subscribe to the stream of head events, if the head monitor is enabled.
+    pub fn subscribe_to_head_events(&self) -> Option<broadcast::Receiver<HeadEvent>> {
+        self.head_monitor_send
+            .as_ref()
+            .map(|sender| sender.subscribe())
     }
 
     /// This is the payload monitor channel that streams events from all the beacon nodes that the
@@ -913,11 +920,11 @@ mod tests {
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use strum::VariantNames;
-    use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
+    use types::{BeaconBlockDeneb, ForkName, Slot, Spec};
     use types::{EmptyBlock, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     #[test]
     fn api_topic_all() {
@@ -1077,7 +1084,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_all_candidates_should_update_sync_status() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(E::default_spec());
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
@@ -1129,7 +1136,7 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_should_send_to_all_bns() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
 
@@ -1169,7 +1176,7 @@ mod tests {
 
     #[tokio::test]
     async fn first_success_should_try_nodes_in_order() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(E::default_spec());
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
@@ -1211,7 +1218,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_on_candidate_index_success() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(E::default_spec());
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
@@ -1241,7 +1248,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_on_candidate_index_error() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(E::default_spec());
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;

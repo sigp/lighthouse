@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 account_utils = { workspace = true }
 beacon_node_fallback = { workspace = true }
 bls = { workspace = true }
+builder_types = { workspace = true }
 doppelganger_service = { workspace = true }
 either = { workspace = true }
 environment = { workspace = true }
@@ -30,3 +34,4 @@ validator_store = { workspace = true }
 [dev-dependencies]
 futures = { workspace = true }
 logging = { workspace = true }
+tempfile = { workspace = true }
