@@ -39,8 +39,7 @@ use lighthouse_network::{
 use std::collections::{HashMap, HashSet};
 use types::{DataColumnSubnetId, Epoch, EthSpec, ForkName, Hash256, Slot, Spec as E};
 
-/// The minimal preset has 8 slots per epoch
-const SLOTS_PER_EPOCH: usize = 8;
+const SLOTS_PER_EPOCH: usize = E::SLOTS_PER_EPOCH;
 
 impl TestRig {
     fn add_head_peer(&mut self) -> PeerId {
