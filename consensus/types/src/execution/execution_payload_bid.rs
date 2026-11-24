@@ -1,7 +1,7 @@
 use crate::kzg_ext::ProgressiveKzgCommitments;
 use crate::{
     Address, BeaconStateError, ChainSpec, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode,
-    Hash256, InconsistentFork, SignedRoot, Slot,
+    Hash256, InconsistentFork, SignedRoot, Slot, Spec,
 };
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
@@ -84,7 +84,7 @@ pub const EXECUTION_PAYLOAD_BID_HEZE_ACTIVE_FIELDS: [bool; 13] = [true; 13];
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
 // https://github.com/ethereum/consensus-specs/blob/master/specs/heze/beacon-chain.md#executionpayloadbid
-pub struct ExecutionPayloadBid<E: EthSpec> {
+pub struct ExecutionPayloadBid<E: EthSpec = Spec> {
     #[superstruct(getter(copy))]
     pub parent_block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]

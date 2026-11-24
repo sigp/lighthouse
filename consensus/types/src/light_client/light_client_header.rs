@@ -14,7 +14,7 @@ use tree_hash_derive::TreeHash;
 use crate::{
     AbstractExecPayload, BeaconBlockBodyRef, ExecutionBlockHash,
     block::{BeaconBlockBody, BeaconBlockHeader, SignedBlindedBeaconBlock},
-    core::{ChainSpec, EthSpec, Hash256},
+    core::{ChainSpec, EthSpec, Hash256, Spec},
     execution::{
         ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
         ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
@@ -55,7 +55,7 @@ use crate::{
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct LightClientHeader<E: EthSpec> {
+pub struct LightClientHeader<E: EthSpec = Spec> {
     pub beacon: BeaconBlockHeader,
 
     #[superstruct(

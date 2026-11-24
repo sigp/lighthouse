@@ -6,7 +6,7 @@ use ssz_types::BitVector;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{EthSpec, Hash256, SignedRoot, Slot, SlotData},
+    core::{EthSpec, Hash256, SignedRoot, Slot, SlotData, Spec},
     fork::ForkName,
     sync_committee::SyncCommitteeMessage,
 };
@@ -27,7 +27,7 @@ pub enum Error {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct SyncCommitteeContribution<E: EthSpec> {
+pub struct SyncCommitteeContribution<E: EthSpec = Spec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]

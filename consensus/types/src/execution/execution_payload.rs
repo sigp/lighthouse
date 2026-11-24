@@ -10,14 +10,14 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     ListRef,
-    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Slot},
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Slot, Spec},
     fork::{ForkName, ForkVersionDecode},
     state::BeaconStateError,
     withdrawal::{Withdrawal, Withdrawals},
 };
 
 pub type Transaction<N> = VariableList<u8, N>;
-pub type Transactions<E> = VariableList<
+pub type Transactions<E = Spec> = VariableList<
     Transaction<<E as EthSpec>::MaxBytesPerTransaction>,
     <E as EthSpec>::MaxTransactionsPerPayload,
 >;
@@ -26,7 +26,7 @@ pub type Transactions<E> = VariableList<
 pub type ProgressiveTransactions = ProgressiveVariableList<ProgressiveVariableList<u8>>;
 
 /// Progressive withdrawals list \[Modified in Gloas:EIP7688\].
-pub type ProgressiveWithdrawals<E> =
+pub type ProgressiveWithdrawals<E = Spec> =
     ProgressiveVariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
 /// Opaque encoded block access list \[New in Gloas:EIP7928\].
@@ -34,7 +34,7 @@ pub type BlockAccessList = ProgressiveVariableList<u8>;
 
 /// Unified read access to the `transactions` of any `ExecutionPayload` variant.
 #[derive(Debug)]
-pub enum TransactionsRef<'a, E: EthSpec> {
+pub enum TransactionsRef<'a, E: EthSpec = Spec> {
     Bounded(&'a Transactions<E>),
     Progressive(&'a ProgressiveTransactions),
 }
@@ -89,7 +89,7 @@ impl<'a, E: EthSpec> IntoIterator for TransactionsRef<'a, E> {
     }
 }
 
-pub enum TransactionsIter<'a, E: EthSpec> {
+pub enum TransactionsIter<'a, E: EthSpec = Spec> {
     Bounded(std::slice::Iter<'a, Transaction<<E as EthSpec>::MaxBytesPerTransaction>>),
     Progressive(std::slice::Iter<'a, ProgressiveVariableList<u8>>),
 }
@@ -106,7 +106,8 @@ impl<'a, E: EthSpec> Iterator for TransactionsIter<'a, E> {
 }
 
 /// A reference to the withdrawals of any post-Capella `ExecutionPayload` variant.
-pub type WithdrawalsRef<'a, E> = ListRef<'a, Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
+pub type WithdrawalsRef<'a, E = Spec> =
+    ListRef<'a, Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
@@ -160,7 +161,7 @@ pub type WithdrawalsRef<'a, E> = ListRef<'a, Withdrawal, <E as EthSpec>::MaxWith
 #[serde(bound = "E: EthSpec", untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct ExecutionPayload<E: EthSpec> {
+pub struct ExecutionPayload<E: EthSpec = Spec> {
     #[superstruct(getter(copy))]
     pub parent_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]

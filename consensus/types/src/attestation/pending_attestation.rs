@@ -4,7 +4,11 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::BitList;
 use tree_hash_derive::TreeHash;
 
-use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
+use crate::{
+    attestation::AttestationData,
+    core::{EthSpec, Spec},
+    fork::ForkName,
+};
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
@@ -16,7 +20,7 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
-pub struct PendingAttestation<E: EthSpec> {
+pub struct PendingAttestation<E: EthSpec = Spec> {
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     #[serde(with = "serde_utils::quoted_u64")]

@@ -26,7 +26,7 @@ pub use partial_data_column_sidecar::{
     PartialDataColumnView, PartialDataColumnViewFulu, PartialDataColumnViewGloas,
 };
 
-use crate::core::EthSpec;
+use crate::core::{EthSpec, Spec};
 use ssz_types::FixedVector;
 
-pub type Blob<E> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;
+pub type Blob<E = Spec> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;

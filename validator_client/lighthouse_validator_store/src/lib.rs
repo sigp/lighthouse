@@ -26,7 +26,7 @@ use types::{
     PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
     SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SingleAttestation, Slot, Spec, SyncAggregatorSelectionData, SyncCommitteeContribution,
     SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
     VoluntaryExit, graffiti::GraffitiString,
 };
@@ -61,7 +61,7 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 1;
 
 pub use types::DEFAULT_GAS_LIMIT;
 
-pub struct LighthouseValidatorStore<T, E> {
+pub struct LighthouseValidatorStore<T, E = Spec> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,

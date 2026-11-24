@@ -1,5 +1,5 @@
 use crate::execution::{ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef};
-use crate::{ChainSpec, Epoch, EthSpec, ForkName, ForkVersionDecode, InconsistentFork, Slot};
+use crate::{ChainSpec, Epoch, EthSpec, ForkName, ForkVersionDecode, InconsistentFork, Slot, Spec};
 use bls::Signature;
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
@@ -35,7 +35,7 @@ use tree_hash_derive::TreeHash;
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
 // https://github.com/ethereum/consensus-specs/blob/master/specs/heze/beacon-chain.md#signedexecutionpayloadbid
-pub struct SignedExecutionPayloadBid<E: EthSpec> {
+pub struct SignedExecutionPayloadBid<E: EthSpec = Spec> {
     #[superstruct(only(Gloas), partial_getter(rename = "message_gloas"))]
     pub message: ExecutionPayloadBidGloas<E>,
     #[superstruct(only(Heze), partial_getter(rename = "message_heze"))]

@@ -32,7 +32,9 @@ use crate::{
     block::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlockHash},
     builder::{Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal},
     consolidation::PendingConsolidation,
-    core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot},
+    core::{
+        ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot, Spec,
+    },
     deposit::PendingDeposit,
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
@@ -73,9 +75,9 @@ const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 // Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L50-L71
 const SAFETY_DECAY: u64 = 10;
 
-pub type Validators<E> =
+pub type Validators<E = Spec> =
     List<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type Balances<E = Spec> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
 // Progressive (EIP-7688) variants of the above, used from Gloas onwards.
 pub type ValidatorsGloas = ProgressiveList<Validator, BTreeMap<usize, Validator>>;
@@ -83,15 +85,15 @@ pub type BalancesGloas = ProgressiveList<u64>;
 
 // Views over list fields that are (fixed-capacity) `List`s pre-Gloas and `ProgressiveList`s
 // from Gloas onwards (EIP-7688).
-pub type ValidatorsRef<'a, E> =
+pub type ValidatorsRef<'a, E = Spec> =
     AnyListRef<'a, Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type ValidatorsMut<'a, E> =
+pub type ValidatorsMut<'a, E = Spec> =
     AnyListMut<'a, Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type BalancesRef<'a, E> = AnyListRef<'a, u64, <E as EthSpec>::ValidatorRegistryLimit>;
-pub type BalancesMut<'a, E> = AnyListMut<'a, u64, <E as EthSpec>::ValidatorRegistryLimit>;
-pub type ValidatorsOwned<E> =
+pub type BalancesRef<'a, E = Spec> = AnyListRef<'a, u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type BalancesMut<'a, E = Spec> = AnyListMut<'a, u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type ValidatorsOwned<E = Spec> =
     AnyList<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type BalancesOwned<E> = AnyList<u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type BalancesOwned<E = Spec> = AnyList<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconStateError {
@@ -489,7 +491,7 @@ impl From<BeaconStateHash> for Hash256 {
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconState<E>
+pub struct BeaconState<E = Spec>
 where
     E: EthSpec,
 {

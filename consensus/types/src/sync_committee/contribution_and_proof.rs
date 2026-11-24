@@ -5,7 +5,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{ChainSpec, EthSpec, Hash256, SignedRoot},
+    core::{ChainSpec, EthSpec, Hash256, SignedRoot, Spec},
     fork::{Fork, ForkName},
     sync_committee::{SyncCommitteeContribution, SyncSelectionProof},
 };
@@ -19,7 +19,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct ContributionAndProof<E: EthSpec> {
+pub struct ContributionAndProof<E: EthSpec = Spec> {
     /// The index of the validator that created the sync contribution.
     #[serde(with = "serde_utils::quoted_u64")]
     pub aggregator_index: u64,

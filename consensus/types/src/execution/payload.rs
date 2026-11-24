@@ -11,7 +11,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, ExecutionBlockHash, Hash256},
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Spec},
     execution::{
         ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
         ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
@@ -193,7 +193,7 @@ pub trait AbstractExecPayload<E: EthSpec>:
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct FullPayload<E: EthSpec> {
+pub struct FullPayload<E: EthSpec = Spec> {
     #[superstruct(
         only(Bellatrix),
         partial_getter(rename = "execution_payload_bellatrix")
@@ -545,7 +545,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct BlindedPayload<E: EthSpec> {
+pub struct BlindedPayload<E: EthSpec = Spec> {
     #[superstruct(
         only(Bellatrix),
         partial_getter(rename = "execution_payload_bellatrix")
@@ -1113,14 +1113,15 @@ pub enum BlockProductionVersion {
 }
 
 /// Spec type `VersionedHashes`.
-pub type VersionedHashes<E> = VariableList<Hash256, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type VersionedHashes<E = Spec> =
+    VariableList<Hash256, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Spec type `NewPayloadRequest`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 #[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1))]
-pub struct NewPayloadRequest<E: EthSpec> {
+pub struct NewPayloadRequest<E: EthSpec = Spec> {
     pub execution_payload: ExecutionPayloadGloas<E>,
     pub versioned_hashes: VersionedHashes<E>,
     pub parent_beacon_block_root: Hash256,

@@ -5,7 +5,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{EthSpec, Hash256},
+    core::{EthSpec, Hash256, Spec},
     fork::ForkName,
 };
 
@@ -19,7 +19,7 @@ use crate::{
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
-pub struct HistoricalBatch<E: EthSpec> {
+pub struct HistoricalBatch<E: EthSpec = Spec> {
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]

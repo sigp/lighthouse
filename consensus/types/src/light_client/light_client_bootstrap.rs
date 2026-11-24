@@ -11,7 +11,7 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     block::SignedBlindedBeaconBlock,
-    core::{ChainSpec, EthSpec, Hash256, Slot},
+    core::{ChainSpec, EthSpec, Hash256, Slot, Spec},
     fork::ForkName,
     light_client::{
         CurrentSyncCommitteeProofLen, CurrentSyncCommitteeProofLenElectra,
@@ -49,7 +49,7 @@ use crate::{
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct LightClientBootstrap<E: EthSpec> {
+pub struct LightClientBootstrap<E: EthSpec = Spec> {
     /// The requested beacon block header.
     #[superstruct(only(Altair), partial_getter(rename = "header_altair"))]
     pub header: LightClientHeaderAltair<E>,

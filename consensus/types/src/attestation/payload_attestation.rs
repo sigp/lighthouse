@@ -1,5 +1,5 @@
 use crate::attestation::payload_attestation_data::PayloadAttestationData;
-use crate::{EthSpec, ForkName};
+use crate::{EthSpec, ForkName, Spec};
 use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
@@ -15,7 +15,7 @@ use tree_hash_derive::TreeHash;
 #[educe(PartialEq, Hash)]
 #[context_deserialize(ForkName)]
 #[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1))]
-pub struct PayloadAttestation<E: EthSpec> {
+pub struct PayloadAttestation<E: EthSpec = Spec> {
     pub aggregation_bits: BitVector<E::PTCSize>,
     pub data: PayloadAttestationData,
     pub signature: AggregateSignature,

@@ -617,7 +617,7 @@ pub struct SyncCommitteeByValidatorIndices {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
-pub struct PtcData<E: EthSpec> {
+pub struct PtcData<E: EthSpec = Spec> {
     pub slot: Slot,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub validators: ssz_types::FixedVector<u64, E::PTCSize>,
@@ -981,7 +981,7 @@ pub struct LightClientUpdatesQuery {
     pub count: u64,
 }
 
-pub struct LightClientUpdateResponseChunk<E: EthSpec> {
+pub struct LightClientUpdateResponseChunk<E: EthSpec = Spec> {
     pub response_chunk_len: u64,
     pub response_chunk: LightClientUpdateResponseChunkInner<E>,
 }
@@ -1004,7 +1004,7 @@ impl<E: EthSpec> Encode for LightClientUpdateResponseChunk<E> {
     }
 }
 
-pub struct LightClientUpdateResponseChunkInner<E: EthSpec> {
+pub struct LightClientUpdateResponseChunkInner<E: EthSpec = Spec> {
     pub context: [u8; 4],
     pub payload: LightClientUpdate<E>,
 }
@@ -1318,7 +1318,8 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
-pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
+pub type VersionedSseExecutionPayloadBid<E = Spec> =
+    ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
 pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 pub type VersionedSseHeadV2 = ForkVersionedResponse<SseHeadV2>;
@@ -1386,7 +1387,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SseExtendedPayloadAttributes {
 
 #[derive(PartialEq, Debug, Serialize, Clone)]
 #[serde(bound = "E: EthSpec", untagged)]
-pub enum EventKind<E: EthSpec> {
+pub enum EventKind<E: EthSpec = Spec> {
     Attestation(Box<Attestation<E>>),
     SingleAttestation(Box<SingleAttestation>),
     Block(SseBlock),
@@ -1988,12 +1989,12 @@ mod tests {
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-pub enum ProduceBlockV3Response<E: EthSpec> {
+pub enum ProduceBlockV3Response<E: EthSpec = Spec> {
     Full(FullBlockContents<E>),
     Blinded(BlindedBeaconBlock<E>),
 }
 
-pub type JsonProduceBlockV3Response<E> =
+pub type JsonProduceBlockV3Response<E = Spec> =
     ForkVersionedResponse<ProduceBlockV3Response<E>, ProduceBlockV3Metadata>;
 
 /// A wrapper over a [`BeaconBlock`] or a [`BlockContents`].
@@ -2001,14 +2002,14 @@ pub type JsonProduceBlockV3Response<E> =
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-pub enum FullBlockContents<E: EthSpec> {
+pub enum FullBlockContents<E: EthSpec = Spec> {
     /// This is a full deneb variant with block and blobs.
     BlockContents(BlockContents<E>),
     /// This variant is for all pre-deneb full blocks or post-gloas beacon block.
     Block(BeaconBlock<E>),
 }
 
-pub type BlockContentsTuple<E> = (BeaconBlock<E>, Option<(KzgProofs<E>, BlobsList<E>)>);
+pub type BlockContentsTuple<E = Spec> = (BeaconBlock<E>, Option<(KzgProofs<E>, BlobsList<E>)>);
 
 // This value should never be used
 fn dummy_consensus_version() -> ForkName {
@@ -2056,7 +2057,7 @@ pub struct ProduceBlockV4Metadata {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Encode)]
 #[serde(bound = "E: EthSpec")]
-pub struct BlockAndEnvelope<E: EthSpec> {
+pub struct BlockAndEnvelope<E: EthSpec = Spec> {
     pub block: BeaconBlock<E>,
     pub execution_payload_envelope: ExecutionPayloadEnvelope<E>,
     pub kzg_proofs: KzgProofs<E>,
@@ -2123,7 +2124,7 @@ impl<E: EthSpec> BlockAndEnvelope<E> {
 /// decide which variant to expect.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-pub enum ProduceBlockV4Response<E: EthSpec> {
+pub enum ProduceBlockV4Response<E: EthSpec = Spec> {
     BlockOnly(BeaconBlock<E>),
     BlockAndEnvelope(BlockAndEnvelope<E>),
 }
@@ -2149,7 +2150,7 @@ impl<E: EthSpec> ProduceBlockV4Response<E> {
 /// does not have the blobs cached.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
-pub struct SignedExecutionPayloadEnvelopeContents<E: EthSpec> {
+pub struct SignedExecutionPayloadEnvelopeContents<E: EthSpec = Spec> {
     pub signed_execution_payload_envelope: SignedExecutionPayloadEnvelope<E>,
     pub kzg_proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
@@ -2263,7 +2264,7 @@ impl<E: EthSpec> From<FullBlockContents<E>> for BeaconBlock<E> {
     }
 }
 
-pub type SignedBlockContentsTuple<E> = (
+pub type SignedBlockContentsTuple<E = Spec> = (
     Arc<SignedBeaconBlock<E>>,
     Option<(KzgProofs<E>, BlobsList<E>)>,
 );
@@ -2359,7 +2360,7 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-pub enum PublishBlockRequest<E: EthSpec> {
+pub enum PublishBlockRequest<E: EthSpec = Spec> {
     BlockContents(SignedBlockContents<E>),
     Block(Arc<SignedBeaconBlock<E>>),
 }
@@ -2469,7 +2470,7 @@ impl<E: EthSpec> From<SignedBlockContentsTuple<E>> for PublishBlockRequest<E> {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Encode)]
 #[serde(bound = "E: EthSpec")]
-pub struct SignedBlockContents<E: EthSpec> {
+pub struct SignedBlockContents<E: EthSpec = Spec> {
     pub signed_block: Arc<SignedBeaconBlock<E>>,
     pub kzg_proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
@@ -2504,7 +2505,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedBlockContents<
 
 #[derive(Debug, Clone, Serialize, Encode)]
 #[serde(bound = "E: EthSpec")]
-pub struct BlockContents<E: EthSpec> {
+pub struct BlockContents<E: EthSpec = Spec> {
     pub block: BeaconBlock<E>,
     pub kzg_proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
@@ -2541,7 +2542,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockContents<E> {
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-pub enum FullPayloadContents<E: EthSpec> {
+pub enum FullPayloadContents<E: EthSpec = Spec> {
     Payload(ExecutionPayload<E>),
     PayloadAndBlobs(ExecutionPayloadAndBlobs<E>),
 }
@@ -2625,7 +2626,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for FullPayloadContents<
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(bound = "E: EthSpec")]
-pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
+pub struct ExecutionPayloadAndBlobs<E: EthSpec = Spec> {
     pub execution_payload: ExecutionPayload<E>,
     pub blobs_bundle: BlobsBundle<E>,
 }
@@ -2687,7 +2688,7 @@ pub enum ContentType {
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
-pub struct BlobsBundle<E: EthSpec> {
+pub struct BlobsBundle<E: EthSpec = Spec> {
     pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
@@ -2781,7 +2782,7 @@ pub struct StandardAttestationRewards {
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 #[serde(transparent)]
-pub struct BlobWrapper<E: EthSpec> {
+pub struct BlobWrapper<E: EthSpec = Spec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<E>,
 }

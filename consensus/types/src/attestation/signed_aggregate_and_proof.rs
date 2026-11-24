@@ -10,7 +10,7 @@ use crate::{
         AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofGloas,
         AggregateAndProofRef, Attestation, AttestationRef, SelectionProof,
     },
-    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
+    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Spec},
     fork::{Fork, ForkName},
 };
 
@@ -52,7 +52,7 @@ use crate::{
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct SignedAggregateAndProof<E: EthSpec> {
+pub struct SignedAggregateAndProof<E: EthSpec = Spec> {
     /// The `AggregateAndProof` that was signed.
     #[superstruct(flatten)]
     pub message: AggregateAndProof<E>,

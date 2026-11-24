@@ -1055,8 +1055,8 @@ mod tests {
     async fn new_mock_beacon_node(
         index: usize,
         spec: &ChainSpec,
-    ) -> (MockBeaconNode<E>, CandidateBeaconNode) {
-        let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
+    ) -> (MockBeaconNode, CandidateBeaconNode) {
+        let mut mock_beacon_node = MockBeaconNode::new().await;
         mock_beacon_node.mock_get_config_spec(spec);
 
         let beacon_node =

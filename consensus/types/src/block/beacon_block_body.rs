@@ -21,7 +21,7 @@ use crate::{
         PayloadAttestation,
     },
     complete_kzg_commitment_merkle_proof,
-    core::{EthSpec, Graffiti, Hash256},
+    core::{EthSpec, Graffiti, Hash256, Spec},
     deposit::Deposit,
     execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
@@ -133,7 +133,7 @@ pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS: [bool; 13] = [true; 13];
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
+pub struct BeaconBlockBody<E: EthSpec = Spec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
     pub graffiti: Graffiti,

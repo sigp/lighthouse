@@ -10,7 +10,7 @@ use crate::{
         Attestation, AttestationBase, AttestationElectra, AttestationGloas, AttestationRef,
         SelectionProof,
     },
-    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
+    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Spec},
     fork::{Fork, ForkName},
 };
 
@@ -52,7 +52,7 @@ use crate::{
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct AggregateAndProof<E: EthSpec> {
+pub struct AggregateAndProof<E: EthSpec = Spec> {
     /// The index of the validator that created the attestation.
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]

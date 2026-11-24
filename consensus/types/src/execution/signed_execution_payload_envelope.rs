@@ -2,7 +2,7 @@ use crate::{
     Address, BeaconState, BeaconStateError, BlockAccessList, ChainSpec, Domain, Epoch, EthSpec,
     ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
     Fork, ForkName, Hash256, ProgressiveTransactions, ProgressiveWithdrawals, SignedRoot, Slot,
-    Uint256, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    Spec, Uint256, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 use bls::{PublicKey, Signature};
 use context_deserialize::context_deserialize;
@@ -22,7 +22,7 @@ use tree_hash_derive::TreeHash;
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {
+pub struct SignedExecutionPayloadEnvelope<E: EthSpec = Spec> {
     pub message: ExecutionPayloadEnvelope<E>,
     pub signature: Signature,
 }
@@ -127,7 +127,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
 /// to reconstruct an `ExecutionPayloadGloas` without an additional execution-layer request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
-pub struct ExecutionPayloadHeaderGloas<E: EthSpec> {
+pub struct ExecutionPayloadHeaderGloas<E: EthSpec = Spec> {
     pub parent_hash: ExecutionBlockHash,
     #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
@@ -160,7 +160,7 @@ pub struct ExecutionPayloadHeaderGloas<E: EthSpec> {
 ///
 /// The remaining payload fields are retained in [`ExecutionPayloadHeaderGloas`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct ExecutionPayloadBody<E: EthSpec> {
+pub struct ExecutionPayloadBody<E: EthSpec = Spec> {
     pub transactions: ProgressiveTransactions,
     pub withdrawals: ProgressiveWithdrawals<E>,
     pub block_access_list: BlockAccessList,
@@ -235,7 +235,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderGloas<E> {
 /// The execution payload body is stored separately and can be pruned after finalization. The
 /// summary retains enough information to reconstruct the envelope from a body returned by the EL.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct SignedExecutionPayloadEnvelopeSummary<E: EthSpec> {
+pub struct SignedExecutionPayloadEnvelopeSummary<E: EthSpec = Spec> {
     pub payload_header: ExecutionPayloadHeaderGloas<E>,
     pub execution_requests: ExecutionRequestsGloas<E>,
     pub builder_index: u64,
