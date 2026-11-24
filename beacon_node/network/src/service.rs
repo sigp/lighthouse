@@ -49,11 +49,10 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{Span, debug, error, info, trace, warn};
-use typenum::Unsigned;
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, PartialDataColumn,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, ValidatorSubscription,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SyncCommitteeSubscription,
+    ValidatorSubscription,
 };
 
 mod tests;
@@ -744,6 +743,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkMessage::SubscribeCoreTopics => {
                 if self.subscribed_core_topics() {
+                    self.libp2p.update_core_subnet_advertisement();
                     return;
                 }
 
@@ -785,20 +785,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                // If we are to subscribe to all subnets we do it here
-                if self.network_globals.config.subscribe_all_subnets {
-                    for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
-                        let subnet = Subnet::Attestation(SubnetId::new(subnet_id));
-                        // Update the ENR bitfield
-                        self.libp2p.update_enr_subnet(subnet, true);
-                    }
-                    let subnet_max = <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetCount::to_u64();
-                    for subnet_id in 0..subnet_max {
-                        let subnet = Subnet::SyncCommittee(SyncSubnetId::new(subnet_id));
-                        // Update the ENR bitfield
-                        self.libp2p.update_enr_subnet(subnet, true);
-                    }
-                }
+                self.libp2p.update_core_subnet_advertisement();
 
                 if !subscribed_topics.is_empty() {
                     info!(

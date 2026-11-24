@@ -7,6 +7,7 @@ pub(crate) mod enr;
 
 // Allow external use of the lighthouse ENR builder
 use crate::service::TARGET_SUBNET_PEERS;
+use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::{ClearDialError, metrics};
 use crate::{Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::Discv5;
@@ -581,6 +582,40 @@ impl<E: EthSpec> Discovery<E> {
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
         Ok(())
+    }
+
+    /// Replace the advertised subnet bitfields and persist the changed ENR once.
+    pub(crate) fn update_enr_subnet_bitfields(
+        &mut self,
+        attnets: EnrAttestationBitfield<E>,
+        syncnets: EnrSyncCommitteeBitfield<E>,
+    ) -> Result<(), String> {
+        let local_enr = self.local_enr();
+        let result = (|| {
+            if attnets != local_enr.attestation_bitfield::<E>()? {
+                self.discv5
+                    .enr_insert::<Bytes>(
+                        ATTESTATION_BITFIELD_ENR_KEY,
+                        &attnets.as_ssz_bytes().into(),
+                    )
+                    .map_err(|error| format!("{error:?}"))?;
+            }
+            if syncnets != local_enr.sync_committee_bitfield::<E>()? {
+                self.discv5
+                    .enr_insert::<Bytes>(
+                        SYNC_COMMITTEE_BITFIELD_ENR_KEY,
+                        &syncnets.as_ssz_bytes().into(),
+                    )
+                    .map_err(|error| format!("{error:?}"))?;
+            }
+            Ok(())
+        })();
+        let updated_enr = self.discv5.local_enr();
+        if updated_enr.seq() != local_enr.seq() {
+            enr::save_enr_to_disk(Path::new(&self.enr_dir), &updated_enr);
+            *self.network_globals.local_enr.write() = updated_enr;
+        }
+        result
     }
 
     pub fn update_enr_nfd(&mut self, nfd: [u8; 4]) -> Result<(), String> {

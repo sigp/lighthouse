@@ -21,9 +21,9 @@ use crate::rpc::{
 };
 use crate::service::partial_column_header_tracker::PartialColumnHeaderTracker;
 use crate::types::{
-    GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumnFulu, OutgoingPartialColumnGloas,
-    PubsubPartialMessage, SnappyTransform, Subnet, SubnetDiscovery, all_topics_at_fork,
-    core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
+    EnrSyncCommitteeBitfield, GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumnFulu,
+    OutgoingPartialColumnGloas, PubsubPartialMessage, SnappyTransform, Subnet, SubnetDiscovery,
+    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
 };
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
 use api_types::{Response, SyncRequestId};
@@ -807,6 +807,14 @@ impl<E: EthSpec> Network<E> {
     ///
     /// Returns `true` if the subscription was successful and `false` otherwise.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
+        if let Some(subnet) = topic.subnet_id()
+            && let Some(&fork) = self
+                .fork_context
+                .get_fork_from_context_bytes(topic.fork_digest)
+            && !self.subnet_is_active_at_fork(subnet, fork)
+        {
+            return false;
+        }
         // update the network globals
         self.network_globals
             .gossipsub_subscriptions
@@ -1168,10 +1176,69 @@ impl<E: EthSpec> Network<E> {
     ///
     /// The `value` is `true` if a subnet is being added and false otherwise.
     pub fn update_enr_subnet(&mut self, subnet_id: Subnet, value: bool) {
+        // An event queued before the fork may refer to a subnet PQ has removed.
+        if value && !self.subnet_is_active_at_fork(subnet_id, self.fork_context.current_fork_name())
+        {
+            return;
+        }
         if let Err(e) = self.discovery_mut().update_enr_bitfield(subnet_id, value) {
             crit!(error = e, "Could not update ENR bitfield");
         }
         // update the local meta data which informs our peers of the update during PINGS
+        self.update_metadata_bitfields();
+    }
+
+    fn subnet_is_active_at_fork(&self, subnet: Subnet, fork: ForkName) -> bool {
+        if fork != ForkName::Pq {
+            return true;
+        }
+        match subnet {
+            Subnet::Attestation(id) => *id < self.fork_context.spec.attestation_subnet_count_pq,
+            Subnet::SyncCommittee(_) => false,
+            Subnet::DataColumn(_) => true,
+        }
+    }
+
+    /// Advertise the current fork's subnet assignments after subscribing to core topics.
+    pub fn update_core_subnet_advertisement(&mut self) {
+        self.update_subnet_advertisement(self.network_globals.config.subscribe_all_subnets);
+    }
+
+    fn update_subnet_advertisement(&mut self, subscribe_all: bool) {
+        let is_pq = self.fork_context.current_fork_name() == ForkName::Pq;
+        if !is_pq && !subscribe_all {
+            return;
+        }
+
+        let result = (|| {
+            let mut attnets = self.discovery().local_enr().attestation_bitfield::<E>()?;
+            let active_attnets = if is_pq {
+                usize::try_from(self.fork_context.spec.attestation_subnet_count_pq)
+                    .unwrap_or(usize::MAX)
+            } else {
+                attnets.len()
+            };
+            // Keep the fixed SSZ width while clearing bits above the active PQ range.
+            let start = if subscribe_all { 0 } else { active_attnets };
+            for index in start..attnets.len() {
+                attnets
+                    .set(index, index < active_attnets)
+                    .map_err(|_| "Invalid attestation subnet index")?;
+            }
+            let mut syncnets = EnrSyncCommitteeBitfield::<E>::default();
+            if !is_pq {
+                for index in 0..syncnets.len() {
+                    syncnets
+                        .set(index, true)
+                        .map_err(|_| "Invalid sync committee subnet index")?;
+                }
+            }
+            self.discovery_mut()
+                .update_enr_subnet_bitfields(attnets, syncnets)
+        })();
+        if let Err(error) = result {
+            crit!(error, "Could not update subnet advertisement");
+        }
         self.update_metadata_bitfields();
     }
 
@@ -1241,6 +1308,9 @@ impl<E: EthSpec> Network<E> {
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.
     pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId) {
+        // The fork context is updated by the caller. Clear old advertisements before
+        // publishing the PQ fork digest, without adding subscriptions at this point.
+        self.update_subnet_advertisement(false);
         self.discovery_mut().update_eth2_enr(enr_fork_id.clone());
 
         // update the local reference
@@ -1271,6 +1341,15 @@ impl<E: EthSpec> Network<E> {
 
         // write lock scope
         let mut meta_data_w = self.network_globals.local_metadata.write();
+
+        if meta_data_w.attnets() == &local_attnets
+            && meta_data_w
+                .syncnets()
+                .ok()
+                .is_none_or(|syncnets| syncnets == &local_syncnets)
+        {
+            return;
+        }
 
         *meta_data_w.seq_number_mut() += 1;
         *meta_data_w.attnets_mut() = local_attnets;
