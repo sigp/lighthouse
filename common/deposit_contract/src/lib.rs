@@ -128,9 +128,9 @@ pub fn decode_eth1_tx_data(bytes: &[u8], amount: u64) -> Result<(DepositData, Ha
 mod tests {
     use super::*;
     use bls::{Keypair, Signature};
-    use types::{ChainSpec, EthSpec, MinimalEthSpec, test_utils::generate_deterministic_keypair};
+    use types::{ChainSpec, EthSpec, Spec, test_utils::generate_deterministic_keypair};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn get_deposit(keypair: Keypair, spec: &ChainSpec) -> DepositData {
         let mut deposit_data = DepositData {

@@ -383,7 +383,7 @@ Options:
           Configure how many epochs of history the slasher keeps. Immutable
           after initialization.
       --slasher-max-db-size <GIGABYTES>
-          Maximum size of the MDBX database used by the slasher.
+          Maximum size of the LMDB database used by the slasher.
       --slasher-slot-offset <SECONDS>
           Set the delay from the start of the slot at which the slasher should
           ingest attestations. Only effective if the slasher-update-period is a

@@ -567,15 +567,15 @@ mod tests {
     use logging::create_test_tracing_subscriber;
     use std::num::NonZeroU64;
     use std::time::Duration;
-    use types::{Epoch, Hash256, MainnetEthSpec, Slot};
+    use types::{Epoch, Hash256, Slot, Spec};
 
     /// Creates an RPC behaviour with the given inbound rate limiter quotas.
-    fn test_rpc(config: RateLimiterConfig) -> RPC<usize, MainnetEthSpec> {
+    fn test_rpc(config: RateLimiterConfig) -> RPC<usize, Spec> {
         create_test_tracing_subscriber();
-        let fork_context = Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
         RPC::new(
             fork_context,
@@ -586,7 +586,7 @@ mod tests {
         )
     }
 
-    fn status_request() -> RequestType<MainnetEthSpec> {
+    fn status_request() -> RequestType<Spec> {
         RequestType::Status(StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::ZERO,
@@ -597,7 +597,7 @@ mod tests {
     }
 
     fn receive_request_on_connection(
-        rpc: &mut RPC<usize, MainnetEthSpec>,
+        rpc: &mut RPC<usize, Spec>,
         peer_id: PeerId,
         connection_id: usize,
         substream_id: usize,
@@ -612,11 +612,11 @@ mod tests {
         );
     }
 
-    fn receive_request(rpc: &mut RPC<usize, MainnetEthSpec>, peer_id: PeerId, substream_id: usize) {
+    fn receive_request(rpc: &mut RPC<usize, Spec>, peer_id: PeerId, substream_id: usize) {
         receive_request_on_connection(rpc, peer_id, 0, substream_id);
     }
 
-    fn status_response() -> RpcResponse<MainnetEthSpec> {
+    fn status_response() -> RpcResponse<Spec> {
         RpcResponse::Success(RpcSuccessResponse::Status(match status_request() {
             RequestType::Status(status) => status,
             _ => unreachable!("status_request always returns a status request"),
@@ -625,7 +625,7 @@ mod tests {
 
     /// Simulates the handler closing the substream of an inbound request.
     fn close_stream(
-        rpc: &mut RPC<usize, MainnetEthSpec>,
+        rpc: &mut RPC<usize, Spec>,
         peer_id: PeerId,
         connection_id: usize,
         substream_id: usize,
@@ -638,11 +638,7 @@ mod tests {
     }
 
     /// Simulates the handler reporting a timeout for an inbound Status request on connection 0.
-    fn inbound_stream_timeout(
-        rpc: &mut RPC<usize, MainnetEthSpec>,
-        peer_id: PeerId,
-        substream_id: usize,
-    ) {
+    fn inbound_stream_timeout(rpc: &mut RPC<usize, Spec>, peer_id: PeerId, substream_id: usize) {
         rpc.on_connection_handler_event(
             peer_id,
             ConnectionId::new_unchecked(0),
@@ -655,7 +651,7 @@ mod tests {
     }
 
     fn close_connection(
-        rpc: &mut RPC<usize, MainnetEthSpec>,
+        rpc: &mut RPC<usize, Spec>,
         peer_id: PeerId,
         connection_id: usize,
         remaining_established: usize,
@@ -675,14 +671,12 @@ mod tests {
     }
 
     /// Simulates the disconnection of the peer's last connection.
-    fn disconnect_peer(rpc: &mut RPC<usize, MainnetEthSpec>, peer_id: PeerId) {
+    fn disconnect_peer(rpc: &mut RPC<usize, Spec>, peer_id: PeerId) {
         close_connection(rpc, peer_id, 0, 0);
     }
 
     /// Polls the RPC behaviour until it is pending and returns the produced events.
-    fn poll_events(
-        rpc: &mut RPC<usize, MainnetEthSpec>,
-    ) -> Vec<BehaviourAction<usize, MainnetEthSpec>> {
+    fn poll_events(rpc: &mut RPC<usize, Spec>) -> Vec<BehaviourAction<usize, Spec>> {
         let mut cx = Context::from_waker(futures::task::noop_waker_ref());
         let mut events = vec![];
         while let Poll::Ready(event) = rpc.poll(&mut cx) {
@@ -691,7 +685,7 @@ mod tests {
         events
     }
 
-    fn count_delivered_requests(events: &[BehaviourAction<usize, MainnetEthSpec>]) -> usize {
+    fn count_delivered_requests(events: &[BehaviourAction<usize, Spec>]) -> usize {
         events
             .iter()
             .filter(|event| {
@@ -706,7 +700,7 @@ mod tests {
             .count()
     }
 
-    fn count_rate_limited_errors(events: &[BehaviourAction<usize, MainnetEthSpec>]) -> usize {
+    fn count_rate_limited_errors(events: &[BehaviourAction<usize, Spec>]) -> usize {
         events
             .iter()
             .filter(|event| {
