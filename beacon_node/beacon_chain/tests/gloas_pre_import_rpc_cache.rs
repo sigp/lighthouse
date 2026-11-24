@@ -9,11 +9,11 @@ use bls::Keypair;
 use futures::StreamExt;
 use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
-use types::{EthSpec, ForkName, Hash256, MainnetEthSpec, block::BlockImportSource};
+use types::{EthSpec, ForkName, Hash256, Spec, block::BlockImportSource};
 
-type E = MainnetEthSpec;
+type E = Spec;
 
-// >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+// Gloas genesis needs at least one validator per slot of an epoch (32 on mainnet).
 const VALIDATOR_COUNT: usize = 32;
 
 /// A cached set of keys.
@@ -23,7 +23,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 fn gloas_harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
     create_test_tracing_subscriber();
     let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
-    BeaconChainHarness::builder(MainnetEthSpec)
+    BeaconChainHarness::builder(E::default())
         .spec(Arc::new(spec))
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
