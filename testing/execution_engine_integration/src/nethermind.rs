@@ -10,7 +10,7 @@ use tempfile::TempDir;
 
 /// The Nethermind version is pinned so the test is reproducible. Bump this manually when a newer
 /// release is needed.
-const NETHERMIND_BRANCH: &str = "release/1.38.0";
+const NETHERMIND_BRANCH: &str = "release/2.2.2";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
@@ -19,10 +19,6 @@ fn build_result(repo_dir: &Path) -> Output {
         .arg("src/Nethermind/Nethermind.slnx")
         .arg("-c")
         .arg("Release")
-        // TODO: temporary flag to skip the dependency vulnerability audit, which fails the build
-        // on advisories for packages pinned by 1.38.0. Can be removed in future when updating the
-        // version.
-        .arg("-p:NuGetAudit=false")
         .current_dir(repo_dir)
         .output()
         .expect("failed to make nethermind")
