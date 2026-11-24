@@ -308,7 +308,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Drop op pool operations that are invalid on top of `state`.
     ///
-    /// Each operation is checked independently, so invalid combinations are not caught.
     /// Signatures are only checked under `--paranoid-block-proposal`.
     #[instrument(skip_all, level = "debug")]
     pub(crate) fn filter_invalid_block_operations(
