@@ -5,13 +5,14 @@ use super::{
     xmss_cache_source::{self, RegisteredKey, Registry},
 };
 use bls::{Keypair, PublicKeyBytes};
-use futures::{StreamExt, stream};
+use futures::{Stream, StreamExt, stream};
 use genesis::pq::{POPULATED_LEAVES, VrfTree};
 use parking_lot::Mutex;
 use signing_method::SigningMethod;
 use slot_clock::SlotClock;
 use state_processing::pq;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 use std::{
     path::PathBuf,
@@ -34,7 +35,6 @@ use types::{
 use validator_store::{AttestationToSign, DoppelgangerStatus, ValidatorStore};
 use xmss::{LeafIndex, SUBTREE_LEAVES};
 
-const PQ_WORKERS: usize = 8;
 const PQ_KEY_LOAD_LOG_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +100,7 @@ impl Key {
 pub(super) struct Keys {
     entries: Mutex<HashMap<PublicKeyBytes, Arc<Key>>>,
     permits: Arc<Semaphore>,
+    workers: usize,
     xmss_registry: OnceLock<Registry>,
     source: Result<Option<Source>, String>,
     vrf_cache_dir: Option<PathBuf>,
@@ -122,9 +123,11 @@ impl Keys {
                 }
             }
         });
+        let workers = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
         Self {
             entries: Mutex::default(),
-            permits: Arc::new(Semaphore::new(PQ_WORKERS)),
+            permits: Arc::new(Semaphore::new(workers)),
+            workers,
             xmss_registry: OnceLock::new(),
             source: config.vrf_state_url.as_deref().map(Source::new).transpose(),
             vrf_cache_dir: config.vrf_state_cache_dir.clone(),
@@ -296,7 +299,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         let total = pubkeys.len();
         let started = Instant::now();
         let slot = self.slot_clock.now_or_genesis().unwrap_or_default();
-        info!(total, workers = PQ_WORKERS, %slot, "Preparing PQ XMSS validator keys");
+        info!(total, workers = self.pq_keys.workers, %slot, "Preparing PQ XMSS validator keys");
 
         let keys = stream::iter(pubkeys)
             .map(|pubkey| async move {
@@ -314,7 +317,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                     }
                 }
             })
-            .buffer_unordered(PQ_WORKERS);
+            .buffer_unordered(self.pq_keys.workers);
         futures::pin_mut!(keys);
         let mut progress =
             interval_at(started + PQ_KEY_LOAD_LOG_INTERVAL, PQ_KEY_LOAD_LOG_INTERVAL);
@@ -664,58 +667,62 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         .await
     }
 
-    pub(super) async fn sign_pq_attestations(
-        &self,
+    pub(super) fn sign_pq_attestations(
+        self: Arc<Self>,
         attestations: Vec<AttestationToSign>,
-    ) -> Vec<SingleAttestation> {
+    ) -> impl Stream<Item = Vec<SingleAttestation>> + Send {
+        let workers = self.pq_keys.workers;
         stream::iter(attestations)
-            .map(|attestation| async move {
-                let AttestationToSign {
-                    attester_index,
-                    pubkey,
-                    committee_index,
-                    data,
-                } = attestation;
-                let epoch = data.target.epoch;
-                if self.spec.fork_name_at_epoch(epoch) != ForkName::Pq
-                    || data.slot.epoch(E::slots_per_epoch()) != epoch
-                    || data.index > 1
-                {
-                    warn!(?pubkey, ?data, "Invalid PQ attestation data");
-                    return None;
-                }
-                let domain = self
-                    .signing_context(Domain::BeaconAttester, epoch)
-                    .domain_hash(&self.spec);
-                let result = async {
-                    let leaf = pq::attestation_leaf_index(epoch).map_err(pq_leaf_error)?;
-                    self.sign_pq(pubkey, leaf, data.signing_root(domain), Some(data.clone()))
-                        .await
-                }
-                .await;
-                match result {
-                    Ok(signature) => {
-                        validator_metrics::inc_counter_vec(
-                            &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                            &[validator_metrics::SUCCESS],
-                        );
-                        Some(SingleAttestation::Pq(SingleAttestationPq {
-                            committee_index,
-                            attester_index,
-                            data,
-                            signature,
-                        }))
+            .map(move |attestation| {
+                let store = Arc::clone(&self);
+                async move {
+                    let AttestationToSign {
+                        attester_index,
+                        pubkey,
+                        committee_index,
+                        data,
+                    } = attestation;
+                    let epoch = data.target.epoch;
+                    if store.spec.fork_name_at_epoch(epoch) != ForkName::Pq
+                        || data.slot.epoch(E::slots_per_epoch()) != epoch
+                        || data.index > 1
+                    {
+                        warn!(?pubkey, ?data, "Invalid PQ attestation data");
+                        return None;
                     }
-                    Err(error) => {
-                        warn!(?pubkey, ?error, "Unable to sign PQ attestation");
-                        None
+                    let domain = store
+                        .signing_context(Domain::BeaconAttester, epoch)
+                        .domain_hash(&store.spec);
+                    let result = async {
+                        let leaf = pq::attestation_leaf_index(epoch).map_err(pq_leaf_error)?;
+                        store
+                            .sign_pq(pubkey, leaf, data.signing_root(domain), Some(data.clone()))
+                            .await
+                    }
+                    .await;
+                    match result {
+                        Ok(signature) => {
+                            validator_metrics::inc_counter_vec(
+                                &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                                &[validator_metrics::SUCCESS],
+                            );
+                            Some(SingleAttestation::Pq(SingleAttestationPq {
+                                committee_index,
+                                attester_index,
+                                data,
+                                signature,
+                            }))
+                        }
+                        Err(error) => {
+                            warn!(?pubkey, ?error, "Unable to sign PQ attestation");
+                            None
+                        }
                     }
                 }
             })
-            .buffer_unordered(PQ_WORKERS)
+            .buffer_unordered(workers)
             .filter_map(std::future::ready)
-            .collect()
-            .await
+            .ready_chunks(workers)
     }
 
     pub(super) async fn sign_pq_aggregate(

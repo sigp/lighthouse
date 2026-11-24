@@ -3,7 +3,7 @@ use bls::{AggregateSignature, PublicKeyBytes, Signature};
 use builder_types::{RequestAuth, SignedRequestAuth};
 use doppelganger_service::DoppelgangerService;
 use eth2::types::PublishBlockRequest;
-use futures::{Stream, future::join_all, stream};
+use futures::{Stream, StreamExt, future::join_all, stream};
 use initialized_validators::InitializedValidators;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
@@ -1094,15 +1094,17 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         attestations: Vec<AttestationToSign>,
     ) -> impl Stream<Item = Result<Vec<SingleAttestation>, Error>> + Send {
         let store = self.clone();
+        // Forks can only change at an epoch boundary. The attestation
+        // service submits a batch for one slot.
+        if attestations.first().is_some_and(|attestation| {
+            store.spec.fork_name_at_epoch(attestation.data.target.epoch) == types::ForkName::Pq
+        }) {
+            return store
+                .sign_pq_attestations(attestations)
+                .map(Ok)
+                .left_stream();
+        }
         stream::once(async move {
-            // Forks can only change at an epoch boundary. The attestation
-            // service submits a batch for one slot.
-            if attestations.first().is_some_and(|attestation| {
-                store.spec.fork_name_at_epoch(attestation.data.target.epoch) == types::ForkName::Pq
-            }) {
-                return Ok(store.sign_pq_attestations(attestations).await);
-            }
-
             // Sign all attestations concurrently.
             let signing_futures =
                 attestations
@@ -1169,6 +1171,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                 .map_err(|_| Error::ExecutorError)??;
             Ok(safe_attestations)
         })
+        .right_stream()
     }
 
     async fn sign_validator_registration_data(
