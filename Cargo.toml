@@ -216,13 +216,14 @@ r2d2 = "0.8"
 rand = "0.9.0"
 rand_xorshift = "0.4.0"
 rayon = "1.7"
+rcgen = "0.13"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "rustls-tls-native-roots"] }
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.41", features = ["bundled"] }
 rust_eth_kzg = "0.9"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
 rustls-native-certs = "0.8"
 safe_arith = "0.1"
 sensitive_url = { version = "0.1", features = ["serde"] }
