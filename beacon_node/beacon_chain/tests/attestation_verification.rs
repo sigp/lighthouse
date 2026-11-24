@@ -3,6 +3,7 @@
 
 use beacon_chain::attestation_verification::{
     Error, batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
+    verify_attestation_target_root,
 };
 use beacon_chain::observed_aggregates::ObservedAttestationKey;
 use beacon_chain::test_utils::{HARNESS_GENESIS_TIME, MakeAttestationOptions};
@@ -28,9 +29,10 @@ use tempfile::tempdir;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    Address, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
-    SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, Spec, SubnetId,
-    attestation::SignedAggregateAndProofRefMut, test_utils::generate_deterministic_keypair,
+    Address, Attestation, AttestationData, AttestationRef, ChainSpec, Checkpoint, Epoch, EthSpec,
+    ForkName, Hash256, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, Spec,
+    SubnetId, attestation::SignedAggregateAndProofRefMut,
+    test_utils::generate_deterministic_keypair,
 };
 
 pub type E = Spec;
@@ -1563,6 +1565,45 @@ async fn attestation_to_finalized_block() {
             .pre_finalization_block_cache
             .contains(earlier_block_root)
     );
+}
+
+#[tokio::test]
+async fn attestation_to_future_epoch_head_block() {
+    let harness = get_harness(VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            Spec::slots_per_epoch() as usize * 2 + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let head_root = harness.chain.head_snapshot().beacon_block_root;
+    let head_block = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&head_root)
+        .unwrap();
+    let attestation_slot = head_block.slot - Spec::slots_per_epoch();
+    let attestation_data = AttestationData {
+        slot: attestation_slot,
+        index: 0,
+        beacon_block_root: head_root,
+        source: Checkpoint::default(),
+        target: Checkpoint {
+            epoch: attestation_slot.epoch(Spec::slots_per_epoch()),
+            root: head_block.target_root,
+        },
+    };
+
+    assert!(matches!(
+        verify_attestation_target_root::<E>(&head_block, &attestation_data),
+        Err(AttnError::HeadBlockFromFutureEpoch {
+            head_block_slot,
+            attestation_slot: slot,
+        }) if head_block_slot == head_block.slot && slot == attestation_slot
+    ));
 }
 
 #[tokio::test]

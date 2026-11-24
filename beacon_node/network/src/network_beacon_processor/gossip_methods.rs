@@ -3186,6 +3186,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_invalid_target_root",
                 );
             }
+            AttnError::HeadBlockFromFutureEpoch {
+                head_block_slot,
+                attestation_slot,
+            } => {
+                debug!(
+                    %head_block_slot,
+                    %attestation_slot,
+                    "Ignored attestation to future epoch head block"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
             AttnError::TooManySkippedSlots {
                 head_block_slot,
                 attestation_slot,
