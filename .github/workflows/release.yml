@@ -61,7 +61,7 @@ jobs:
 
             - name: Build Lighthouse for ${{ matrix.arch }}
               if:   contains(matrix.arch, 'unknown-linux-gnu')
-              run:  scripts/ci/build-linux.sh lighthouse ${{ matrix.profile }} gnosis,slasher-lmdb,slasher-redb,beacon-node-leveldb,beacon-node-redb
+              run:  scripts/ci/build-linux.sh lighthouse ${{ matrix.profile }} slasher-lmdb,slasher-redb,beacon-node-leveldb,beacon-node-redb
 
             - name: Move Linux binary
               if:  contains(matrix.arch, 'unknown-linux-gnu')
@@ -71,7 +71,7 @@ jobs:
 
             - name: Build Lighthouse for aarch64-apple-darwin
               if:   matrix.arch == 'aarch64-apple-darwin'
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
+              run:  cargo install --path lighthouse --force --locked --features portable --profile ${{ matrix.profile }}
 
             - name: Configure GPG and create artifacts
               env:

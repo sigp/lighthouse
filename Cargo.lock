@@ -3153,7 +3153,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "clap_utils",
- "eth2_network_config",
 ]
 
 [[package]]

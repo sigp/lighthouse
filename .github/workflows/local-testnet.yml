@@ -18,10 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build Docker image
+      - name: Build Docker images
         run: |
-          docker build --build-arg FEATURES=portable,spec-minimal -t lighthouse:local .
-          docker save lighthouse:local -o lighthouse-docker.tar
+          docker build --build-arg FEATURES=portable -t lighthouse:local .
+          docker build --build-arg FEATURES=portable,spec-minimal -t lighthouse:local-minimal .
+          docker save lighthouse:local lighthouse:local-minimal -o lighthouse-docker.tar
 
       - name: Upload Docker image artifact
         uses: actions/upload-artifact@v7

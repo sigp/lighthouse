@@ -19,9 +19,9 @@ mod retry;
 
 use cli::cli_app;
 use local_network::LocalNetwork;
-use types::MinimalEthSpec;
+use types::Spec;
 
-pub type E = MinimalEthSpec;
+pub type E = Spec;
 
 fn main() {
     let matches = cli_app().get_matches();

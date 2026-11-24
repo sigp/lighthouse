@@ -8,7 +8,7 @@
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use types::{ChainSpec, EthSpecId};
+use types::{ChainSpec, EthSpec, EthSpecId, Spec};
 
 pub use paste::paste;
 
@@ -67,9 +67,13 @@ pub struct Eth2Config {
     pub spec: Arc<ChainSpec>,
 }
 
+/// The config of the preset this binary was compiled for.
 impl Default for Eth2Config {
     fn default() -> Self {
-        Self::minimal()
+        Self {
+            eth_spec_id: Spec::SPEC_ID,
+            spec: Arc::new(Spec::default_spec()),
+        }
     }
 }
 

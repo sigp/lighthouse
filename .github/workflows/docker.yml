@@ -50,6 +50,8 @@ jobs:
                            lcli]
                 cpu_arch: [aarch64,
                            x86_64]
+                features: [{version_suffix: '', lighthouse: 'slasher-lmdb,jemalloc', lcli: ''},
+                           {version_suffix: '-minimal', lighthouse: 'spec-minimal,slasher-lmdb,jemalloc', lcli: 'spec-minimal'}]
 
         needs: [extract-version]
         env:
@@ -67,7 +69,9 @@ jobs:
             - name: Build binary
               run: |
                   if [ "${{ matrix.binary }}" = lighthouse ]; then
-                    features=gnosis,spec-minimal,slasher-lmdb,jemalloc
+                    features=${{ matrix.features.lighthouse }}
+                  else
+                    features=${{ matrix.features.lcli }}
                   fi
                   scripts/ci/build-linux.sh ${{ matrix.binary }} ${{ env.PROFILE }} "${features:-}"
 
@@ -97,7 +101,7 @@ jobs:
                 platforms: linux/${{ env.SHORT_ARCH }}
                 push: true
                 tags: |
-                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
+                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ matrix.features.version_suffix }}${{ env.VERSION_SUFFIX }}
 
             - name: Build and push (lcli)
               if: startsWith(matrix.binary, 'lcli')
@@ -109,20 +113,23 @@ jobs:
                 push: true
 
                 tags: |
-                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
+                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ matrix.features.version_suffix }}${{ env.VERSION_SUFFIX }}
 
 
     build-docker-multiarch:
-        name: build-docker-${{ matrix.binary }}-multiarch
+        name: build-docker-${{ matrix.binary }}-multiarch${{ matrix.features.version_suffix }}
         runs-on: ubuntu-24.04
         strategy:
             matrix:
                 binary: [lighthouse,
                          lcli]
+                features: [{version_suffix: ''},
+                           {version_suffix: '-minimal'}]
         needs: [build-docker-single-arch, extract-version]
         env:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
+            FLAVOUR_SUFFIX: ${{ matrix.features.version_suffix }}
         steps:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -133,16 +140,17 @@ jobs:
 
             - name: Create and push multiarch manifests
               run: |
-                  # Create the main tag (versioned for releases, latest-unstable for unstable)
-                  docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}${VERSION_SUFFIX} \
-                      ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${VERSION_SUFFIX} \
-                      ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${VERSION_SUFFIX};
+                  # Create the main tag (versioned for releases, latest-unstable for unstable).
+                  # FLAVOUR_SUFFIX is empty for the mainnet images and `-minimal` for the minimal ones.
+                  docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}${FLAVOUR_SUFFIX}${VERSION_SUFFIX} \
+                      ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${FLAVOUR_SUFFIX}${VERSION_SUFFIX} \
+                      ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${FLAVOUR_SUFFIX}${VERSION_SUFFIX};
 
                   # For version tags, also create/update the latest tag to keep stable up to date
                   # Only create latest tag for proper release versions (e.g. v1.2.3, not v1.2.3-alpha)
                   if [[ "${GITHUB_REF}" == refs/tags/* ]] && [[ "${VERSION}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
-                    docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:latest \
-                        ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${VERSION_SUFFIX} \
-                        ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${VERSION_SUFFIX};
+                    docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:latest${FLAVOUR_SUFFIX} \
+                        ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${FLAVOUR_SUFFIX}${VERSION_SUFFIX} \
+                        ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${FLAVOUR_SUFFIX}${VERSION_SUFFIX};
                   fi
 

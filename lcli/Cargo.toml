@@ -11,6 +11,16 @@ normal = ["malloc_utils"]
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
+spec-minimal = [
+    "types/spec-minimal",
+    "eth2_network_config/spec-minimal",
+    "environment/spec-minimal",
+]
+spec-gnosis = [
+    "types/spec-gnosis",
+    "eth2_network_config/spec-gnosis",
+    "environment/spec-gnosis",
+]
 
 [dependencies]
 account_utils = { workspace = true }

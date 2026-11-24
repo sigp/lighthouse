@@ -12,6 +12,9 @@ Binaries are supplied for the following platforms:
 - `aarch64-unknown-linux-gnu`: 64-bit ARM processors (Raspberry Pi 4)
 - `aarch64-apple-darwin`: macOS with ARM chips
 
+The release binaries run only on networks compatible with the mainnet preset (mainnet, Sepolia and Hoodi).
+For Gnosis and Chiado, you will have to [build from source](./installation_source.md#feature-flags) with the matching feature (e.g. `spec-gnosis`).
+
 ## Usage
 
 Each binary is contained in a `.tar.gz` archive. For this example, lets assume the user needs

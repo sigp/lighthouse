@@ -9,8 +9,8 @@ use typenum::{U, Unsigned};
 
 use crate::core::{ChainSpec, Epoch};
 
-const MAINNET: &str = "mainnet";
-const MINIMAL: &str = "minimal";
+pub(crate) const MAINNET: &str = "mainnet";
+pub(crate) const MINIMAL: &str = "minimal";
 pub const GNOSIS: &str = "gnosis";
 
 /// Used to identify one of the `EthSpec` instances defined here.

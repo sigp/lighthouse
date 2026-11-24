@@ -2,7 +2,8 @@
 //!
 //! The typenum types of `EthSpec` are built from these constants.
 
-use crate::{GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+use super::eth_spec::{GNOSIS, MAINNET, MINIMAL};
+use crate::{EthSpecId, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 /// All spec constants and their mainnet (default) values.
 ///
@@ -82,8 +83,17 @@ macro_rules! all_spec_consts {
 /// macro (defined by `define_spec!`) which checks for an override
 /// before falling back to the mainnet default.
 macro_rules! __define_impl {
-    ($name:ident, $($const_name:ident = $default:expr),* $(,)?) => {
+    (
+        $name:ident, $preset_base:expr, $spec_id:expr,
+        $($const_name:ident = $default:expr),* $(,)?
+    ) => {
         impl $name {
+            /// The preset base name (e.g. `"mainnet"`, `"minimal"`, `"gnosis"`).
+            pub const PRESET_BASE: &'static str = $preset_base;
+
+            /// The spec identifier enum variant.
+            pub const SPEC_ID: EthSpecId = $spec_id;
+
             $(pub const $const_name: usize = __value_for!($const_name, $default);)*
         }
     };
@@ -94,7 +104,12 @@ macro_rules! __define_impl {
 /// Constants not listed in the overrides block inherit mainnet default values
 /// from `all_spec_consts!`. For mainnet itself, the overrides block is empty.
 macro_rules! define_spec {
-    ($name:ident, { $($override_name:ident = $override_val:expr),* $(,)? }) => {
+    (
+        $name:ident,
+        $preset_base:expr,
+        $spec_id:expr,
+        { $($override_name:ident = $override_val:expr),* $(,)? }
+    ) => {
         macro_rules! __value_for {
             // One arm per override: literal ident match takes priority.
             $(($override_name, $_d:expr) => { $override_val };)*
@@ -102,7 +117,7 @@ macro_rules! define_spec {
             ($other:ident, $default:expr) => { $default };
         }
 
-        all_spec_consts!(__define_impl, $name,);
+        all_spec_consts!(__define_impl, $name, $preset_base, $spec_id,);
 
         // Fails to compile if an override names an unknown constant.
         const _: () = { $(let _ = $name::$override_name;)* };
@@ -110,9 +125,9 @@ macro_rules! define_spec {
 }
 
 // Spec definitions including overrides when const values differ from mainnet.
-define_spec!(MainnetEthSpec, {});
+define_spec!(MainnetEthSpec, MAINNET, EthSpecId::Mainnet, {});
 
-define_spec!(MinimalEthSpec, {
+define_spec!(MinimalEthSpec, MINIMAL, EthSpecId::Minimal, {
     MAX_COMMITTEES_PER_SLOT = 4,
     MAX_VALIDATORS_PER_SLOT = 8192,
     SLOTS_PER_EPOCH = 8,
@@ -134,7 +149,7 @@ define_spec!(MinimalEthSpec, {
     MAX_BUILDERS_PER_WITHDRAWALS_SWEEP = 16,
 });
 
-define_spec!(GnosisEthSpec, {
+define_spec!(GnosisEthSpec, GNOSIS, EthSpecId::Gnosis, {
     SLOTS_PER_EPOCH = 16,
     BUILDER_PENDING_PAYMENTS_LIMIT = 32,
     MAX_WITHDRAWALS_PER_PAYLOAD = 8,
@@ -179,11 +194,15 @@ mod test {
             EthSpecId::Mainnet
         };
         assert_eq!(Spec::spec_name(), expected);
+        assert_eq!(Spec::SPEC_ID, expected);
     }
 
     macro_rules! assert_valid {
         ($spec:ident) => {{
             let spec = $spec::default_spec();
+
+            assert_eq!($spec::SPEC_ID, $spec::spec_name());
+            assert_eq!($spec::PRESET_BASE, $spec::spec_name().to_string());
 
             const {
                 assert!(

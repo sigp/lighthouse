@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use tracing::{info, warn};
-use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256};
+use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256, Spec};
 use url::Url;
 
 pub use eth2_config::GenesisStateSource;
@@ -42,7 +42,35 @@ pub const BASE_CONFIG_FILE: &str = "config.yaml";
 // - `HARDCODED_NET_NAMES: &[&'static str]`
 instantiate_hardcoded_nets!(eth2_config);
 
-pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
+pub const MAINNET_HARDCODED_NETWORK: &str = "mainnet";
+pub const GNOSIS_HARDCODED_NETWORK: &str = "gnosis";
+pub const MAINNET_HARDCODED_NET_NAMES: &[&str] =
+    &[MAINNET_HARDCODED_NETWORK, "sepolia", "holesky", "hoodi"];
+pub const MINIMAL_HARDCODED_NET_NAMES: &[&str] = &[];
+pub const GNOSIS_HARDCODED_NET_NAMES: &[&str] = &[GNOSIS_HARDCODED_NETWORK, "chiado"];
+
+/// The network to load when neither `--network` nor `--testnet-dir` is given.
+pub const fn default_hardcoded_network_for_preset(preset: EthSpecId) -> Option<&'static str> {
+    match preset {
+        EthSpecId::Mainnet => Some(MAINNET_HARDCODED_NETWORK),
+        EthSpecId::Minimal => None,
+        EthSpecId::Gnosis => Some(GNOSIS_HARDCODED_NETWORK),
+    }
+}
+
+/// The built-in networks that use the given preset.
+pub const fn hardcoded_net_names_for_preset(preset: EthSpecId) -> &'static [&'static str] {
+    match preset {
+        EthSpecId::Mainnet => MAINNET_HARDCODED_NET_NAMES,
+        EthSpecId::Minimal => MINIMAL_HARDCODED_NET_NAMES,
+        EthSpecId::Gnosis => GNOSIS_HARDCODED_NET_NAMES,
+    }
+}
+
+/// The built-in networks this binary can run, given its compiled preset.
+pub const fn supported_hardcoded_net_names() -> &'static [&'static str] {
+    hardcoded_net_names_for_preset(Spec::SPEC_ID)
+}
 
 /// A simple slice-or-vec enum to avoid cloning the beacon state bytes in the
 /// binary whilst also supporting loading them from a file at runtime.
@@ -483,7 +511,35 @@ mod tests {
 
     #[test]
     fn default_network_exists() {
-        assert!(HARDCODED_NET_NAMES.contains(&DEFAULT_HARDCODED_NETWORK));
+        assert!(HARDCODED_NET_NAMES.contains(&MAINNET_HARDCODED_NETWORK));
+    }
+
+    #[test]
+    fn hardcoded_testnet_names_by_preset() {
+        let presets = [EthSpecId::Mainnet, EthSpecId::Minimal, EthSpecId::Gnosis];
+
+        // Together, the preset lists hold every built-in network.
+        let mut names_by_preset = presets
+            .into_iter()
+            .flat_map(|preset| hardcoded_net_names_for_preset(preset).iter().copied())
+            .collect::<Vec<_>>();
+        names_by_preset.sort_unstable();
+        let mut all_names = HARDCODED_NET_NAMES.to_vec();
+        all_names.sort_unstable();
+        assert_eq!(names_by_preset, all_names);
+
+        for preset in presets {
+            let names = hardcoded_net_names_for_preset(preset);
+            for name in names {
+                let config = Eth2NetworkConfig::constant(name)
+                    .unwrap_or_else(|e| panic!("should decode {name} config: {e}"))
+                    .unwrap_or_else(|| panic!("{name} must be a hardcoded network"));
+                assert_eq!(config.eth_spec_id().unwrap(), preset);
+            }
+            if let Some(default) = default_hardcoded_network_for_preset(preset) {
+                assert!(names.contains(&default));
+            }
+        }
     }
 
     #[test]
