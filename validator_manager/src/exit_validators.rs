@@ -301,10 +301,10 @@ mod test {
         io::Write,
         sync::Arc,
     };
-    use types::{ChainSpec, MainnetEthSpec};
+    use types::{ChainSpec, Spec};
     use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
     use zeroize::Zeroizing;
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     struct TestBuilder {
         exit_config: Option<ExitConfig>,
@@ -319,7 +319,7 @@ mod test {
 
     impl TestBuilder {
         async fn new() -> Self {
-            let mut spec = MainnetEthSpec::default_spec();
+            let mut spec = Spec::default_spec();
             spec.shard_committee_period = 1;
             // Enough churn for all exits in a test to share one epoch (minimal's default is 2).
             spec.min_per_epoch_churn_limit = 4;

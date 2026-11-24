@@ -1,4 +1,4 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
+#![cfg(any(feature = "lmdb", feature = "redb"))]
 
 use maplit::hashset;
 use rayon::prelude::*;
