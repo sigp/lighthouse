@@ -112,22 +112,29 @@ fn progressive_block_body_errors_propagate() {
         let spec = fork.make_genesis_spec(E::default_spec());
         let mut block = BeaconBlock::<E>::empty(&spec);
         let mut body = block.body_mut();
-        body.set_deposits_from_iter(vec![
-            test_arbitrary_instance();
-            <E as EthSpec>::MaxDeposits::to_usize()
-        ])
-        .unwrap();
-        assert!(matches!(
-            body.deposits_push(test_arbitrary_instance()),
-            Err(BeaconStateError::SszTypesError(_))
-        ));
-        assert!(matches!(
+        if fork == ForkName::Gloas {
             body.set_deposits_from_iter(vec![
                 test_arbitrary_instance();
-                <E as EthSpec>::MaxDeposits::to_usize() + 1
-            ]),
-            Err(BeaconStateError::SszTypesError(_))
-        ));
+                <E as EthSpec>::MaxDeposits::to_usize()
+            ])
+            .unwrap();
+            assert!(matches!(
+                body.deposits_push(test_arbitrary_instance()),
+                Err(BeaconStateError::SszTypesError(_))
+            ));
+            assert!(matches!(
+                body.set_deposits_from_iter(vec![
+                    test_arbitrary_instance();
+                    <E as EthSpec>::MaxDeposits::to_usize() + 1
+                ]),
+                Err(BeaconStateError::SszTypesError(_))
+            ));
+        } else {
+            assert!(matches!(
+                body.deposits_push(test_arbitrary_instance()),
+                Err(BeaconStateError::IncorrectStateVariant)
+            ));
+        }
 
         for _ in 0..<E as EthSpec>::MaxProposerSlashings::to_usize() {
             body.proposer_slashings_push(test_arbitrary_instance())
@@ -146,10 +153,14 @@ fn progressive_block_body_errors_propagate() {
             body.voluntary_exits_push(test_arbitrary_instance()),
             Err(BeaconStateError::SszTypesError(_))
         ));
-        assert_eq!(
-            block.body().deposits().len(),
-            <E as EthSpec>::MaxDeposits::to_usize()
-        );
+        if fork == ForkName::Gloas {
+            assert_eq!(
+                block.body().deposits().unwrap().len(),
+                <E as EthSpec>::MaxDeposits::to_usize()
+            );
+        } else {
+            assert!(block.body().deposits().is_err());
+        }
     }
 }
 
