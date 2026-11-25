@@ -350,14 +350,13 @@ pub fn get_config<E: EthSpec>(
         let payload_builder = parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder")?;
         el_config.builder_url = Some(payload_builder);
 
-        el_config.builder_user_agent = clap_utils::parse_optional(cli_args, "builder-user-agent")?;
-
         el_config.builder_header_timeout =
             clap_utils::parse_optional(cli_args, "builder-header-timeout")?
                 .map(Duration::from_millis);
-
-        el_config.disable_builder_ssz_requests = cli_args.get_flag("builder-disable-ssz");
     }
+
+    el_config.builder_user_agent = clap_utils::parse_optional(cli_args, "builder-user-agent")?;
+    el_config.disable_builder_ssz_requests = cli_args.get_flag("builder-disable-ssz");
 
     // Set config values from parse values.
     el_config.suggested_fee_recipient =
