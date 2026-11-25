@@ -61,8 +61,13 @@ pub fn default_keystore_password_path<P: AsRef<Path>>(
 }
 
 /// Reads a password file into a Zeroize-ing `PlainText` struct, with new-lines removed.
+///
+/// The file contents must be valid UTF-8 (issue #1205). Invalid UTF-8 returns
+/// `io::ErrorKind::InvalidData`.
 pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
-    fs::read(path).map(strip_off_newlines).map(Into::into)
+    let bytes = strip_off_newlines(fs::read(path)?);
+    from_utf8(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    Ok(PlainText::from(bytes))
 }
 
 /// Reads a password file into a `Zeroizing<String>` struct, with new-lines removed.
@@ -300,5 +305,26 @@ mod test {
             count_unicode_characters("cats🐱🐱".to_string().as_bytes()),
             6
         );
+    }
+
+    #[test]
+    fn read_password_requires_utf8() {
+        let path = std::env::temp_dir().join(format!(
+            "lighthouse-account-utils-utf8-password-{}",
+            std::process::id()
+        ));
+
+        fs::write(&path, b"valid-password\n").unwrap();
+        let got = read_password(&path).unwrap();
+        assert_eq!(got.as_bytes(), b"valid-password");
+
+        // Invalid UTF-8 must be rejected (issue #1205).
+        fs::write(&path, [0xff, 0xfe, b'\n']).unwrap();
+        match read_password(&path) {
+            Ok(_) => panic!("expected invalid UTF-8 password to fail"),
+            Err(err) => assert_eq!(err.kind(), io::ErrorKind::InvalidData),
+        }
+
+        let _ = fs::remove_file(&path);
     }
 }
