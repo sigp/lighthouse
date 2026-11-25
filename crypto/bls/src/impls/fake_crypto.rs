@@ -174,6 +174,11 @@ impl TAggregateSignature<PublicKey, AggregatePublicKey, Signature> for Aggregate
         // Do nothing.
     }
 
+    fn is_infinity(&self) -> bool {
+        // Aggregation is a no-op, so the point doesn't reflect what was aggregated into it.
+        false
+    }
+
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
         let mut bytes = [0; SIGNATURE_BYTES_LEN];
 

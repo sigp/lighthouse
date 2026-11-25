@@ -32,9 +32,9 @@ use types::{
     BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelope,
     ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
-    PayloadAttestation, ProgressiveTransactions, ProposerSlashing, RelativeEpoch,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
+    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
     SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferences, SignedVoluntaryExit, Slot,
     SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
@@ -342,8 +342,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let winning_bid = bid_selection::select_payload_bid(candidates)
+        for candidate in &candidates {
+            let execution_payload_bid = candidate.signed_bid.message();
+            debug!(
+                slot = %produce_at_slot,
+                source = %candidate.source,
+                builder_index = execution_payload_bid.builder_index(),
+                bid_value_gwei = execution_payload_bid.value(),
+                execution_payment_gwei = execution_payload_bid.execution_payment(),
+                payload_value_wei = %candidate.payload_value(),
+                "Execution payload bid candidate"
+            );
+        }
+
+        let mut ranked_candidates = bid_selection::rank_payload_bids(candidates).into_iter();
+        let winning_bid = ranked_candidates
+            .next()
             .ok_or(BlockProductionError::NoViablePayloadBid)?;
+        let runner_up_bid = ranked_candidates.next();
+
+        let execution_payload_bid = winning_bid.signed_bid.message();
+        info!(
+            slot = %produce_at_slot,
+            source = %winning_bid.source,
+            builder_index = execution_payload_bid.builder_index(),
+            bid_value_gwei = execution_payload_bid.value(),
+            execution_payment_gwei = execution_payload_bid.execution_payment(),
+            payload_value_wei = %winning_bid.payload_value(),
+            runner_up_source = runner_up_bid.as_ref().map(|bid| bid.source.to_string()),
+            runner_up_payload_value_wei = runner_up_bid.as_ref().map(|bid| bid.payload_value().to_string()),
+            "Winning execution payload bid"
+        );
 
         // Part 3/3 (blocking)
         //
@@ -1106,7 +1135,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Fans `getExecutionPayloadBid` out to every configured direct builder (validating each
     /// returned bid against `state` via [`verify_direct_bid`]), then reads the highest direct bid
     /// and the highest gossip-verified bid from their caches and returns them as external
-    /// [`BidCandidate`]s for [`bid_selection::select_payload_bid`](super::bid_selection) to rank
+    /// [`BidCandidate`]s for [`bid_selection::rank_payload_bids`](super::bid_selection) to rank
     /// against the local build.
     ///
     /// Direct bids are requested only when there are configured builders to contact and the proposer
@@ -1528,10 +1557,23 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
-    let slot_number = Some(slot.as_u64());
     let inclusion_list_transactions = if fork.heze_enabled() {
-        // TODO(heze): populate from the inclusion list store
-        Some(ProgressiveTransactions::empty())
+        let inner_chain = chain.clone();
+        let transactions = chain
+            .spawn_blocking_handle(
+                move || {
+                    inner_chain.proposer_inclusion_list_transactions(parent_beacon_block_root, slot)
+                },
+                "prepare_execution_payload_inclusion_list_transactions",
+            )
+            .instrument(debug_span!("proposer_inclusion_list_transactions"))
+            .await
+            .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
+        metrics::inc_counter_by(
+            &metrics::INCLUSION_LIST_TRANSACTIONS_PREPARE_EXECUTION_PAYLOAD_TOTAL,
+            transactions.len() as u64,
+        );
+        Some(transactions)
     } else {
         None
     };
@@ -1542,7 +1584,7 @@ where
         suggested_fee_recipient,
         Some(withdrawals),
         Some(parent_beacon_block_root),
-        slot_number,
+        Some(slot.as_u64()),
         Some(target_gas_limit),
         inclusion_list_transactions,
     );

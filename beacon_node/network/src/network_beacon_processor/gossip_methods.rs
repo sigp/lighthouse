@@ -13,6 +13,7 @@ use beacon_chain::execution_proof_verification::{Error as ExecutionProofError, P
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
+use beacon_chain::kzg_utils::min_columns_for_reconstruction;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
@@ -74,6 +75,23 @@ use beacon_processor::{
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
 const STRICT_LATE_MESSAGE_PENALTIES: bool = false;
+
+/// The outcome of gossip-validating a partial data column sidecar.
+///
+/// Partial messages have no message id, so no `MessageAcceptance` is reported to gossipsub. Only a
+/// rejection is signalled, as a `NetworkMessage::PartialValidationFailure`. This makes the verdict
+/// available to callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartialGossipOutcome {
+    /// The message passed gossip validation.
+    Accept,
+    /// The message could not be validated right now, or is not useful to us.
+    Ignore,
+    /// The message is invalid and the sending peer was reported to gossipsub.
+    Reject,
+    /// We failed to validate the message. This is not a verdict on the message.
+    InternalError,
+}
 
 /// Tracks which kinds of attestation re-processing are still permitted for a gossip attestation
 /// or aggregate.
@@ -768,6 +786,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %parent_root,
                             "Unknown parent hash for column"
                         );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
                         self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                             peer_id,
                             block_root,
@@ -1053,7 +1076,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         column: Box<PartialDataColumn<T::EthSpec>>,
         seen_duration: Duration,
         topic: GossipTopic,
-    ) {
+    ) -> PartialGossipOutcome {
         let block_root = *column.block_root();
         let index = *column.index();
 
@@ -1067,7 +1090,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         //   - trigger `getBlobs` if we just learned about a Fulu header
         // For Gloas the bid is gossip-validated on its own path (and triggers `getBlobs` there),
         // so a partial column never needs to re-trigger it.
-        let post_processing = match result {
+        let (outcome, post_processing) = match result {
             PartialColumnVerificationResult::Ok(column) => {
                 let slot = column.slot();
                 metrics::inc_counter(
@@ -1096,16 +1119,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 let verified_header = column.header().cloned();
                 self.process_gossip_verified_partial_data_column(peer_id, column)
                     .await;
-                Some((slot, verified_header))
+                (PartialGossipOutcome::Accept, Some((slot, verified_header)))
+            }
+            PartialColumnVerificationResult::HeaderOnly(header) => {
+                let slot = header.as_header().slot();
+                debug!(
+                    %slot,
+                    %block_root,
+                    %index,
+                    "Successfully verified gossip partial data column header"
+                );
+                (PartialGossipOutcome::Accept, Some((slot, Some(header))))
             }
             PartialColumnVerificationResult::ErrWithValidHeader { header, err } => {
                 let slot = header.as_header().slot();
-                self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
-                Some((slot, Some(header)))
+                let outcome =
+                    self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
+                (outcome, Some((slot, Some(header))))
             }
             PartialColumnVerificationResult::Err(err) => {
-                self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
-                None
+                let outcome =
+                    self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
+                (outcome, None)
             }
         };
 
@@ -1134,8 +1169,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.publish_partial_data_columns(header, block_root).await;
             }
         }
+
+        outcome
     }
 
+    /// Logs and penalizes for a failed partial data column verification, returning the gossip
+    /// verdict the error corresponds to.
     fn handle_partial_verification_error(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -1143,7 +1182,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         index: ColumnIndex,
         topic: GossipTopic,
-    ) {
+    ) -> PartialGossipOutcome {
         match err {
             GossipPartialDataColumnError::GossipDataColumnError(err) => match err {
                 GossipDataColumnError::PriorKnownUnpublished => {
@@ -1152,6 +1191,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %index,
                         "Gossip partial data column already processed via the EL."
                     );
+                    PartialGossipOutcome::Ignore
                 }
                 GossipDataColumnError::ParentUnknown { parent_root, slot } => {
                     debug!(
@@ -1166,6 +1206,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         parent_root,
                         slot,
                     });
+                    PartialGossipOutcome::Ignore
                 }
                 GossipDataColumnError::BlockRootUnknown {
                     block_root: unknown_block_root,
@@ -1183,6 +1224,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         peer_id,
                         unknown_block_root,
                     ));
+                    PartialGossipOutcome::Ignore
                 }
                 GossipDataColumnError::PubkeyCacheTimeout
                 | GossipDataColumnError::BeaconChainError(_) => {
@@ -1190,6 +1232,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         error = ?err,
                         "Internal error when verifying partial column sidecar"
                     );
+                    PartialGossipOutcome::InternalError
                 }
                 GossipDataColumnError::InvalidVariant
                 | GossipDataColumnError::ProposalSignatureInvalid
@@ -1219,13 +1262,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "gossip_partial_data_column_low",
                     );
                     self.propagate_partial_validation_failure(peer_id, topic);
+                    PartialGossipOutcome::Reject
                 }
                 GossipDataColumnError::PriorKnown { .. } => {
                     debug!(
                         %block_root,
                         %index,
                         "Received already available column sidecar. Ignoring the partial column sidecar"
-                    )
+                    );
+                    PartialGossipOutcome::Ignore
                 }
                 GossipDataColumnError::FutureSlot { .. }
                 | GossipDataColumnError::PastFinalizedSlot { .. } => {
@@ -1240,6 +1285,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         PeerAction::HighToleranceError,
                         "gossip_partial_data_column_high",
                     );
+                    PartialGossipOutcome::Ignore
                 }
                 GossipDataColumnError::InternalError(err) => {
                     error!(
@@ -1248,6 +1294,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %index,
                         "Internal error while handling partial data column verification"
                     );
+                    PartialGossipOutcome::InternalError
                 }
             },
             GossipPartialDataColumnError::MissingHeader => {
@@ -1265,6 +1312,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::HighToleranceError,
                     "gossip_partial_data_column_high",
                 );
+                PartialGossipOutcome::Ignore
             }
             GossipPartialDataColumnError::HeaderMismatches
             | GossipPartialDataColumnError::HeaderIncorrectRoot { .. } => {
@@ -1279,6 +1327,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::LowToleranceError,
                     "gossip_partial_data_column_low",
                 );
+                self.propagate_partial_validation_failure(peer_id, topic);
+                PartialGossipOutcome::Reject
             }
             GossipPartialDataColumnError::EmptyMessage
             | GossipPartialDataColumnError::InconsistentPresentCount { .. }
@@ -1295,6 +1345,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::LowToleranceError,
                     "gossip_partial_data_column_low",
                 );
+                self.propagate_partial_validation_failure(peer_id, topic);
+                PartialGossipOutcome::Reject
             }
             GossipPartialDataColumnError::PartialColumnsDisabled => {
                 error!(
@@ -1308,6 +1360,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::LowToleranceError,
                     "gossip_partial_data_column_low",
                 );
+                // We never validated the message, so this is not a verdict on it.
+                PartialGossipOutcome::InternalError
             }
             GossipPartialDataColumnError::InternalError(err) => {
                 error!(
@@ -1316,6 +1370,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %index,
                     "Internal error while processing partial column"
                 );
+                PartialGossipOutcome::InternalError
             }
         }
     }
@@ -1486,11 +1541,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     async fn check_reconstruction_trigger(self: &Arc<Self>, slot: Slot, block_root: &Hash256) {
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         if self
             .chain
             .custody_context
-            .should_attempt_reconstruction(slot.epoch(T::EthSpec::slots_per_epoch()))
+            .should_attempt_reconstruction(epoch)
         {
+            // Only request reconstruction once enough columns are cached for it. The reprocess
+            // queue dispatches a single attempt per block root, so an attempt requested with too
+            // few columns would be declined and no later column would schedule another one.
+            let cached_column_count = self
+                .chain
+                .cached_data_column_indexes(block_root, epoch)
+                .map_or(0, |indexes| indexes.len());
+            if cached_column_count < min_columns_for_reconstruction::<T::EthSpec>() {
+                return;
+            }
+
             // Instead of triggering reconstruction immediately, schedule it to be run. If
             // another column arrives, it either completes availability or pushes
             // reconstruction back a bit.
@@ -1778,7 +1845,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::KnownInvalidExecutionPayload(_))
             | Err(e @ BlockError::GenesisBlock)
             | Err(e @ BlockError::InvalidBlobCount { .. })
-            | Err(e @ BlockError::BidParentRootMismatch { .. }) => {
+            | Err(e @ BlockError::BidParentRootMismatch { .. })
+            | Err(e @ BlockError::EmptyParentPayloadHashMismatch { .. }) => {
                 warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -3193,6 +3261,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     PeerAction::MidToleranceError,
                     "attn_too_many_skipped_slots",
+                );
+            }
+            AttnError::OptimisticPayload { beacon_block_root } => {
+                debug!(
+                    block = ?beacon_block_root,
+                    "Ignored attestation to optimistic payload"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            AttnError::InvalidPayload { beacon_block_root } => {
+                debug!(
+                    block = ?beacon_block_root,
+                    "Rejected attestation to invalid payload"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_to_invalid_payload",
                 );
             }
             AttnError::HeadBlockFinalized { beacon_block_root } => {

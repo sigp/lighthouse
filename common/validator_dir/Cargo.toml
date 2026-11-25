@@ -6,6 +6,7 @@ edition = { workspace = true }
 
 [features]
 insecure_keys = []
+spec-minimal = ["types/spec-minimal"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

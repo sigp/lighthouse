@@ -1160,6 +1160,15 @@ async fn invalid_signature_deposit() {
             .as_ref()
             .clone()
             .deconstruct();
+        // Gloas removes legacy deposits. The list has a limit of zero, so there is no deposit
+        // signature to check.
+        if block.body().fork_name().gloas_enabled() {
+            assert!(
+                block.body_mut().deposits_push(deposit).is_err(),
+                "should not add a deposit to a gloas block"
+            );
+            return;
+        }
         block
             .body_mut()
             .deposits_push(deposit)
@@ -1577,49 +1586,6 @@ async fn block_gossip_verification() {
                 if max_blobs_at_epoch == kzg_commitments_len && block == kzg_commitments_len + 1
             ),
             "should not import a block with higher blob_kzg_commitment length than the max_blobs at epoch"
-        );
-    }
-
-    /*
-     * This test ensures that:
-     *
-     * We do not accept gloas blocks with a non-empty `deposits` list. Gloas removes legacy
-     * eth1 deposits, so the effective limit for this progressive list is zero.
-     */
-    let (mut block, signature) = chain_segment[block_index]
-        .beacon_block
-        .as_ref()
-        .clone()
-        .deconstruct();
-
-    if let BeaconBlock::Gloas(gloas_block) = &mut block {
-        let deposit = Deposit {
-            proof: ssz_types::FixedVector::default(),
-            data: DepositData {
-                pubkey: bls::PublicKeyBytes::empty(),
-                withdrawal_credentials: Hash256::ZERO,
-                amount: 0,
-                signature: bls::SignatureBytes::empty(),
-            },
-        };
-        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![deposit]).unwrap();
-        assert!(
-            matches!(
-                unwrap_err(
-                    harness
-                        .chain
-                        .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
-                            block, signature
-                        )))
-                        .await
-                )
-                .into_block_error(),
-                BlockError::PerBlockProcessingError(BlockProcessingError::OperationListTooLong {
-                    kind: "deposits",
-                    ..
-                })
-            ),
-            "should not accept a gloas block with a non-empty deposits list"
         );
     }
 }
@@ -2101,6 +2067,69 @@ async fn add_altair_block_to_base_chain() {
             })
         }
     ));
+}
+
+/// A block whose bid builds on neither the parent's full nor empty execution head must be rejected
+/// on gossip, including at the fork boundary where the parent is a pre-Gloas block.
+async fn gloas_gossip_rejects_bid_not_building_on_parent(gloas_fork_epoch: Epoch, slot: Slot) {
+    if !test_spec::<E>()
+        .fork_name_at_epoch(Epoch::new(0))
+        .gloas_enabled()
+    {
+        return;
+    }
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .keypairs(KEYPAIRS.to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.extend_to_slot(slot - 1).await;
+    harness.advance_slot();
+
+    // A valid block built on the parent's empty execution head.
+    let state = harness.get_current_state();
+    let ((valid_block, _), _, _) = harness
+        .make_block_with_envelope_on(state.clone(), slot, PayloadStatus::Empty)
+        .await;
+
+    let (mut invalid_block, _) = valid_block.as_ref().clone().deconstruct();
+    let bad_hash = ExecutionBlockHash::repeat_byte(0xde);
+    invalid_block
+        .body_mut()
+        .signed_execution_payload_bid_gloas_mut()
+        .unwrap()
+        .message
+        .parent_block_hash = bad_hash;
+    let invalid_block = Arc::new(harness.sign_beacon_block(invalid_block, &state));
+
+    assert!(matches!(
+        unwrap_err(harness.chain.verify_block_for_gossip(invalid_block).await).into_block_error(),
+        BlockError::EmptyParentPayloadHashMismatch { bid_parent_block_hash, .. }
+            if bid_parent_block_hash == bad_hash
+    ));
+    harness
+        .chain
+        .verify_block_for_gossip(valid_block)
+        .await
+        .expect("block building on the parent's execution head should pass gossip");
+}
+
+#[tokio::test]
+async fn gloas_gossip_rejects_bid_not_building_on_gloas_parent() {
+    gloas_gossip_rejects_bid_not_building_on_parent(Epoch::new(0), Slot::new(2)).await;
+}
+
+#[tokio::test]
+async fn gloas_gossip_rejects_bid_not_building_on_pre_gloas_parent() {
+    let gloas_fork_epoch = Epoch::new(1);
+    gloas_gossip_rejects_bid_not_building_on_parent(
+        gloas_fork_epoch,
+        gloas_fork_epoch.start_slot(E::slots_per_epoch()),
+    )
+    .await;
 }
 
 // This is a regression test for the bogus `InvalidBestNode` error which was reachable in Gloas

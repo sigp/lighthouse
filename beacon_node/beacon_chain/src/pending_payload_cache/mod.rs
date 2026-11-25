@@ -12,6 +12,7 @@
 //! the block are rejected with `BlockRootUnknown`.
 
 use crate::data_availability_checker::{AvailabilityCheckError, MissingCellsError};
+use crate::kzg_utils::min_columns_for_reconstruction;
 use crate::payload_envelope_verification::{
     AvailabilityPendingExecutedEnvelope, AvailableExecutedEnvelope,
 };
@@ -33,7 +34,7 @@ mod pending_column;
 mod pending_components;
 
 use crate::data_column_verification::{
-    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
+    ColumnBid, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
     KzgVerifiedCustodyPartialDataColumnGloas, KzgVerifiedDataColumn,
 };
 use crate::metrics::{
@@ -275,15 +276,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         self.check_availability(beacon_block_root, pending_components)
     }
 
-    /// Inserts a bid into the pending payload cache.
-    /// This will silently drop the bid if a bid for this block root already exists in the cache.
-    pub fn insert_bid(&self, block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>) {
-        let mut write_lock = self.availability_cache.write();
-        write_lock
-            .entry(block_root)
-            .or_insert_with(|| PendingComponents::new(block_root, bid));
-    }
-
     /// Inserts a beacon block (and its bid) into the pending payload cache.
     /// This will silently drop the block if one for this block root already exists in the cache.
     /// No-ops if the block has no execution payload bid.
@@ -354,9 +346,14 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         block_root: Hash256,
         data_columns: Vec<GossipVerifiedDataColumn<T, O>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let bid = self
-            .get_bid(&block_root)
-            .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
+        // Take the bid from the columns, not a cache lookup: a bid is cached only together with the
+        // columns it was validated against.
+        let bid = match data_columns.first().map(|column| column.bid()) {
+            Some(ColumnBid::Bid(bid)) => bid.clone(),
+            Some(ColumnBid::PreGloas) | None => {
+                return Err(AvailabilityCheckError::MissingBid(block_root));
+            }
+        };
         let epoch = bid.message().slot().epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let custody_columns = data_columns
@@ -630,7 +627,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
         let epoch = pending_components.bid.epoch();
 
-        let total_column_count = T::EthSpec::number_of_columns();
         let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         if pending_components.reconstruction_started {
@@ -640,7 +636,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         if received_column_count >= sampling_column_count {
             return ReconstructColumnsDecision::No("all sampling columns received");
         }
-        if received_column_count < total_column_count / 2 {
+        if received_column_count < min_columns_for_reconstruction::<T::EthSpec>() {
             return ReconstructColumnsDecision::No("not enough columns");
         }
 
@@ -747,9 +743,8 @@ mod data_availability_checker_tests {
                 .expect("Gloas block has bid")
                 .clone_as_signed_execution_payload_bid(),
         );
-        cache.insert_bid(block_root, bid.clone());
-
         let epoch = bid.message().slot().epoch(E::slots_per_epoch());
+        cache.insert_block(block_root, Arc::new(block), BlockImportSource::Gossip);
         let sampling = cache.custody_context().sampling_columns_for_epoch(epoch);
         let custody = columns
             .into_iter()
@@ -898,12 +893,13 @@ mod data_availability_checker_tests {
     // Reconstruction only triggers when `total/2 ≤ received < sampling_count`. Fullnode's small
     // sampling count never satisfies this, so these tests use `Supernode`.
 
-    /// Fewer than `number_of_columns / 2` columns received → reconstruction is `NotStarted`.
+    /// Fewer than `min_columns_for_reconstruction` columns received → reconstruction is
+    /// `NotStarted`.
     #[tokio::test]
     async fn reconstruction_below_threshold_is_not_started() {
         let s = setup(NodeCustodyType::Supernode);
-        let half = E::number_of_columns() / 2;
-        s.put_columns(s.custody.iter().take(half - 1).cloned().collect());
+        let min_columns = min_columns_for_reconstruction::<E>();
+        s.put_columns(s.custody.iter().take(min_columns - 1).cloned().collect());
         assert!(matches!(
             s.reconstruct().expect("reconstruct call"),
             DataColumnReconstructionResult::NotStarted("not enough columns")

@@ -858,8 +858,8 @@ pub fn cli_app() -> Command {
                 .long("proof-engine-endpoint")
                 .value_name("PROOF-ENGINE-ENDPOINT")
                 .help("Server endpoint for an EIP-8025 proof engine used to verify execution \
-                       proofs. When present, the node subscribes to the execution_proof gossip \
-                       topic and propagates proofs that verify. Experimental.")
+                       proofs. Proofs decide payload validity if there's no \
+                       --execution-endpoint. Experimental.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1165,7 +1165,7 @@ pub fn cli_app() -> Command {
             Arg::new("slasher-max-db-size")
                 .long("slasher-max-db-size")
                 .help(
-                    "Maximum size of the MDBX database used by the slasher."
+                    "Maximum size of the LMDB database used by the slasher."
                 )
                 .value_name("GIGABYTES")
                 .requires("slasher")
@@ -1537,9 +1537,10 @@ pub fn cli_app() -> Command {
             Arg::new("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
-                .help("The HTTP user agent to send alongside requests to the builder URL. The \
-                       default is Lighthouse's version string.")
-                .requires("builder")
+                .help("The HTTP user agent to send alongside requests to the builders. \
+                       pre-Gloas, requests go to the --builder URL. \
+                       post-Gloas, requests go to the builders configured in the validator client. \
+                       The default is Lighthouse's version string.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1547,8 +1548,9 @@ pub fn cli_app() -> Command {
             Arg::new("builder-disable-ssz")
                 .long("builder-disable-ssz")
                 .value_name("BOOLEAN")
-                .help("Disables sending requests using SSZ over the builder API.")
-                .requires("builder")
+                .help("Disables sending requests using SSZ over the builder API. \
+                       pre-Gloas, this applies to the --builder URL. \
+                       post-Gloas, this applies to the builders configured in the validator client.")
                 .action(ArgAction::SetTrue)
                 .display_order(0)
         )
