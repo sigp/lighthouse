@@ -1018,45 +1018,49 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        // `engine_hasBlobs` is only wired up for the Fulu partial assembler. Gloas partials are
-        // tracked by the pending payload cache, so the bid path goes straight to `getBlobs`.
-        let skip_fetch = if let (Some(assembler), PartialHeaderOrBid::PartialHeader(header)) = (
-            self.chain.data_availability_checker.partial_assembler(),
-            &header_or_bid,
-        ) {
-            match fetch_engine_blob_availability(self.chain.clone(), header.clone()).await {
+        // Ask the EL which blobs it holds before fetching them. The answer arrives well before
+        // the blobs do, so we can already request the cells the EL lacks from our peers.
+        let skip_fetch = if self.chain.config.enable_partial_columns {
+            match fetch_engine_blob_availability(self.chain.clone(), &header_or_bid).await {
                 Ok(Some(bitmap)) => {
                     if !bitmap.is_zero() {
                         debug!(%block_root, %bitmap, "EL blobs available");
                         let request_cells = bitmap.not();
-                        if !request_cells.is_zero() {
-                            let messages = custody_columns
+                        let messages: Vec<_> = if request_cells.is_zero() {
+                            debug!(%block_root, "EL has all blobs; not publishing empty partials");
+                            vec![]
+                        } else {
+                            custody_columns
                                 .iter()
                                 .map(|col_idx| {
-                                    let column = Arc::new(PartialDataColumnFulu {
+                                    Self::empty_partial_message(
+                                        &header_or_bid,
                                         block_root,
-                                        index: *col_idx,
-                                        sidecar: PartialDataColumnSidecarFulu {
-                                            cells_present_bitmap: bitmap.clone_zeroed(),
-                                            column: VariableList::empty(),
-                                            kzg_proofs: VariableList::empty(),
-                                            header: None.into(),
-                                        },
-                                    });
-                                    PubsubPartialMessage::DataColumnFulu {
-                                        column,
-                                        header: header.clone(),
-                                        request_cells: request_cells.clone(),
-                                    }
+                                        *col_idx,
+                                        bitmap.clone_zeroed(),
+                                        request_cells.clone(),
+                                    )
                                 })
-                                .collect();
-                            assembler.set_fetching_cells(block_root, header, bitmap);
+                                .collect()
+                        };
+                        match &header_or_bid {
+                            PartialHeaderOrBid::PartialHeader(header) => {
+                                if let Some(assembler) =
+                                    self.chain.data_availability_checker.partial_assembler()
+                                {
+                                    assembler.set_fetching_cells(block_root, header, bitmap);
+                                }
+                            }
+                            PartialHeaderOrBid::Bid(bid) => {
+                                self.chain
+                                    .pending_payload_cache
+                                    .set_fetching_cells(block_root, bid, bitmap);
+                            }
+                        }
+                        if !messages.is_empty() {
                             self.send_network_message(NetworkMessage::PublishPartialColumns {
                                 messages,
                             });
-                        } else {
-                            debug!(%block_root, "EL has all blobs; not publishing empty partials");
-                            assembler.set_fetching_cells(block_root, header, bitmap);
                         }
                         false
                     } else {
@@ -1135,6 +1139,46 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
             }
+        }
+    }
+
+    /// Builds a partial message for `column_index` that carries no cells and only requests
+    /// `request_cells` from our peers.
+    fn empty_partial_message(
+        header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
+        block_root: Hash256,
+        column_index: ColumnIndex,
+        cells_present_bitmap: CellBitmap<T::EthSpec>,
+        request_cells: CellBitmap<T::EthSpec>,
+    ) -> PubsubPartialMessage<T::EthSpec> {
+        match header_or_bid {
+            PartialHeaderOrBid::PartialHeader(header) => PubsubPartialMessage::DataColumnFulu {
+                column: Arc::new(PartialDataColumnFulu {
+                    block_root,
+                    index: column_index,
+                    sidecar: PartialDataColumnSidecarFulu {
+                        cells_present_bitmap,
+                        column: VariableList::empty(),
+                        kzg_proofs: VariableList::empty(),
+                        header: None.into(),
+                    },
+                }),
+                request_cells,
+                header: header.clone(),
+            },
+            PartialHeaderOrBid::Bid(_) => PubsubPartialMessage::DataColumnGloas {
+                column: Arc::new(PartialDataColumnGloas {
+                    block_root,
+                    slot: header_or_bid.slot(),
+                    index: column_index,
+                    sidecar: PartialDataColumnSidecarGloas {
+                        cells_present_bitmap,
+                        column: ProgressiveVariableList::empty(),
+                        kzg_proofs: ProgressiveVariableList::empty(),
+                    },
+                }),
+                request_cells,
+            },
         }
     }
 
@@ -1232,36 +1276,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 continue;
             };
             let request_cells = cells_present_bitmap.not();
-            let message = match &header_or_bid {
-                PartialHeaderOrBid::PartialHeader(header) => PubsubPartialMessage::DataColumnFulu {
-                    column: Arc::new(PartialDataColumnFulu {
-                        block_root,
-                        index: *col_idx,
-                        sidecar: PartialDataColumnSidecarFulu {
-                            cells_present_bitmap,
-                            column: VariableList::empty(),
-                            kzg_proofs: VariableList::empty(),
-                            header: None.into(),
-                        },
-                    }),
-                    request_cells,
-                    header: header.clone(),
-                },
-                PartialHeaderOrBid::Bid(_) => PubsubPartialMessage::DataColumnGloas {
-                    column: Arc::new(PartialDataColumnGloas {
-                        block_root,
-                        slot: header_or_bid.slot(),
-                        index: *col_idx,
-                        sidecar: PartialDataColumnSidecarGloas {
-                            cells_present_bitmap,
-                            column: ProgressiveVariableList::empty(),
-                            kzg_proofs: ProgressiveVariableList::empty(),
-                        },
-                    }),
-                    request_cells,
-                },
-            };
-            messages.push(message);
+            messages.push(Self::empty_partial_message(
+                &header_or_bid,
+                block_root,
+                *col_idx,
+                cells_present_bitmap,
+                request_cells,
+            ));
         }
 
         if !messages.is_empty() {

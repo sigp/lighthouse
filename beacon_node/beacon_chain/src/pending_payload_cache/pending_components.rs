@@ -32,10 +32,11 @@ pub struct PendingComponents<E: EthSpec> {
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     pub reconstruction_started: bool,
-    /// True once the local `getBlobs` attempt has settled. It is set whether or not the EL
-    /// returned anything. Until then, republished partials request no cells, because the EL
-    /// may supply them for free.
-    pub local_fetch_settled: bool,
+    /// State of the local `getBlobs` fetch. It is `Fetched` once the attempt has settled, whether
+    /// or not the EL returned anything. Until then, republished partials only request the cells
+    /// the EL is known to lack (via `engine_hasBlobs`), because the EL may supply the rest for
+    /// free.
+    pub local_fetch_state: LocalFetchState<E>,
     pub(crate) span: Span,
 }
 
@@ -193,11 +194,10 @@ impl<E: EthSpec> PendingComponents<E> {
 
         PartialMergeResult {
             added_cells: outcome.added_cells,
-            // `engine_hasBlobs` is not wired up for Gloas partials, so there is no `Fetching` state.
-            local_fetch_state: if self.local_fetch_settled || disable_get_blobs {
+            local_fetch_state: if disable_get_blobs {
                 LocalFetchState::Fetched
             } else {
-                LocalFetchState::Unfetched
+                self.local_fetch_state.clone()
             },
             full_columns,
             updated_partials: UpdatedPartials::Gloas(updated_partials),
@@ -308,7 +308,7 @@ impl<E: EthSpec> PendingComponents<E> {
             envelope: None,
             verified_data_columns: HashMap::new(),
             reconstruction_started: false,
-            local_fetch_settled: false,
+            local_fetch_state: LocalFetchState::Unfetched,
             span,
         }
     }

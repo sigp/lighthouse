@@ -189,17 +189,17 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
 #[instrument(skip_all)]
 pub async fn fetch_engine_blob_availability<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+    header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
 ) -> Result<Option<CellBitmap<T::EthSpec>>, FetchEngineBlobError> {
-    fetch_engine_blob_availability_inner(FetchBlobsBeaconAdapter::new(chain), header).await
+    fetch_engine_blob_availability_inner(FetchBlobsBeaconAdapter::new(chain), header_or_bid).await
 }
 
 async fn fetch_engine_blob_availability_inner<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
-    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+    header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
 ) -> Result<Option<CellBitmap<T::EthSpec>>, FetchEngineBlobError> {
-    let versioned_hashes = header
-        .kzg_commitments
+    let versioned_hashes = header_or_bid
+        .kzg_commitments()
         .iter()
         .map(kzg_commitment_to_versioned_hash)
         .collect::<Vec<_>>();

@@ -800,7 +800,14 @@ fn mock_publish_fn() -> (
 
 mod has_blobs {
     use super::*;
+    use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
     use types::{CellBitmap, PartialDataColumnHeader};
+
+    fn fulu_header(block: &SignedBeaconBlock<E>) -> PartialHeaderOrBid<E> {
+        PartialHeaderOrBid::PartialHeader(Arc::new(
+            PartialDataColumnHeader::try_from(block).unwrap(),
+        ))
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_kzg_commitments_returns_none() {
@@ -813,9 +820,9 @@ mod has_blobs {
             message: BeaconBlockFulu::empty(mock_adapter.spec()),
             signature: Signature::empty(),
         });
-        let header = Arc::new(PartialDataColumnHeader::try_from(&block).unwrap());
+        let header = fulu_header(&block);
 
-        let result = fetch_engine_blob_availability_inner(mock_adapter, header)
+        let result = fetch_engine_blob_availability_inner(mock_adapter, &header)
             .await
             .expect("should succeed");
         assert!(result.is_none());
@@ -831,8 +838,8 @@ mod has_blobs {
         // Should not actually call has_blobs when capability is missing.
         mock_adapter.expect_has_blobs().times(0);
 
-        let header = Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap());
-        let result = fetch_engine_blob_availability_inner(mock_adapter, header)
+        let header = fulu_header(block.as_ref());
+        let result = fetch_engine_blob_availability_inner(mock_adapter, &header)
             .await
             .expect("should succeed");
         assert!(result.is_none());
@@ -847,8 +854,8 @@ mod has_blobs {
             .return_once(|| Ok(true));
         mock_adapter.expect_has_blobs().return_once(|_| Ok(None));
 
-        let header = Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap());
-        let result = fetch_engine_blob_availability_inner(mock_adapter, header)
+        let header = fulu_header(block.as_ref());
+        let result = fetch_engine_blob_availability_inner(mock_adapter, &header)
             .await
             .expect("should succeed");
         assert!(result.is_none());
@@ -866,8 +873,8 @@ mod has_blobs {
             .expect_has_blobs()
             .return_once(|_| Ok(Some(vec![true, false])));
 
-        let header = Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap());
-        let result = fetch_engine_blob_availability_inner(mock_adapter, header)
+        let header = fulu_header(block.as_ref());
+        let result = fetch_engine_blob_availability_inner(mock_adapter, &header)
             .await
             .expect("should succeed");
         assert!(result.is_none());
@@ -884,8 +891,8 @@ mod has_blobs {
             .expect_has_blobs()
             .return_once(|_| Ok(Some(vec![false, false, false])));
 
-        let header = Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap());
-        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, header)
+        let header = fulu_header(block.as_ref());
+        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, &header)
             .await
             .expect("should succeed")
             .expect("should return Some bitmap");
@@ -906,8 +913,8 @@ mod has_blobs {
             .expect_has_blobs()
             .return_once(move |_| Ok(Some(response_clone)));
 
-        let header = Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap());
-        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, header)
+        let header = fulu_header(block.as_ref());
+        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, &header)
             .await
             .expect("should succeed")
             .expect("should return Some bitmap");
@@ -928,14 +935,44 @@ mod has_blobs {
             .expect_has_blobs()
             .return_once(|_| Ok(Some(vec![true, true, true])));
 
-        let header = Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap());
-        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, header)
+        let header = fulu_header(block.as_ref());
+        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, &header)
             .await
             .expect("should succeed")
             .expect("should return Some bitmap");
         let mut expected = CellBitmap::<E>::with_capacity(3).unwrap();
         expected.not_inplace();
         assert_eq!(bitmap, expected);
+    }
+
+    /// Post-Gloas the commitments come from the execution payload bid rather than a header.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn gloas_bid_response_matches_bitmap() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Gloas);
+        let (_block_root, bid, _) = create_test_gloas_bid_and_blobs(3);
+        let expected_hashes = bid
+            .message()
+            .blob_kzg_commitments()
+            .iter()
+            .map(kzg_commitment_to_versioned_hash)
+            .collect::<Vec<_>>();
+        mock_adapter
+            .expect_supports_has_blobs()
+            .return_once(|| Ok(true));
+        mock_adapter
+            .expect_has_blobs()
+            .withf(move |hashes| *hashes == expected_hashes)
+            .return_once(|_| Ok(Some(vec![true, false, true])));
+
+        let bitmap =
+            fetch_engine_blob_availability_inner(mock_adapter, &PartialHeaderOrBid::Bid(bid))
+                .await
+                .expect("should succeed")
+                .expect("should return Some bitmap");
+        assert_eq!(bitmap.len(), 3);
+        for (idx, present) in [true, false, true].into_iter().enumerate() {
+            assert_eq!(bitmap.get(idx).unwrap(), present, "bit {idx} mismatch");
+        }
     }
 }
 
