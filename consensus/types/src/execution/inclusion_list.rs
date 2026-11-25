@@ -1,4 +1,4 @@
-use crate::{EthSpec, ForkName, Hash256, ProgressiveTransactions, SignedRoot, Slot};
+use crate::{EthSpec, ForkName, Hash256, ProgressiveTransactions, SignedRoot, Slot, Spec};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,8 @@ use ssz_types::FixedVector;
 use tree_hash_derive::TreeHash;
 
 /// The inclusion list committee, ordered by committee position.
-pub type InclusionListCommittee<E> = FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize>;
+pub type InclusionListCommittee<E = Spec> =
+    FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize>;
 
 #[derive(Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]

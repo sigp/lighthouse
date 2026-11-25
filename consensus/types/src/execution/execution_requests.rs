@@ -12,22 +12,22 @@ use tree_hash_derive::TreeHash;
 use crate::{
     builder::{BuilderDepositRequest, BuilderExitRequest},
     consolidation::ConsolidationRequest,
-    core::{EthSpec, Hash256},
+    core::{EthSpec, Hash256, Spec},
     deposit::DepositRequest,
     fork::{ForkName, ForkVersionDecode},
     state::BeaconStateError,
     withdrawal::WithdrawalRequest,
 };
 
-pub type DepositRequests<E> =
+pub type DepositRequests<E = Spec> =
     VariableList<DepositRequest, <E as EthSpec>::MaxDepositRequestsPerPayload>;
-pub type WithdrawalRequests<E> =
+pub type WithdrawalRequests<E = Spec> =
     VariableList<WithdrawalRequest, <E as EthSpec>::MaxWithdrawalRequestsPerPayload>;
-pub type ConsolidationRequests<E> =
+pub type ConsolidationRequests<E = Spec> =
     VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>;
-pub type BuilderDepositRequests<E> =
+pub type BuilderDepositRequests<E = Spec> =
     VariableList<BuilderDepositRequest, <E as EthSpec>::MaxBuilderDepositRequestsPerPayload>;
-pub type BuilderExitRequests<E> =
+pub type BuilderExitRequests<E = Spec> =
     VariableList<BuilderExitRequest, <E as EthSpec>::MaxBuilderExitRequestsPerPayload>;
 
 /// EIP-7685 execution requests.
@@ -81,7 +81,7 @@ pub type BuilderExitRequests<E> =
 #[serde(bound = "E: EthSpec", untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct ExecutionRequests<E: EthSpec> {
+pub struct ExecutionRequests<E: EthSpec = Spec> {
     #[superstruct(only(Electra), partial_getter(rename = "deposits_electra"))]
     pub deposits: DepositRequests<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "deposits_gloas"))]

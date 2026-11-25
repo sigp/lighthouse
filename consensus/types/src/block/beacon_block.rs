@@ -22,7 +22,7 @@ use crate::{
         BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
         BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
     },
-    core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
+    core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot, Spec},
     deposit::{Deposit, DepositData},
     execution::{
         AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequestsElectra,
@@ -78,7 +78,7 @@ use crate::{
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
+pub struct BeaconBlock<E: EthSpec = Spec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
@@ -108,7 +108,7 @@ pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload
     pub body: BeaconBlockBodyHeze<E, Payload>,
 }
 
-pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
+pub type BlindedBeaconBlock<E = Spec> = BeaconBlock<E, BlindedPayload<E>>;
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BeaconBlock<E, Payload> {}
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BeaconBlockRef<'_, E, Payload> {}

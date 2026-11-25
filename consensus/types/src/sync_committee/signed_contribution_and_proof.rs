@@ -5,7 +5,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
+    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Spec},
     fork::{Fork, ForkName},
     sync_committee::{ContributionAndProof, SyncCommitteeContribution, SyncSelectionProof},
 };
@@ -20,7 +20,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct SignedContributionAndProof<E: EthSpec> {
+pub struct SignedContributionAndProof<E: EthSpec = Spec> {
     /// The `ContributionAndProof` that was signed.
     pub message: ContributionAndProof<E>,
     /// The validator's signature of `message`.

@@ -2,7 +2,7 @@ pub mod consts;
 
 pub use kzg::{Error as KzgError, Kzg, KzgCommitment, KzgProof};
 
-use crate::core::EthSpec;
+use crate::core::{EthSpec, Spec};
 use crate::{BeaconStateError, Hash256};
 use merkle_proof::{MerkleTree, MerkleTreeError};
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList};
@@ -15,15 +15,15 @@ use tree_hash::{BYTES_PER_CHUNK, TreeHash};
 // introduce a new type for Fulu. This is to avoid messy conversions and having to add extra types
 // with no gains - as `N` does not impact serialisation at all, and only affects merkleization,
 // which we don't current do on `KzgProofs` anyway.
-pub type KzgProofs<E> = VariableList<KzgProof, <E as EthSpec>::MaxCellsPerBlock>;
+pub type KzgProofs<E = Spec> = VariableList<KzgProof, <E as EthSpec>::MaxCellsPerBlock>;
 
-pub type KzgCommitments<E> =
+pub type KzgCommitments<E = Spec> =
     VariableList<KzgCommitment, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Progressive (EIP-7688) variant of `KzgCommitments`, used from Gloas onwards.
 ///
 /// The `MaxBlobCommitmentsPerBlock` limit is enforced during deserialization.
-pub type ProgressiveKzgCommitments<E> =
+pub type ProgressiveKzgCommitments<E = Spec> =
     ProgressiveVariableList<KzgCommitment, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Util method helpful for logging.

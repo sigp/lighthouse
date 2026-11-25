@@ -1,6 +1,6 @@
 use crate::{
     block::{BLOB_KZG_COMMITMENTS_INDEX, SignedBeaconBlock, SignedBeaconBlockHeader},
-    core::{EthSpec, Hash256, ListRef, Slot},
+    core::{EthSpec, Hash256, ListRef, Slot, Spec},
     data::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu},
     execution::AbstractExecPayload,
     kzg_ext::KzgCommitments,
@@ -18,7 +18,7 @@ use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type CellBitmap<E = Spec> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 #[superstruct(
     variants(Fulu, Gloas),
@@ -45,7 +45,7 @@ pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct PartialDataColumnSidecar<E: EthSpec> {
+pub struct PartialDataColumnSidecar<E: EthSpec = Spec> {
     pub cells_present_bitmap: CellBitmap<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "column_fulu"))]
     pub column: VariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
@@ -83,7 +83,7 @@ impl<E: EthSpec> PartialDataColumnSidecarGloas<E> {
 )]
 #[derive(Debug, Clone, Encode)]
 #[ssz(enum_behaviour = "transparent")]
-pub struct PartialDataColumnView<'a, E: EthSpec> {
+pub struct PartialDataColumnView<'a, E: EthSpec = Spec> {
     pub cells_present_bitmap: CellBitmap<E>,
     // It is fine to use `Vec` here as we never decode directly into this type, and only create
     // this from the `PartialDataColumnSidecar` type above. This avoids a few ugly `expect` calls.
@@ -289,7 +289,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
 )]
 #[derive(Debug, Clone, Encode, Decode, TreeHash, Educe)]
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
-pub struct PartialDataColumnHeader<E: EthSpec> {
+pub struct PartialDataColumnHeader<E: EthSpec = Spec> {
     pub kzg_commitments: KzgCommitments<E>,
     pub signed_block_header: SignedBeaconBlockHeader,
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
@@ -331,7 +331,7 @@ impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
-pub struct PartialDataColumnPartsMetadata<E: EthSpec> {
+pub struct PartialDataColumnPartsMetadata<E: EthSpec = Spec> {
     pub available: CellBitmap<E>,
     pub requests: CellBitmap<E>,
 }
@@ -358,7 +358,7 @@ pub struct PartialDataColumnGroupId {
     ref_attributes(derive(Debug))
 )]
 #[derive(Debug, Clone, PartialEq)]
-pub struct PartialDataColumn<E: EthSpec> {
+pub struct PartialDataColumn<E: EthSpec = Spec> {
     pub block_root: Hash256,
     #[superstruct(only(Gloas))]
     pub slot: Slot,

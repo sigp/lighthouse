@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     block::SignedBlindedBeaconBlock,
-    core::{ChainSpec, EthSpec, Slot},
+    core::{ChainSpec, EthSpec, Slot, Spec},
     fork::ForkName,
     light_client::{
         LightClientError, LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella,
@@ -45,7 +45,7 @@ use crate::{
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct LightClientOptimisticUpdate<E: EthSpec> {
+pub struct LightClientOptimisticUpdate<E: EthSpec = Spec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
     pub attested_header: LightClientHeaderAltair<E>,

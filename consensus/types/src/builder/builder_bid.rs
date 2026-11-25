@@ -8,7 +8,7 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{ChainSpec, EthSpec, SignedRoot, Uint256},
+    core::{ChainSpec, EthSpec, SignedRoot, Spec, Uint256},
     execution::{
         ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
@@ -45,7 +45,7 @@ use crate::{
 #[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct BuilderBid<E: EthSpec> {
+pub struct BuilderBid<E: EthSpec = Spec> {
     #[superstruct(only(Bellatrix), partial_getter(rename = "header_bellatrix"))]
     pub header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
@@ -113,7 +113,7 @@ impl<E: EthSpec> SignedRoot for BuilderBid<E> {}
 /// Validator registration, for use in interacting with servers implementing the builder API.
 #[derive(PartialEq, Debug, Encode, Serialize, Deserialize, Clone)]
 #[serde(bound = "E: EthSpec")]
-pub struct SignedBuilderBid<E: EthSpec> {
+pub struct SignedBuilderBid<E: EthSpec = Spec> {
     pub message: BuilderBid<E>,
     pub signature: Signature,
 }

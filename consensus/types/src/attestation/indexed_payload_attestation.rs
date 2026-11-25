@@ -1,4 +1,4 @@
-use crate::{EthSpec, ForkName, PayloadAttestationData};
+use crate::{EthSpec, ForkName, PayloadAttestationData, Spec};
 use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use tree_hash_derive::TreeHash;
 #[cfg_attr(feature = "arbitrary", arbitrary(bound = "E: EthSpec"))]
 #[context_deserialize(ForkName)]
 #[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1))]
-pub struct IndexedPayloadAttestation<E: EthSpec> {
+pub struct IndexedPayloadAttestation<E: EthSpec = Spec> {
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     pub attesting_indices: VariableList<u64, E::PTCSize>,
     pub data: PayloadAttestationData,

@@ -19,7 +19,7 @@ use crate::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
     },
     complete_kzg_commitment_merkle_proof,
-    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
+    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot, Spec},
     data::{Blob, PartialDataColumnHeader},
     fork::ForkName,
     kzg_ext::KzgProofs,
@@ -57,7 +57,7 @@ impl Ord for BlobIdentifier {
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
-pub struct BlobSidecar<E: EthSpec> {
+pub struct BlobSidecar<E: EthSpec = Spec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
@@ -293,10 +293,10 @@ impl<E: EthSpec> BlobSidecar<E> {
     }
 }
 
-pub type BlobSidecarList<E> = RuntimeVariableList<Arc<BlobSidecar<E>>>;
+pub type BlobSidecarList<E = Spec> = RuntimeVariableList<Arc<BlobSidecar<E>>>;
 /// Alias for a non length-constrained list of `BlobSidecar`s.
-pub type FixedBlobSidecarList<E> = RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>;
-pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type FixedBlobSidecarList<E = Spec> = RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>;
+pub type BlobsList<E = Spec> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 #[cfg(test)]
 mod tests {

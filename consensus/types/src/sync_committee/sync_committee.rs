@@ -8,7 +8,11 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use tree_hash_derive::TreeHash;
 
-use crate::{core::EthSpec, fork::ForkName, sync_committee::SyncSubnetId};
+use crate::{
+    core::{EthSpec, Spec},
+    fork::ForkName,
+    sync_committee::SyncSubnetId,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -34,7 +38,7 @@ impl From<ArithError> for Error {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct SyncCommittee<E: EthSpec> {
+pub struct SyncCommittee<E: EthSpec = Spec> {
     pub pubkeys: FixedVector<PublicKeyBytes, E::SyncCommitteeSize>,
     pub aggregate_pubkey: PublicKeyBytes,
 }

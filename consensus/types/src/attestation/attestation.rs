@@ -18,7 +18,7 @@ use crate::{
         AttestationData, Checkpoint, IndexedAttestation, IndexedAttestationBase,
         IndexedAttestationElectra, IndexedAttestationGloas,
     },
-    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot, SlotData},
+    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot, SlotData, Spec},
     fork::{Fork, ForkName},
 };
 
@@ -78,7 +78,7 @@ impl From<ssz_types::Error> for Error {
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct Attestation<E: EthSpec> {
+pub struct Attestation<E: EthSpec = Spec> {
     #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
@@ -674,7 +674,7 @@ impl<E: EthSpec> SlotData for AttestationRef<'_, E> {
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq)]
 #[ssz(enum_behaviour = "union")]
-pub enum AttestationOnDisk<E: EthSpec> {
+pub enum AttestationOnDisk<E: EthSpec = Spec> {
     Base(AttestationBase<E>),
     Electra(AttestationElectra<E>),
     Gloas(AttestationGloas<E>),
@@ -692,7 +692,7 @@ impl<E: EthSpec> AttestationOnDisk<E> {
 
 #[derive(Debug, Clone, Encode)]
 #[ssz(enum_behaviour = "union")]
-pub enum AttestationRefOnDisk<'a, E: EthSpec> {
+pub enum AttestationRefOnDisk<'a, E: EthSpec = Spec> {
     Base(&'a AttestationBase<E>),
     Electra(&'a AttestationElectra<E>),
     Gloas(&'a AttestationGloas<E>),

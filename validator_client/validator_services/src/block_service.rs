@@ -1235,8 +1235,8 @@ mod tests {
         }
 
         /// A stateless-mode service that publishes to the returned proposer node first.
-        async fn new_stateless_with_proposer_node() -> (Self, MockBeaconNode<Spec>) {
-            let proposer_node = MockBeaconNode::<Spec>::new().await;
+        async fn new_stateless_with_proposer_node() -> (Self, MockBeaconNode) {
+            let proposer_node = MockBeaconNode::new().await;
             let harness = Self::new(1, true, Some(&proposer_node)).await;
             (harness, proposer_node)
         }
@@ -1244,7 +1244,7 @@ mod tests {
         async fn new(
             num_validators: usize,
             stateless_block_production: bool,
-            proposer_node: Option<&MockBeaconNode<Spec>>,
+            proposer_node: Option<&MockBeaconNode>,
         ) -> Self {
             let harness = ValidatorClientHarness::new(num_validators).await;
 
@@ -1284,11 +1284,11 @@ mod tests {
             }
         }
 
-        fn bn1(&mut self) -> &mut MockBeaconNode<Spec> {
+        fn bn1(&mut self) -> &mut MockBeaconNode {
             &mut self.harness.mock_beacon_node_1
         }
 
-        fn bn2(&mut self) -> &mut MockBeaconNode<Spec> {
+        fn bn2(&mut self) -> &mut MockBeaconNode {
             &mut self.harness.mock_beacon_node_2
         }
 
@@ -1355,7 +1355,7 @@ mod tests {
     }
 
     /// Assert `node` received exactly one envelope publish matching `contents`.
-    fn assert_published_contents(node: &MockBeaconNode<Spec>, contents: &BlockAndEnvelope<Spec>) {
+    fn assert_published_contents(node: &MockBeaconNode, contents: &BlockAndEnvelope) {
         let received = node.execution_payload_envelope_contents.lock().unwrap();
         assert_eq!(received.len(), 1, "Expected one envelope contents publish");
         assert_eq!(

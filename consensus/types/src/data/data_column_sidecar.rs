@@ -22,7 +22,7 @@ use crate::data::partial_data_column_sidecar::{
 use crate::{
     ListRef,
     block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
-    core::{Epoch, EthSpec, Hash256, Slot},
+    core::{Epoch, EthSpec, Hash256, Slot, Spec},
     data::{
         CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecarError,
         PartialDataColumnView,
@@ -33,18 +33,18 @@ use crate::{
 };
 
 pub type ColumnIndex = u64;
-pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
-pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type Cell<E = Spec> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
+pub type DataColumn<E = Spec> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Identifies a set of data columns associated with a specific beacon block.
 #[derive(Encode, Decode, Clone, Debug, PartialEq, TreeHash, Deserialize)]
 #[context_deserialize(ForkName)]
-pub struct DataColumnsByRootIdentifier<E: EthSpec> {
+pub struct DataColumnsByRootIdentifier<E: EthSpec = Spec> {
     pub block_root: Hash256,
     pub columns: VariableList<ColumnIndex, E::NumberOfColumns>,
 }
 
-pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
+pub type DataColumnSidecarList<E = Spec> = Vec<Arc<DataColumnSidecar<E>>>;
 
 #[superstruct(
     variants(Fulu, Gloas),
@@ -82,7 +82,7 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 #[serde(bound = "E: EthSpec", untagged, deny_unknown_fields)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct DataColumnSidecar<E: EthSpec> {
+pub struct DataColumnSidecar<E: EthSpec = Spec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]

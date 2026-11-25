@@ -10,7 +10,7 @@ use crate::{
     kzg_ext::{KzgCommitments, KzgProofs},
 };
 
-type BlobsBundle<E> = (KzgCommitments<E>, KzgProofs<E>, BlobsList<E>);
+type BlobsBundle<E = Spec> = (KzgCommitments<E>, KzgProofs<E>, BlobsList<E>);
 
 #[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_blobs<E: EthSpec>(

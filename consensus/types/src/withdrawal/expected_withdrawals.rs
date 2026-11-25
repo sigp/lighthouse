@@ -1,4 +1,4 @@
-use crate::{EthSpec, Withdrawals};
+use crate::{EthSpec, Spec, Withdrawals};
 use superstruct::superstruct;
 
 #[superstruct(
@@ -6,7 +6,7 @@ use superstruct::superstruct;
     variant_attributes(derive(Debug, PartialEq, Clone))
 )]
 #[derive(Debug, PartialEq, Clone)]
-pub struct ExpectedWithdrawals<E: EthSpec> {
+pub struct ExpectedWithdrawals<E: EthSpec = Spec> {
     pub withdrawals: Withdrawals<E>,
     #[superstruct(only(Gloas, Heze), partial_getter(copy))]
     pub processed_builder_withdrawals_count: u64,

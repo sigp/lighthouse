@@ -13,7 +13,11 @@ use ssz_types::{ProgressiveVariableList, VariableList};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
-use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
+use crate::{
+    attestation::AttestationData,
+    core::{EthSpec, Spec},
+    fork::ForkName,
+};
 
 /// Details an attestation that can be slashable.
 ///
@@ -57,7 +61,7 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct IndexedAttestation<E: EthSpec> {
+pub struct IndexedAttestation<E: EthSpec = Spec> {
     /// Lists validator registry indices, not committee indices.
     #[superstruct(only(Base), partial_getter(rename = "attesting_indices_base"))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]

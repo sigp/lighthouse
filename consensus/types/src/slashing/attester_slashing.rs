@@ -10,7 +10,7 @@ use crate::{
         IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas,
         IndexedAttestationRef,
     },
-    core::EthSpec,
+    core::{EthSpec, Spec},
     fork::ForkName,
 };
 
@@ -48,7 +48,7 @@ use crate::{
 #[serde(bound = "E: EthSpec", untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct AttesterSlashing<E: EthSpec> {
+pub struct AttesterSlashing<E: EthSpec = Spec> {
     #[superstruct(flatten)]
     pub attestation_1: IndexedAttestation<E>,
     #[superstruct(flatten)]
@@ -61,7 +61,7 @@ pub struct AttesterSlashing<E: EthSpec> {
 #[derive(Debug, Clone, Encode, Decode, Educe)]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[ssz(enum_behaviour = "union")]
-pub enum AttesterSlashingOnDisk<E: EthSpec> {
+pub enum AttesterSlashingOnDisk<E: EthSpec = Spec> {
     Base(AttesterSlashingBase<E>),
     Electra(AttesterSlashingElectra<E>),
     Gloas(AttesterSlashingGloas<E>),
@@ -69,7 +69,7 @@ pub enum AttesterSlashingOnDisk<E: EthSpec> {
 
 #[derive(Debug, Clone, Encode)]
 #[ssz(enum_behaviour = "union")]
-pub enum AttesterSlashingRefOnDisk<'a, E: EthSpec> {
+pub enum AttesterSlashingRefOnDisk<'a, E: EthSpec = Spec> {
     Base(&'a AttesterSlashingBase<E>),
     Electra(&'a AttesterSlashingElectra<E>),
     Gloas(&'a AttesterSlashingGloas<E>),

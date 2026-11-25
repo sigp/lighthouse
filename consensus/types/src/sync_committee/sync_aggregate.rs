@@ -8,7 +8,7 @@ use ssz_types::BitVector;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{EthSpec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT},
+    core::{EthSpec, Spec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT},
     fork::ForkName,
     sync_committee::SyncCommitteeContribution,
 };
@@ -34,7 +34,7 @@ impl From<ArithError> for Error {
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct SyncAggregate<E: EthSpec> {
+pub struct SyncAggregate<E: EthSpec = Spec> {
     pub sync_committee_bits: BitVector<E::SyncCommitteeSize>,
     pub sync_committee_signature: AggregateSignature,
 }

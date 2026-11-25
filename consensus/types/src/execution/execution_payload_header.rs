@@ -10,7 +10,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Uint256},
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Spec, Uint256},
     execution::{
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
         ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadRef, Transactions,
@@ -68,7 +68,7 @@ use crate::{
 #[serde(bound = "E: EthSpec", untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct ExecutionPayloadHeader<E: EthSpec> {
+pub struct ExecutionPayloadHeader<E: EthSpec = Spec> {
     #[superstruct(getter(copy))]
     pub parent_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]

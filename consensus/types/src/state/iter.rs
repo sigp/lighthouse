@@ -1,5 +1,5 @@
 use crate::{
-    core::{EthSpec, Hash256, Slot},
+    core::{EthSpec, Hash256, Slot, Spec},
     state::{BeaconState, BeaconStateError},
 };
 
@@ -11,7 +11,7 @@ use crate::{
 /// - Will not return slots prior to the genesis_slot.
 /// - Each call to next will result in a slot one less than the prior one (or `None`).
 /// - Skipped slots will contain the block root from the prior non-skipped slot.
-pub struct BlockRootsIter<'a, E: EthSpec> {
+pub struct BlockRootsIter<'a, E: EthSpec = Spec> {
     state: &'a BeaconState<E>,
     genesis_slot: Slot,
     prev: Slot,

@@ -1,5 +1,5 @@
 use crate::execution::{ExecutionPayloadGloas, ExecutionRequestsGloas};
-use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot};
+use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot, Spec};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use fixed_bytes::FixedBytesExtended;
@@ -21,7 +21,7 @@ use tree_hash_derive::TreeHash;
     struct_behaviour = "progressive_container",
     active_fields(1, 1, 1, 1, 1)
 )]
-pub struct ExecutionPayloadEnvelope<E: EthSpec> {
+pub struct ExecutionPayloadEnvelope<E: EthSpec = Spec> {
     pub payload: ExecutionPayloadGloas<E>,
     // [Modified in Gloas:EIP7688]
     pub execution_requests: ExecutionRequestsGloas<E>,

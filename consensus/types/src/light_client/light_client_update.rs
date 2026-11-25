@@ -15,7 +15,7 @@ use typenum::{U4, U5, U6, U7, U9, U11};
 
 use crate::{
     block::SignedBlindedBeaconBlock,
-    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
+    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot, Spec},
     fork::ForkName,
     light_client::{
         LightClientError, LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella,
@@ -74,7 +74,7 @@ type NextSyncCommitteeBranchGloas = FixedVector<Hash256, NextSyncCommitteeProofL
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct LightClientUpdate<E: EthSpec> {
+pub struct LightClientUpdate<E: EthSpec = Spec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
     pub attested_header: LightClientHeaderAltair<E>,
