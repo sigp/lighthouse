@@ -140,7 +140,7 @@ jobs:
 
             - name: Create and push multiarch manifests
               run: |
-                  # Create the main tag (versioned for releases, latest-unstable for unstable).
+                  # Create the main tag (versioned for releases, latest-unstable for unstable)
                   # FLAVOUR_SUFFIX is empty for the mainnet images and `-minimal` for the minimal ones.
                   docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}${FLAVOUR_SUFFIX}${VERSION_SUFFIX} \
                       ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${FLAVOUR_SUFFIX}${VERSION_SUFFIX} \

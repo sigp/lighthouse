@@ -18,24 +18,13 @@ use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
 use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use types::{EthSpec, EthSpecId, Spec};
+use types::EthSpec;
 
 fn main() {
     let matches = Command::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
         .display_order(0)
         .about("Performs various testing-related tasks, including defining testnets.")
-        .arg(
-            Arg::new("spec")
-                .short('s')
-                .long("spec")
-                .value_name("STRING")
-                .action(ArgAction::Set)
-                .value_parser(["minimal", "mainnet", "gnosis"])
-                .global(true)
-                .help("Assert that this lcli binary was compiled for the given preset.")
-                .display_order(0)
-        )
         .arg(
             Arg::new("testnet-dir")
                 .short('d')
@@ -658,8 +647,7 @@ fn main() {
         )
         .get_matches();
 
-    let result =
-        verify_requested_spec(&matches).and_then(|_| run(EnvironmentBuilder::new(), &matches));
+    let result = run(EnvironmentBuilder::new(), &matches);
 
     match result {
         Ok(()) => process::exit(0),
@@ -668,26 +656,6 @@ fn main() {
             process::exit(1)
         }
     }
-}
-
-/// Errors if `--spec` names a different preset from the one this binary was compiled for.
-fn verify_requested_spec(matches: &ArgMatches) -> Result<(), String> {
-    if let Some(requested_spec) = matches
-        .get_one::<String>("spec")
-        .map(|spec| spec.parse::<EthSpecId>())
-        .transpose()?
-        && requested_spec != Spec::SPEC_ID
-    {
-        return Err(format!(
-            "This lcli binary was compiled for `{}` and cannot run with `--spec {}`. \
-             Use an lcli binary compiled for `{}`.",
-            Spec::PRESET_BASE,
-            requested_spec,
-            requested_spec,
-        ));
-    }
-
-    Ok(())
 }
 
 fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> Result<(), String> {

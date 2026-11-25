@@ -195,6 +195,7 @@ test-spec-minimal:
 		-p builder_client \
 		-p deposit_contract \
 		-p doppelganger_service \
+		-p environment \
 		-p eth2 \
 		-p execution_layer \
 		-p fast_confirmation \
