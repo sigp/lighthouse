@@ -4735,8 +4735,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Store the block and its state, and execute the confirmation batch for the intermediate
         // states, which will delete their temporary flags.
-        // If the write fails, revert fork choice to the version from disk, else we can
-        // end up with blocks in fork choice that are missing from disk.
+        // If the write fails, poison fork choice and shut down, else we can end up with blocks
+        // in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, block_data) = signed_block.deconstruct();
 
@@ -4832,13 +4832,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_root)
     }
 
-    /// Handle a database write failure during block import, which causes fork choice
-    /// to contain a block that the store does not.
+    /// Handle a database write failure during block or payload envelope import, which causes fork
+    /// choice to contain a block or payload that the store does not.
     ///
     /// Poison fork choice so the diverged version is never persisted, and shut down the
     /// node. On restart, the normal startup procedure loads the last consistent fork
     /// choice from disk.
-    fn handle_import_block_db_write_error(
+    pub(crate) fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
@@ -4846,20 +4846,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         fork_choice_write_lock: ForkChoiceWriteGuard<T>,
         block_root: Hash256,
     ) {
+        // Poison before releasing the lock, so anything waiting on it to persist fork choice sees
+        // the flag.
+        self.canonical_head.poison_fork_choice();
         drop(fork_choice_write_lock);
 
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.
         self.early_attester_cache.clear();
 
-        self.canonical_head.poison_fork_choice();
         crit!(
             ?block_root,
             advice = "restart the node to recover the last consistent fork choice from disk",
             "Shutting down due to database write failure"
         );
         if let Err(e) = self.shutdown_sender().try_send(ShutdownReason::Failure(
-            "Database write failure during block import",
+            "Database write failure during block or payload envelope import",
         )) {
             crit!(error = ?e, "Failed to send shutdown signal");
         }

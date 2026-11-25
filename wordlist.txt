@@ -29,6 +29,7 @@ DHT
 DNS
 Dockerhub
 DoS
+DVT
 EIP
 ENR
 Erigon
@@ -50,6 +51,7 @@ Gloas
 Gnosis
 Goerli
 Grafana
+Gzip
 Holesky
 Homebrew
 Hoodi
@@ -59,6 +61,7 @@ IPv
 JSON
 KeyManager
 Kurtosis
+KZG
 LMDB
 LLM
 LLVM
@@ -243,6 +246,7 @@ toml
 topologies
 tradeoffs
 transactional
+trustless
 tweakers
 ui
 unadvanced
