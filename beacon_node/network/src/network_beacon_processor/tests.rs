@@ -2931,10 +2931,17 @@ async fn test_data_columns_by_range_during_cgc_backfill() {
         .find(|column| !custody_columns.contains(column))
         .expect("a full node should not custody every column");
 
-    // Simulate a CGC increase that takes effect next epoch and has not been backfilled.
-    let effective_slot = (rig.chain.epoch().unwrap() + 1).start_slot(SLOTS_PER_EPOCH);
-    rig.chain
-        .update_data_column_custody_info(Some(effective_slot));
+    // Perform a CGC increase that takes effect next epoch and has not been backfilled.
+    let cgc_change = rig
+        .chain
+        .custody_context
+        .register_validators(vec![(42, 1337)], rig.chain.slot().unwrap())
+        .expect("should trigger a CGC increase");
+    assert_eq!(cgc_change.effective_epoch, rig.chain.epoch().unwrap() + 1);
+    assert!(cgc_change.new_custody_group_count > cgc_change.old_custody_group_count);
+    rig.chain.update_data_column_custody_info(Some(
+        cgc_change.effective_epoch.start_slot(E::slots_per_epoch()),
+    ));
 
     // A column custodied before the increase is still served.
     rig.enqueue_data_columns_by_range_request(slot_count, vec![custodied_column]);
