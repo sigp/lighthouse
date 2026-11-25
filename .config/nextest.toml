@@ -74,7 +74,10 @@ fail-fast = true
 # which will cause slow tests to be terminated after the specified number of
 # periods have passed.
 # Example: slow-timeout = { period = "60s", terminate-after = 2 }
-slow-timeout = { period = "120s" }
+#
+# Issue #4743: surface unit tests that still run over 1m so they can be
+# tightened further (see also #9012 / #8248).
+slow-timeout = { period = "60s" }
 
 # Treat a test as leaky if after the process is shut down, standard output and standard error
 # aren't closed within this duration.
