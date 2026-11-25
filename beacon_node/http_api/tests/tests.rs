@@ -65,8 +65,7 @@ use types::{
 
 type E = Spec;
 
-const SLOT_DURATION_MS: u64 = 12_000;
-const SLOTS_PER_EPOCH: u64 = 32;
+const SLOTS_PER_EPOCH: u64 = Spec::SLOTS_PER_EPOCH as u64;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
 const JUSTIFIED_EPOCH: u64 = 4;
@@ -337,7 +336,7 @@ impl ApiTester {
 
         let client = BeaconNodeHttpClient::new(
             beacon_url,
-            Timeouts::set_all(Duration::from_millis(SLOT_DURATION_MS)),
+            Timeouts::set_all(harness.spec.get_slot_duration()),
         );
 
         Self {
@@ -425,7 +424,7 @@ impl ApiTester {
                 listening_socket.port()
             ))
             .unwrap(),
-            Timeouts::set_all(Duration::from_millis(SLOT_DURATION_MS)),
+            Timeouts::set_all(harness.spec.get_slot_duration()),
         );
 
         Self {

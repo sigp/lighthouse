@@ -8,6 +8,7 @@ edition = { workspace = true }
 axum = { workspace = true }
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 http = "1"
+rustls = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

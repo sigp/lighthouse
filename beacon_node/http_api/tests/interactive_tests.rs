@@ -1,4 +1,5 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
+use axum_utils::tls::TlsConfig;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::pending_payload_envelopes::PendingEnvelopeData;
 use beacon_chain::{
@@ -15,12 +16,14 @@ use eth2::types::ProduceBlockV3Response;
 use eth2::types::{
     BroadcastValidation, PublishBlockRequest, SignedExecutionPayloadEnvelopeContents,
 };
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use fixed_bytes::FixedBytesExtended;
-use http_api::test_utils::InteractiveTester;
+use http_api::{Config, test_utils::InteractiveTester};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use parking_lot::Mutex;
+use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::{
     per_block_processing::get_expected_withdrawals, state_advance::complete_state_advance,
@@ -62,6 +65,56 @@ async fn deposit_contract_custom_network() {
     };
 
     assert_eq!(result, expected);
+}
+
+// Test that the HTTP API can be served over TLS.
+// Regression test for https://github.com/sigp/lighthouse/issues/10598
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn serve_over_tls() {
+    // Gloas needs at least one validator per slot, so that no slot has an empty committee.
+    let validator_count = E::slots_per_epoch() as usize;
+
+    let certified_key = rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_string()]).unwrap();
+    let cert_pem = certified_key.cert.pem();
+
+    let tls_dir = tempfile::tempdir().unwrap();
+    let cert = tls_dir.path().join("cert.pem");
+    let key = tls_dir.path().join("key.pem");
+    std::fs::write(&cert, &cert_pem).unwrap();
+    std::fs::write(&key, certified_key.key_pair.serialize_pem()).unwrap();
+
+    let config = Config {
+        tls_config: Some(TlsConfig { cert, key }),
+        ..Config::default()
+    };
+    let use_mock_builder = false;
+    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
+        None,
+        validator_count,
+        None,
+        None,
+        config,
+        use_mock_builder,
+        NodeCustodyType::Fullnode,
+    )
+    .await;
+
+    // The tester's client uses plain HTTP. Make one that uses HTTPS and trusts only the server's
+    // certificate, so that requests succeed only if the TLS handshake with that certificate does.
+    let mut url = tester.client.server().expose_full().clone();
+    url.set_scheme("https").unwrap();
+    let reqwest_client = reqwest::Client::builder()
+        .tls_built_in_root_certs(false)
+        .add_root_certificate(reqwest::Certificate::from_pem(cert_pem.as_bytes()).unwrap())
+        .build()
+        .unwrap();
+    let client = BeaconNodeHttpClient::from_components(
+        SensitiveUrl::parse(url.as_str()).unwrap(),
+        reqwest_client,
+        Timeouts::set_all(Duration::from_secs(5)),
+    );
+
+    client.get_node_version().await.unwrap();
 }
 
 /// Data structure for tracking fork choice updates received by the mock execution layer.

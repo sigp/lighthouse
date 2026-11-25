@@ -6,7 +6,7 @@ use crate::common::{Protocol, build_tracing_subscriber};
 use bls::Signature;
 use fixed_bytes::FixedBytesExtended;
 use libp2p::PeerId;
-use lighthouse_network::rpc::{RequestType, methods::*};
+use lighthouse_network::rpc::{RPCError, RequestType, methods::*};
 use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
@@ -586,8 +586,9 @@ fn test_tcp_blocks_by_range_over_limit() {
         .await;
 
         // BlocksByRange Request
+        // Requests are always negotiated as V2, so the receiver only recognises a V2 request.
         let rpc_request =
-            RequestType::BlocksByRange(OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+            RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
                 start_slot: 0,
                 count: messages_to_send,
                 step: 1,
@@ -610,12 +611,22 @@ fn test_tcp_blocks_by_range_over_limit() {
                             .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
-                    // The request will fail because the sender will refuse to send anything > MAX_RPC_SIZE
+                    // The request will fail because the receiver will refuse to send anything
+                    // > MAX_RPC_SIZE. The stream is cut off in the middle of the first chunk.
                     NetworkEvent::RPCFailed {
-                        sync_request_id, ..
+                        sync_request_id,
+                        error,
+                        ..
                     } => {
                         assert!(sync_request_id.is_none());
+                        assert!(
+                            matches!(error, RPCError::IoError(_)),
+                            "unexpected error: {error:?}"
+                        );
                         return;
+                    }
+                    NetworkEvent::ResponseReceived { response, .. } => {
+                        panic!("Sender should not receive a response: {response:?}");
                     }
                     _ => {} // Ignore other behaviour events
                 }
