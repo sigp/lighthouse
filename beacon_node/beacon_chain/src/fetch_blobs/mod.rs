@@ -214,7 +214,12 @@ async fn fetch_engine_blob_availability_inner<T: BeaconChainTypes>(
     }
     debug!(num_expected_blobs, "Fetching blob availability from the EL");
 
-    let blobs = chain_adapter.has_blobs(versioned_hashes).await?;
+    inc_counter(&metrics::BEACON_ENGINE_HAS_BLOBS_REQUESTS_TOTAL);
+    let blobs = {
+        let _timer =
+            metrics::start_timer(&metrics::BEACON_ENGINE_HAS_BLOBS_REQUEST_DURATION_SECONDS);
+        chain_adapter.has_blobs(versioned_hashes).await?
+    };
 
     let Some(blobs) = blobs else {
         debug!(num_expected_blobs, "engine_hasBlobs returned null");

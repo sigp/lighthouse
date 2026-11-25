@@ -1998,6 +1998,25 @@ pub static BEACON_ENGINE_GET_BLOBS_V4_REQUEST_DURATION_SECONDS: LazyLock<Result<
         )
     });
 
+pub static BEACON_ENGINE_HAS_BLOBS_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_hasBlobs_requests_total",
+            "Total number of engine_hasBlobs requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_HAS_BLOBS_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        // `engine_hasBlobs` typically returns in about a millisecond, so the default buckets
+        // (starting at 5ms) cannot resolve it. Use 100us..~800ms instead.
+        try_create_histogram_with_buckets(
+            "beacon_engine_hasBlobs_request_duration_seconds",
+            "Duration of engine_hasBlobs requests to the execution layer in seconds",
+            exponential_buckets(1e-4, 2.0, 14),
+        )
+    });
+
 /*
  * Standardized metrics for partial column efficiency
  */
