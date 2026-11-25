@@ -9586,13 +9586,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_events_attestation_weight(self) -> Self {
-        let mut events = self
-            .client
-            .get_events::<E>(&[EventTopic::AttestationWeight])
-            .await
-            .unwrap();
-
+    pub async fn test_get_lighthouse_attestation_weight(self) -> Self {
         let attestations = &self.single_attestations;
         let slot = attestations[0].data.slot;
         let (expected_weight, expected_committee_weight) = {
@@ -9610,31 +9604,32 @@ impl ApiTester {
             )
         };
 
+        let weights = self
+            .client
+            .get_lighthouse_attestation_weight()
+            .await
+            .unwrap()
+            .data;
+        assert_eq!(weights.committee_weight_gwei, expected_committee_weight);
+        assert!(weights.slots.iter().all(|s| s.slot != slot));
+
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
         self.client
             .post_beacon_pool_attestations_v2::<E>(attestations.clone(), fork_name)
             .await
             .unwrap();
 
-        // Wait until every attester is counted.
-        let (committee_weight_gwei, slot_weights) =
-            tokio::time::timeout(Duration::from_secs(10), async {
-                loop {
-                    if let EventKind::AttestationWeight(weights) =
-                        events.next().await.unwrap().unwrap()
-                        && let Some(slot_weights) = weights
-                            .slots
-                            .iter()
-                            .find(|s| s.slot == slot && s.voters == attestations.len() as u64)
-                    {
-                        return (weights.committee_weight_gwei, slot_weights.clone());
-                    }
-                }
-            })
+        let slot_weights = self
+            .client
+            .get_lighthouse_attestation_weight()
             .await
-            .expect("attestation_weight event not received");
-
-        assert_eq!(committee_weight_gwei, expected_committee_weight);
+            .unwrap()
+            .data
+            .slots
+            .into_iter()
+            .find(|s| s.slot == slot)
+            .expect("slot of the posted attestations");
+        assert_eq!(slot_weights.voters, attestations.len() as u64);
         assert_eq!(slot_weights.weights.len(), 1);
         assert_eq!(
             slot_weights.weights[0].block_root,
@@ -11087,14 +11082,14 @@ async fn get_events_altair() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_events_attestation_weight() {
+async fn get_lighthouse_attestation_weight() {
     let config = ApiTesterConfig {
         spec: ForkName::Electra.make_genesis_spec(E::default_spec()),
         ..<_>::default()
     };
     ApiTester::new_from_config(config)
         .await
-        .test_get_events_attestation_weight()
+        .test_get_lighthouse_attestation_weight()
         .await;
 }
 
