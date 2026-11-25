@@ -42,7 +42,7 @@ use crate::{
 };
 use bls::verify_signature_sets;
 use itertools::Itertools;
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slot_clock::SlotClock;
 use state_processing::{
     common::{
@@ -183,6 +183,20 @@ pub enum Error {
     /// The attestation may be valid once the payload envelope is retrieved; it's unclear if the
     /// attestation is valid or not, so it is ignored (not penalized) pending the envelope.
     UnknownPayloadEnvelope { beacon_block_root: Hash256 },
+    /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
+    /// execution payload has not yet been verified by the execution layer.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The payload may still be found valid, so the attestation is ignored (not penalized).
+    OptimisticPayload { beacon_block_root: Hash256 },
+    /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
+    /// execution payload has been found invalid by the execution layer.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation is invalid and the peer is faulty.
+    InvalidPayload { beacon_block_root: Hash256 },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring
@@ -633,6 +647,20 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             });
         }
 
+        // [New in Gloas]: `index == 1` requires the block's execution payload to be valid.
+        if fork_name.gloas_enabled() && attestation.data().index == 1 {
+            let beacon_block_root = attestation.data().beacon_block_root;
+            match head_block.execution_status {
+                ExecutionStatus::Optimistic(_) => {
+                    return Err(Error::OptimisticPayload { beacon_block_root });
+                }
+                ExecutionStatus::Invalid(_) => {
+                    return Err(Error::InvalidPayload { beacon_block_root });
+                }
+                _ => {}
+            }
+        }
+
         // Check the attestation target root is consistent with the head root.
         //
         // This check is not in the specification, however we guard against it since it opens us up
@@ -969,6 +997,20 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             return Err(Error::UnknownPayloadEnvelope {
                 beacon_block_root: attestation.data.beacon_block_root,
             });
+        }
+
+        // [New in Gloas]: `index == 1` requires the block's execution payload to be valid.
+        if fork_name.gloas_enabled() && attestation.data.index == 1 {
+            let beacon_block_root = attestation.data.beacon_block_root;
+            match head_block.execution_status {
+                ExecutionStatus::Optimistic(_) => {
+                    return Err(Error::OptimisticPayload { beacon_block_root });
+                }
+                ExecutionStatus::Invalid(_) => {
+                    return Err(Error::InvalidPayload { beacon_block_root });
+                }
+                _ => {}
+            }
         }
 
         // Check the attestation target root is consistent with the head root.

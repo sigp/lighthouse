@@ -1350,6 +1350,13 @@ fn validate_partial_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes>(
             }
         }
     } else {
+        // If there was no header, there must be at least one cell.
+        if column.sidecar.column.is_empty() {
+            return PartialColumnVerificationResult::Err(
+                GossipPartialDataColumnError::EmptyMessage,
+            );
+        }
+
         let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
             return PartialColumnVerificationResult::Err(
                 GossipPartialDataColumnError::PartialColumnsDisabled,
@@ -1366,16 +1373,14 @@ fn validate_partial_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes>(
             );
         };
 
-        // If there was no header, there must be at least one cell.
-        if column.sidecar.column.is_empty() {
-            return PartialColumnVerificationResult::ErrWithValidHeader {
-                err: GossipPartialDataColumnError::EmptyMessage,
-                header,
-            };
-        }
-
         header
     };
+
+    // A message that only carries a header has no cells to verify. The structure check above
+    // ensures that there are no cells or proofs if no bits are set.
+    if column.sidecar.cells_present_bitmap.num_set_bits() == 0 {
+        return PartialColumnVerificationResult::HeaderOnly(header);
+    }
 
     match validate_partial_data_column_common(
         PartialDataColumnRef::Fulu(&column),
@@ -1531,6 +1536,9 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumn<E> {
 pub enum PartialColumnVerificationResult<E: EthSpec> {
     /// Verification succeeded with the paired header or bid.
     Ok(GossipVerifiedPartialDataColumn<E>),
+    /// The message carries a valid Fulu header and no cells, so there is no column to process.
+    /// Gloas has no equivalent because its partial columns have no header.
+    HeaderOnly(GossipVerifiedPartialDataColumnHeader<E>),
     /// Verification of the column failed, but the Fulu header is valid. Gloas has no equivalent
     /// because its bid arrives independently of the partial column.
     ErrWithValidHeader {
@@ -2158,6 +2166,7 @@ mod test {
             .build();
 
         partial_empty_message_without_cells_returns_error(&harness).await;
+        partial_header_only_message_is_valid(&harness).await;
         partial_inconsistent_present_count_returns_error(&harness).await;
         partial_inconsistent_max_count_returns_error(&harness).await;
         partial_header_with_empty_commitments_fails(&harness).await;
@@ -2235,12 +2244,44 @@ mod test {
         assert!(
             matches!(
                 result,
-                PartialColumnVerificationResult::ErrWithValidHeader {
-                    err: GossipPartialDataColumnError::EmptyMessage,
-                    ..
-                }
+                PartialColumnVerificationResult::Err(GossipPartialDataColumnError::EmptyMessage)
             ),
             "Expected EmptyMessage"
+        );
+    }
+
+    async fn partial_header_only_message_is_valid(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) {
+        let (block_root, header) = add_block_and_header(harness).await;
+
+        // The bitmap length is only checked against the commitments when cells are present, so use
+        // a length that does not match.
+        let empty_bitmap = BitList::<<E as EthSpec>::MaxBlobCommitmentsPerBlock>::with_capacity(
+            header.kzg_commitments.len() + 1,
+        )
+        .unwrap();
+
+        let column: PartialDataColumn<E> = PartialDataColumnFulu {
+            block_root,
+            index: 0,
+            sidecar: PartialDataColumnSidecarFulu {
+                cells_present_bitmap: empty_bitmap,
+                column: vec![].try_into().unwrap(),
+                kzg_proofs: vec![].try_into().unwrap(),
+                header: Some((*header).clone()).into(),
+            },
+        }
+        .into();
+
+        let result = validate_partial_data_column_sidecar_for_gossip(
+            Box::new(column),
+            &harness.chain,
+            UNIX_EPOCH.elapsed().unwrap(),
+        );
+        assert!(
+            matches!(result, PartialColumnVerificationResult::HeaderOnly(_)),
+            "Expected HeaderOnly"
         );
     }
 
