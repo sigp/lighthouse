@@ -4,6 +4,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
     observed_execution_payloads::ObservedExecutionPayloads,
+    observed_slashable::ObservedSlashable,
     payload_bid_verification::{
         PayloadBidError,
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
@@ -12,6 +13,7 @@ use crate::{
 };
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
+use parking_lot::RwLock;
 use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
@@ -20,7 +22,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, Builder, ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionRequestsGloas,
-    SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    Hash256, SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -201,6 +203,8 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
     fork_choice_read: &ForkChoiceReadGuard<'_, T>,
     bid: ExecutionPayloadBidRef<'_, T::EthSpec>,
     spec: &ChainSpec,
+    head_late: bool,
+    proposer_equivocation: bool,
 ) -> Result<bool, PayloadBidError> {
     let head_block_root = cached_head.head_block_root();
 
@@ -230,7 +234,8 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
     };
 
     if builds_on_parent_block && builds_on_parent_payload {
-        return Ok(true);
+        let bid_slot_ok = head_block.slot.saturating_add(1u64) == bid.slot();
+        return Ok(bid_slot_ok && (head_late || proposer_equivocation));
     }
 
     if bid.parent_block_root() != head_block.root {
@@ -263,11 +268,15 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub observed_execution_payloads: &'a ObservedExecutionPayloads,
+    pub observed_slashable: &'a RwLock<ObservedSlashable<T::EthSpec>>,
     pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T::EthSpec>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
     pub store: &'a BeaconStore<T>,
+    /// `BeaconChain::block_observed_after_attestation_deadline`: whether the block (root, slot)
+    /// was first seen at or after its slot's attestation deadline.
+    pub is_head_late: &'a dyn Fn(Hash256, Slot) -> bool,
 }
 
 /// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
@@ -300,6 +309,21 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             .now()
             .ok_or(PayloadBidError::UnableToReadSlot)?;
         verify_bid_slot(bid_slot, current_slot)?;
+
+        let payload_attestation_due_time = ctx
+            .slot_clock
+            .start_of(bid_slot.saturating_sub(1u64))
+            .and_then(|slot_start| slot_start.checked_add(ctx.spec.get_payload_attestation_due()))
+            .ok_or(PayloadBidError::UnableToComputeTimeAtSlot)?;
+        let current_time = ctx
+            .slot_clock
+            .now_duration()
+            .ok_or(PayloadBidError::UnableToReadSlotTime)?;
+
+        // [IGNORE] The bid is received after the payload attestation deadline of the previous slot
+        if current_time < payload_attestation_due_time {
+            return Err(PayloadBidError::BidBeforePayloadAttestationDue { bid_slot });
+        }
 
         if ctx
             .gossip_verified_payload_bid_cache
@@ -422,11 +446,27 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             return Err(PayloadBidError::InvalidGasLimit);
         }
 
+        let head_late = (ctx.is_head_late)(cached_head.head_block_root(), cached_head.head_slot());
+        let proposer_equivocation = ctx
+            .observed_slashable
+            .read()
+            .is_slashable(
+                cached_head.head_slot(),
+                cached_head.snapshot.beacon_block.message().proposer_index(),
+                cached_head.head_block_root(),
+            )
+            .unwrap_or(false);
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
 
         // TODO(gloas) should we reprocess a dropped bid when the head changes to its parent?
-        if !is_bid_compatible_with_head(&cached_head, &fork_choice, signed_bid.message(), ctx.spec)?
-        {
+        if !is_bid_compatible_with_head(
+            &cached_head,
+            &fork_choice,
+            signed_bid.message(),
+            ctx.spec,
+            head_late,
+            proposer_equivocation,
+        )? {
             return Err(PayloadBidError::BidNotCompatibleWithHead {
                 parent_block_root: bid_parent_block_root,
             });
@@ -482,16 +522,21 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Build a `GossipVerificationContext` from this `BeaconChain` for `GossipVerifiedPayloadBid`.
-    pub fn payload_bid_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
+    pub fn payload_bid_gossip_verification_context<'a>(
+        &'a self,
+        is_head_late: &'a dyn Fn(Hash256, Slot) -> bool,
+    ) -> GossipVerificationContext<'a, T> {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
             observed_execution_payloads: &self.observed_execution_payloads,
+            observed_slashable: &self.observed_slashable,
             gossip_verified_payload_bid_cache: &self.gossip_verified_payload_bid_cache,
             gossip_verified_proposer_preferences_cache: &self
                 .gossip_verified_proposer_preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
+            is_head_late,
         }
     }
 
@@ -508,8 +553,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot = bid.message().slot();
         let parent_block_root = bid.message().parent_block_root();
         let parent_block_hash = bid.message().parent_block_hash();
+        let is_head_late = |root, slot| self.block_observed_after_attestation_deadline(root, slot);
 
-        let ctx = self.payload_bid_gossip_verification_context();
+        let ctx = self.payload_bid_gossip_verification_context(&is_head_late);
         match GossipVerifiedPayloadBid::new(bid, &ctx) {
             Ok(verified) => {
                 debug!(

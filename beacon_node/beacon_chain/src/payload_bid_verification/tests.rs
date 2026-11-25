@@ -6,6 +6,7 @@ use ethereum_hashing::hash;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use kzg::KzgCommitment;
+use parking_lot::RwLock;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use ssz_types::ProgressiveVariableList;
@@ -29,6 +30,7 @@ use crate::{
     canonical_head::CanonicalHead,
     chain_config::FastConfirmationMode,
     observed_execution_payloads::ObservedExecutionPayloads,
+    observed_slashable::ObservedSlashable,
     payload_bid_verification::{
         PayloadBidError,
         gossip_verified_bid::{
@@ -57,6 +59,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 struct TestContext {
     canonical_head: CanonicalHead<T>,
     observed_execution_payloads: ObservedExecutionPayloads,
+    observed_slashable: RwLock<ObservedSlashable<E>>,
     bid_cache: GossipVerifiedPayloadBidCache<E>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
@@ -186,10 +189,12 @@ impl TestContext {
             Duration::from_secs(0),
             spec.get_slot_duration(),
         );
+        slot_clock.advance_time(spec.get_payload_attestation_due());
 
         Self {
             canonical_head,
             observed_execution_payloads,
+            observed_slashable: <_>::default(),
             bid_cache: GossipVerifiedPayloadBidCache::default(),
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
             slot_clock,
@@ -224,11 +229,13 @@ impl TestContext {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
             observed_execution_payloads: &self.observed_execution_payloads,
+            observed_slashable: &self.observed_slashable,
             gossip_verified_payload_bid_cache: &self.bid_cache,
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
+            is_head_late: &|_, _| false,
         }
     }
 
@@ -1084,6 +1091,8 @@ fn parent_block_root_not_canonical() {
     // The non-canonical fork block is at slot 1, so use slot 2 to satisfy the `bid.slot > parent
     // block slot` rule and exercise the  bid descendant from parent check specifically.
     ctx.slot_clock.set_slot(1);
+    ctx.slot_clock
+        .advance_time(ctx.spec.get_payload_attestation_due());
     let slot = Slot::new(2);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
@@ -1240,6 +1249,8 @@ fn valid_bid_with_parent_in_previous_epoch() {
     ] {
         let ctx = TestContext::new();
         ctx.slot_clock.set_slot(current_slot);
+        ctx.slot_clock
+            .advance_time(ctx.spec.get_payload_attestation_due());
         let slot = Slot::new(bid_slot);
         seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
         let parent_state = &ctx.canonical_head.cached_head().snapshot.beacon_state;
