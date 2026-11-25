@@ -775,12 +775,10 @@ fn builder_user_agent() {
             );
         },
     );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("builder-user-agent"),
-        Some("anon"),
-        |config| {
+    CommandLineTest::new()
+        .flag("builder-user-agent", Some("anon"))
+        .run_with_zero_port()
+        .with_config(|config| {
             assert_eq!(
                 config
                     .execution_layer
@@ -791,8 +789,7 @@ fn builder_user_agent() {
                     .unwrap(),
                 "anon"
             );
-        },
-    );
+        });
 }
 
 #[test]
@@ -812,21 +809,18 @@ fn test_builder_disable_ssz_flag() {
             );
         },
     );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("builder-disable-ssz"),
-        None,
-        |config| {
+    CommandLineTest::new()
+        .flag("builder-disable-ssz", None)
+        .run_with_zero_port()
+        .with_config(|config| {
             assert!(
                 config
                     .execution_layer
                     .as_ref()
                     .unwrap()
-                    .disable_builder_ssz_requests,
+                    .disable_builder_ssz_requests
             );
-        },
-    );
+        });
 }
 
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {

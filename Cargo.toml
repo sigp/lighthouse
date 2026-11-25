@@ -216,13 +216,14 @@ r2d2 = "0.8"
 rand = "0.9.0"
 rand_xorshift = "0.4.0"
 rayon = "1.7"
+rcgen = "0.13"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "rustls-tls-native-roots"] }
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.41", features = ["bundled"] }
 rust_eth_kzg = "0.9"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
 rustls-native-certs = "0.8"
 safe_arith = "0.1"
 sensitive_url = { version = "0.1", features = ["serde"] }
@@ -295,7 +296,7 @@ debug = true
 
 [patch.crates-io]
 # FIXME(eip-7688): EIP-7688 development patches
-ssz_types = { git = "https://github.com/sigp/ssz_types", rev = "8955d22edc7633f26fe3b5ac933facb5121d717a" }
+ssz_types = { git = "https://github.com/sigp/ssz_types", rev = "043f8b94c381aba694ad645d34a04c1118d1c119" }
 milhouse = { git = "https://github.com/sigp/milhouse", rev = "d67aabd2a7c405b3c16f4aaff159b137dc5b5e38" }
 ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", rev = "974f78f421fbf70cba4e8f84e0fa28c23ad54f34" }
 ethereum_ssz_derive = { git = "https://github.com/sigp/ethereum_ssz", rev = "974f78f421fbf70cba4e8f84e0fa28c23ad54f34" }
