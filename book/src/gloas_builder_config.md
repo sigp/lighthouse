@@ -108,3 +108,87 @@ and also considers bids seen over p2p. For each candidate bid:
 
 The highest-value bid after these rules wins. Per-builder `min_bid`/`builder_boost_factor` apply
 only to bids requested directly by URL. For p2p bids, per-validator defaults override the global values.
+
+## Logs
+
+This section provide new block proposal logs relevant to ePBS. It assumes the "happy path": if a block production is successful, what you should expect to see in Lighthouse logs.
+
+### Beacon node during block production
+
+With ePBS, during block production, the beacon node usually receives several bids from various sources. The beacon node selects the best bid and logs:
+
+```text
+INFO  Winning execution payload bid                 slot: 190, source: gossip, builder_index: 0, bid_value_gwei: 120765522, execution_payment_gwei: 0, payload_value_wei: 120765522000000000, runner_up_source: "direct", runner_up_payload_value_wei: "20865522000000000"
+```
+
+The fields are:
+
+- `slot`: the slot of the block proposal
+- `source`, to indicate where the bid comes from:
+  - `local` - locally built (i.e. via the execution client)
+  - `gossip` - via p2p gossip in the network
+  - `direct` - from direct builder connection
+- `builder_index`: the index of the builder registered on the beacon chain. If the `source` is `local`, the `builder_index` will be shown as 18446744073709551615.
+- `bid_value_gwei`: the value of the trustless bid promised by the builder. If the `source` is `local`, this will always be 0.
+- `execution_payment_gwei`: the trusted execution payment by the builder. If the `source` is `local` or `gossip`, this will always be 0.
+- `payload_value_wei`: the total value of the bid.
+- `runner_up_source`: the source of the bid for the runner-up bid
+- `runner_up_payload_value_wei`: the total value of the runner-up bid
+
+Additionally, all bid candidates will be logged at the debug level:
+
+```text
+DEBUG Execution payload bid candidate               slot: 190, source: direct, builder_index: 2, bid_value_gwei: 14605866, execution_payment_gwei: 6259656, payload_value_wei: 20865522000000000
+DEBUG Execution payload bid candidate               slot: 190, source: gossip, builder_index: 0, bid_value_gwei: 120765522, execution_payment_gwei: 0, payload_value_wei: 120765522000000000
+DEBUG Execution payload bid candidate               slot: 190, source: local, builder_index: 18446744073709551615, bid_value_gwei: 0, execution_payment_gwei: 0, payload_value_wei: 20765522000000000
+```
+
+### Beacon node after block production (payload envelope)
+
+If a bid is won by a direct builder connection, the beacon node will forward the signed block to the builder:
+
+```text
+INFO  Forwarded signed block to winning builder     slot: 130, block_root: 0x..
+```
+
+The builder will then reveal the envelope. The beacon node can receive the envelope via gossip:
+
+```text
+INFO  New envelope received                         slot: 201, root: 0x..
+```
+
+If the block is locally built, the beacon node receives it via the HTTP API:
+
+```text
+INFO  Publishing signed execution payload envelope to network  slot: 120, beacon_block_root: 0x.., builder_index: 18446744073709551615
+```
+
+### Validator client without `--stateless-block-production` (default)
+
+For an external winning bid (gossip or direct), the VC logs:
+
+```text
+INFO  Builder bid won; the builder reveals the payload envelope  slot: 190, builder_index: 0, validator_pubkey: 0x…
+```
+
+If a block is built locally, after the log "Successfully published block", it logs:
+
+```text
+INFO  Fetching execution payload envelope           slot: 116, beacon_block_root: 0x..
+INFO  Received execution payload envelope, signing  slot: 116, beacon_block_root: 0x..
+INFO  Signed execution payload envelope, publishing  slot: 116
+INFO  Successfully published signed execution payload envelope  slot: 116, beacon_block_root: 0x..
+```
+
+### Validator client with `--stateless-block-production`
+
+This only affects locally built blocks.
+
+In stateless block production, the VC will request the full block contents from the beacon node: beacon block, execution payload envelope, blobs, and KZG proofs. This enables stateless operation where the validator client signs and publishes the envelope to multiple beacon nodes, instead of the only beacon node that builds the block. This is useful for DVT operators such as Anchor during block proposals.
+
+As the envelope arrives together with the block, some logs in the previous section (default mode) will not be observed. Instead, you should see the logs:
+
+```text
+INFO  Signing locally built execution payload envelope  slot: 139, beacon_block_root: 0x..
+INFO  Successfully published signed execution payload envelope  slot: 139, beacon_block_root: 0x..
+```

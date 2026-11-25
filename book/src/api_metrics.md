@@ -28,6 +28,14 @@ Check to ensure that the metrics are available on the default port:
 curl localhost:5054/metrics
 ```
 
+Lighthouse supports Gzip compression when querying the metrics server. When used, the returned compressed file reduces the data transfer by ~90% compared to plain text. To obtain a Gzip file, use the header `-H "Accept-Encoding: gzip`, for example:
+
+```bash
+curl localhost:5054/metrics -H "Accept-Encoding: gzip" > metrics.gz
+```
+
+This will save a `metrics.gz` file in the present working directory, which can be uncompressed to obtain the plain text metrics.
+
 ## Validator Client Metrics
 
 By default, these metrics are disabled but can be enabled with the `--metrics`
@@ -46,6 +54,12 @@ Check to ensure that the metrics are available on the default port:
 
 ```bash
 curl localhost:5064/metrics
+```
+
+Similar to the beacon node, you can choose to return a compressed file to reduce data transfer:
+
+```bash
+curl localhost:5064/metrics -H "Accept-Encoding: gzip" > metrics_vc.gz
 ```
 
 ## Remote Monitoring
