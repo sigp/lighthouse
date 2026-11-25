@@ -34,6 +34,30 @@ pub(crate) fn verify_bid_slot(bid_slot: Slot, current_slot: Slot) -> Result<(), 
     }
 }
 
+fn verify_bid_slot_range<S: SlotClock>(
+    slot_clock: &S,
+    bid_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
+    let current_time = slot_clock
+        .now_duration()
+        .ok_or(PayloadBidError::UnableToReadSlot)?;
+    let earliest_permissible_time = slot_clock
+        .start_of(bid_slot.saturating_sub(1u64))
+        .ok_or(PayloadBidError::UnableToReadSlot)?
+        .saturating_sub(spec.maximum_gossip_clock_disparity());
+    let latest_permissible_time = slot_clock
+        .start_of(bid_slot.saturating_add(1u64))
+        .ok_or(PayloadBidError::UnableToReadSlot)?
+        .saturating_add(spec.maximum_gossip_clock_disparity());
+
+    if current_time < earliest_permissible_time || current_time > latest_permissible_time {
+        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
+    }
+
+    Ok(())
+}
+
 fn verify_bid_payment_and_blobs<E: EthSpec>(
     bid: ExecutionPayloadBidRef<E>,
     spec: &ChainSpec,
@@ -90,11 +114,12 @@ fn verify_bid_blobs<E: EthSpec>(
 ///
 /// The individual checks are shared with gossip, but this bundle's only caller is
 /// [`verify_direct_bid`](crate::payload_bid_verification::direct_verified_bid::verify_direct_bid):
-/// the gossip verifier applies the same helpers (`verify_bid_slot`, `verify_bid_blobs`,
+/// the gossip verifier applies the same helpers (`verify_bid_blobs`,
 /// `verify_bid_block_hash_not_parent`, `verify_bid_state_conditions`) piecewise, in gossip-spec
 /// order, interleaved with gossip-only work (cache checks, the preferences lookup, fork-choice
 /// rules). A check that must cover both intakes belongs in one of those shared helpers — adding
-/// it only here leaves gossip uncovered.
+/// it only here leaves gossip uncovered. The slot check is the exception: gossip uses
+/// `verify_bid_slot_range`, which adds the spec's `MAXIMUM_GOSSIP_CLOCK_DISPARITY` allowance.
 pub(crate) fn verify_direct_bid_consistency<E: EthSpec>(
     bid: ExecutionPayloadBidRef<E>,
     current_slot: Slot,
@@ -299,16 +324,11 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         signed_bid
             .fork_name(ctx.spec)
             .map_err(PayloadBidError::InconsistentFork)?;
-
         let bid_slot = signed_bid.message().slot();
         let bid_parent = BidParent::from_bid(signed_bid.message());
         let bid_parent_block_root = signed_bid.message().parent_block_root();
         let bid_value = signed_bid.message().value();
-        let current_slot = ctx
-            .slot_clock
-            .now()
-            .ok_or(PayloadBidError::UnableToReadSlot)?;
-        verify_bid_slot(bid_slot, current_slot)?;
+        verify_bid_slot_range(ctx.slot_clock, bid_slot, ctx.spec)?;
 
         let payload_attestation_due_time = ctx
             .slot_clock
@@ -622,10 +642,33 @@ pub fn is_gas_limit_target_compatible(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_gas_limit_target_compatible, verify_bid_slot};
-    use types::Slot;
+    use super::{is_gas_limit_target_compatible, verify_bid_slot, verify_bid_slot_range};
+    use std::time::Duration;
+    use types::{EthSpec, Slot};
 
     use crate::payload_bid_verification::PayloadBidError;
+    use crate::slot_clock::{SlotClock, TestingSlotClock};
+
+    #[test]
+    fn test_bid_slot_upper_disparity_boundary() {
+        let spec = types::MinimalEthSpec::default_spec();
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
+        let bid_slot = Slot::new(100);
+        let upper_boundary = slot_clock
+            .start_of(bid_slot.saturating_add(1u64))
+            .unwrap()
+            .saturating_add(spec.maximum_gossip_clock_disparity());
+
+        slot_clock.set_current_time(upper_boundary);
+        assert!(verify_bid_slot_range(&slot_clock, bid_slot, &spec).is_ok());
+
+        slot_clock.set_current_time(upper_boundary.saturating_add(Duration::from_millis(1)));
+        assert!(matches!(
+            verify_bid_slot_range(&slot_clock, bid_slot, &spec),
+            Err(PayloadBidError::InvalidBidSlot { .. })
+        ));
+    }
 
     #[test]
     fn test_invalid_bid_slot_too_old() {

@@ -1,5 +1,8 @@
 use ssz::{Decode, Encode};
-use ssz_types::{ProgressiveVariableList, typenum::Unsigned};
+use ssz_types::{
+    ProgressiveVariableList,
+    typenum::{U0, Unsigned},
+};
 use types::{test_utils::test_arbitrary_instance, *};
 
 fn round_trip<T: Encode + Decode>(value: &T) -> Result<T, ssz::DecodeError> {
@@ -41,7 +44,8 @@ fn check_limits<E: EthSpec>() {
         E::MaxAttesterSlashingsElectra
     );
     check!(block, body.attestations, E::MaxAttestationsElectra);
-    check!(block, body.deposits, E::MaxDeposits);
+    // Gloas removed legacy deposits, so the list only permits the empty list.
+    check!(block, body.deposits, U0);
     check!(block, body.voluntary_exits, E::MaxVoluntaryExits);
     check!(
         block,
@@ -112,20 +116,14 @@ fn progressive_block_body_errors_propagate() {
         let spec = fork.make_genesis_spec(E::default_spec());
         let mut block = BeaconBlock::<E>::empty(&spec);
         let mut body = block.body_mut();
-        body.set_deposits_from_iter(vec![
-            test_arbitrary_instance();
-            <E as EthSpec>::MaxDeposits::to_usize()
-        ])
-        .unwrap();
+        // The deposits list has a limit of zero from Gloas onwards.
+        body.set_deposits_from_iter(vec![]).unwrap();
         assert!(matches!(
             body.deposits_push(test_arbitrary_instance()),
             Err(BeaconStateError::SszTypesError(_))
         ));
         assert!(matches!(
-            body.set_deposits_from_iter(vec![
-                test_arbitrary_instance();
-                <E as EthSpec>::MaxDeposits::to_usize() + 1
-            ]),
+            body.set_deposits_from_iter(vec![test_arbitrary_instance()]),
             Err(BeaconStateError::SszTypesError(_))
         ));
 
@@ -146,10 +144,7 @@ fn progressive_block_body_errors_propagate() {
             body.voluntary_exits_push(test_arbitrary_instance()),
             Err(BeaconStateError::SszTypesError(_))
         ));
-        assert_eq!(
-            block.body().deposits().len(),
-            <E as EthSpec>::MaxDeposits::to_usize()
-        );
+        assert!(block.body().deposits().is_empty());
     }
 }
 

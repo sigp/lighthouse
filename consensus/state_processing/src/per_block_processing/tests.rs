@@ -226,11 +226,7 @@ async fn valid_4_deposits() {
         .set_deposits_from_iter(deposits)
         .unwrap();
 
-    let result = process_operations::process_deposits(
-        state,
-        &head_block.body().deposits().to_cow_slice(),
-        &spec,
-    );
+    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
 
     // Expecting Ok because these are valid deposits.
     assert_eq!(result, Ok(()));
@@ -259,11 +255,7 @@ async fn invalid_deposit_deposit_count_too_big() {
 
     let big_deposit_count = NUM_DEPOSITS + 1;
     state.eth1_data_mut().deposit_count = big_deposit_count;
-    let result = process_operations::process_deposits(
-        state,
-        &head_block.body().deposits().to_cow_slice(),
-        &spec,
-    );
+    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
 
     // Expecting DepositCountInvalid because we incremented the deposit_count
     assert_eq!(
@@ -298,11 +290,7 @@ async fn invalid_deposit_count_too_small() {
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data_mut().deposit_count = small_deposit_count;
-    let result = process_operations::process_deposits(
-        state,
-        &head_block.body().deposits().to_cow_slice(),
-        &spec,
-    );
+    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
 
     // Expecting DepositCountInvalid because we decremented the deposit_count
     assert_eq!(
@@ -339,11 +327,7 @@ async fn invalid_deposit_bad_merkle_proof() {
     // Manually offsetting deposit count and index to trigger bad merkle proof
     state.eth1_data_mut().deposit_count += 1;
     *state.eth1_deposit_index_mut() += 1;
-    let result = process_operations::process_deposits(
-        state,
-        &head_block.body().deposits().to_cow_slice(),
-        &spec,
-    );
+    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
 
     // Expecting BadMerkleProof because the proofs were created with different indices
     assert_eq!(
@@ -377,11 +361,7 @@ async fn invalid_deposit_wrong_sig() {
         .set_deposits_from_iter(deposits)
         .unwrap();
 
-    let result = process_operations::process_deposits(
-        state,
-        &head_block.body().deposits().to_cow_slice(),
-        &spec,
-    );
+    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
     // Expecting Ok(()) even though the block signature does not correspond to the correct public key
     assert_eq!(result, Ok(()));
 }
@@ -408,11 +388,7 @@ async fn invalid_deposit_invalid_pub_key() {
         .set_deposits_from_iter(deposits)
         .unwrap();
 
-    let result = process_operations::process_deposits(
-        state,
-        &head_block.body().deposits().to_cow_slice(),
-        &spec,
-    );
+    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
 
     // Expecting Ok(()) even though we passed in invalid publickeybytes in the public key field of the deposit data.
     assert_eq!(result, Ok(()));
