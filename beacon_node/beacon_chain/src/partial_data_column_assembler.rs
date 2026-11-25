@@ -241,27 +241,39 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .cloned()
     }
 
+    /// Records which blobs the EL reported holding via `engine_hasBlobs`. While the local
+    /// `getBlobs` fetch is in flight, republished partials then only request the cells the EL
+    /// lacks.
+    ///
+    /// Returns all current columns for the block (complete *and* incomplete), so that the caller
+    /// can publish them with that request. We do this within one write lock so that a concurrent
+    /// merge cannot slip in between. Returns `None`, and changes nothing, if the fetch state has
+    /// already moved past `Unfetched`.
     pub fn set_fetching_cells(
         &self,
         block_root: Hash256,
         header: &Arc<PartialDataColumnHeader<E>>,
         cell_bitmap: CellBitmap<E>,
-    ) {
+    ) -> Option<Vec<AssemblyColumn<E>>> {
         let mut assemblies = self.assemblies.write();
-        if let Some(assembly) = assemblies.get_mut(&block_root) {
-            if matches!(assembly.local_blobs, LocalFetchState::Unfetched) {
-                assembly.local_blobs = LocalFetchState::Fetching(cell_bitmap);
-            }
-        } else {
-            assemblies.insert(
-                block_root,
-                PartialAssembly {
-                    header: header.clone(),
-                    local_blobs: LocalFetchState::Fetching(cell_bitmap),
-                    columns: Default::default(),
+        let assembly = assemblies
+            .entry(block_root)
+            .or_insert_with(|| PartialAssembly {
+                header: header.clone(),
+                local_blobs: if self.disable_get_blobs {
+                    LocalFetchState::Fetched
+                } else {
+                    LocalFetchState::Unfetched
                 },
-            );
+                columns: Default::default(),
+            });
+
+        if !matches!(assembly.local_blobs, LocalFetchState::Unfetched) {
+            return None;
         }
+        assembly.local_blobs = LocalFetchState::Fetching(cell_bitmap);
+
+        Some(assembly.columns.values().cloned().collect())
     }
 
     /// Get all current columns for a block (complete *and* incomplete) for publishing after
@@ -566,6 +578,54 @@ mod tests {
     }
 
     // -- mark_as_complete tests --
+
+    #[test]
+    fn set_fetching_cells_returns_held_columns_once() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = Arc::new(make_header(2));
+        let merge = |column_index| {
+            assembler
+                .merge_partials(
+                    root,
+                    vec![make_partial(root, column_index, 2, &[0])],
+                    header.clone(),
+                )
+                .unwrap()
+                .local_fetch_state
+        };
+
+        // Nothing is known before the EL has been asked.
+        assert!(matches!(merge(0), LocalFetchState::Unfetched));
+
+        // The EL reports holding blob 1 only. We get back the column we already hold.
+        let mut el_blobs = CellBitmap::<E>::with_capacity(2).unwrap();
+        el_blobs.set(1, true).unwrap();
+        let held = assembler
+            .set_fetching_cells(root, &header, el_blobs.clone())
+            .expect("first answer is recorded");
+        assert_eq!(held.len(), 1);
+        assert!(matches!(&held[0], AssemblyColumn::Incomplete(partial) if partial.index() == 0));
+        assert!(matches!(merge(1), LocalFetchState::Fetching(cells) if cells == el_blobs));
+
+        // A second answer must not replace the first.
+        let all_blobs = el_blobs.clone_zeroed().not();
+        assert!(
+            assembler
+                .set_fetching_cells(root, &header, all_blobs)
+                .is_none()
+        );
+        assert!(matches!(merge(2), LocalFetchState::Fetching(cells) if cells == el_blobs));
+
+        // Once the local fetch has settled, a late answer must not reopen it.
+        assembler.get_columns_and_mark_as_local_fetched(root, &header);
+        assert!(
+            assembler
+                .set_fetching_cells(root, &header, el_blobs)
+                .is_none()
+        );
+        assert!(matches!(merge(3), LocalFetchState::Fetched));
+    }
 
     #[test]
     fn mark_as_complete_replaces_incomplete() {

@@ -394,20 +394,32 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
     /// Records which blobs the EL reported holding via `engine_hasBlobs`. While the local
     /// `getBlobs` fetch is in flight, republished partials then only request the cells the EL
-    /// lacks. Does nothing once the fetch state has moved past `Unfetched`.
+    /// lacks.
+    ///
+    /// Returns the partial columns currently held for `block_root`, so that the caller can publish
+    /// them with that request. Returns `None`, and changes nothing, if the fetch state has already
+    /// moved past `Unfetched`.
+    #[instrument(skip_all, level = "trace")]
     pub fn set_fetching_cells(
         &self,
         block_root: Hash256,
         bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
         cell_bitmap: CellBitmap<T::EthSpec>,
-    ) {
-        if let Err(error) = self.update_pending_components(block_root, bid, |components| {
-            if matches!(components.local_fetch_state, LocalFetchState::Unfetched) {
-                components.local_fetch_state = LocalFetchState::Fetching(cell_bitmap);
-            }
-        }) {
-            debug!(?error, %block_root, "Failed to record EL blob availability");
-        }
+    ) -> Option<Vec<KzgVerifiedCustodyPartialDataColumnGloas<T::EthSpec>>> {
+        let (recorded, pending_components) = self
+            .update_pending_components(block_root, bid, |components| {
+                if matches!(components.local_fetch_state, LocalFetchState::Unfetched) {
+                    components.local_fetch_state = LocalFetchState::Fetching(cell_bitmap);
+                    true
+                } else {
+                    false
+                }
+            })
+            .inspect_err(|error| {
+                debug!(?error, %block_root, "Failed to record EL blob availability");
+            })
+            .ok()?;
+        recorded.then(|| pending_components.get_cached_partial_data_columns())
     }
 
     /// Returns the partial columns currently held for `block_root` so the caller can republish
@@ -1079,22 +1091,34 @@ mod data_availability_checker_tests {
         // Nothing is known before the EL has been asked.
         assert!(matches!(merge(0), LocalFetchState::Unfetched));
 
-        // The EL reports holding blob 1 only.
+        // The EL reports holding blob 1 only. We get back the partial we already hold.
         let mut el_blobs = CellBitmap::<E>::with_capacity(2).unwrap();
         el_blobs.set(1, true).unwrap();
-        s.cache
-            .set_fetching_cells(s.block_root, &bid, el_blobs.clone());
+        let held = s
+            .cache
+            .set_fetching_cells(s.block_root, &bid, el_blobs.clone())
+            .expect("first answer is recorded");
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].index(), 0);
         assert!(matches!(merge(1), LocalFetchState::Fetching(cells) if cells == el_blobs));
 
         // A second answer must not replace the first.
         let all_blobs = el_blobs.clone_zeroed().not();
-        s.cache.set_fetching_cells(s.block_root, &bid, all_blobs);
+        assert!(
+            s.cache
+                .set_fetching_cells(s.block_root, &bid, all_blobs)
+                .is_none()
+        );
         assert!(matches!(merge(2), LocalFetchState::Fetching(cells) if cells == el_blobs));
 
         // Once the local fetch has settled, a late answer must not reopen it.
         s.cache
             .get_partials_and_mark_as_local_fetched(s.block_root, &bid);
-        s.cache.set_fetching_cells(s.block_root, &bid, el_blobs);
+        assert!(
+            s.cache
+                .set_fetching_cells(s.block_root, &bid, el_blobs)
+                .is_none()
+        );
         assert!(matches!(merge(3), LocalFetchState::Fetched));
     }
 }
