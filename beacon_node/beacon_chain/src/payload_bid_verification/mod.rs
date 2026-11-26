@@ -29,6 +29,9 @@ pub enum PayloadBidError {
     },
     /// The bid does not build on the head block or on the head block's parent.
     BidNotCompatibleWithHead { parent_block_root: Hash256 },
+    /// The bid was received before the payload attestation deadline of the slot before the bid's
+    /// slot.
+    BidBeforePayloadAttestationDue { bid_slot: Slot },
     /// The bid's parent block hash does not match the parent selected for the block being produced
     /// (an equality check against the producer's choice). Produced only by direct
     /// (block-production) verification, never by gossip, which does parent fork-choice
@@ -65,6 +68,10 @@ pub enum PayloadBidError {
     BidNotDescendantOfParent { bid_slot: Slot, parent_slot: Slot },
     /// The slot clock cannot be read.
     UnableToReadSlot,
+    /// The current time cannot be read from the slot clock.
+    UnableToReadSlotTime,
+    /// The start time of a slot cannot be computed.
+    UnableToComputeTimeAtSlot,
     /// No proposer preferences for the current slot.
     NoProposerPreferences { slot: Slot },
     /// The builder doesn't have enough deposited funds to cover the bid.

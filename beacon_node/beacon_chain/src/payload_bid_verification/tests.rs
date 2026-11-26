@@ -6,6 +6,7 @@ use ethereum_hashing::hash;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use kzg::KzgCommitment;
+use parking_lot::RwLock;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use ssz_types::ProgressiveVariableList;
@@ -29,6 +30,7 @@ use crate::{
     canonical_head::CanonicalHead,
     chain_config::FastConfirmationMode,
     observed_execution_payloads::ObservedExecutionPayloads,
+    observed_slashable::ObservedSlashable,
     payload_bid_verification::{
         PayloadBidError,
         gossip_verified_bid::{
@@ -57,6 +59,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 struct TestContext {
     canonical_head: CanonicalHead<T>,
     observed_execution_payloads: ObservedExecutionPayloads,
+    observed_slashable: RwLock<ObservedSlashable<E>>,
     bid_cache: GossipVerifiedPayloadBidCache<E>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
@@ -186,10 +189,12 @@ impl TestContext {
             Duration::from_secs(0),
             spec.get_slot_duration(),
         );
+        slot_clock.advance_time(spec.get_payload_attestation_due());
 
         Self {
             canonical_head,
             observed_execution_payloads,
+            observed_slashable: <_>::default(),
             bid_cache: GossipVerifiedPayloadBidCache::default(),
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
             slot_clock,
@@ -224,11 +229,13 @@ impl TestContext {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
             observed_execution_payloads: &self.observed_execution_payloads,
+            observed_slashable: &self.observed_slashable,
             gossip_verified_payload_bid_cache: &self.bid_cache,
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
+            is_head_late: &|_, _| false,
         }
     }
 
@@ -326,6 +333,66 @@ impl TestContext {
             )
             .expect("should insert fork block");
         fork_block_root
+    }
+
+    /// Makes a slot 1 block whose parent is genesis the head, so bids can build on the head's parent.
+    fn with_slot_1_head(self) -> Self {
+        let genesis = self.canonical_head.cached_head().snapshot;
+        let fc_store =
+            BeaconForkChoiceStore::get_forkchoice_store(self.store.clone(), (*genesis).clone())
+                .expect("should create fork choice store");
+        let mut fork_choice = ForkChoice::from_anchor(
+            fc_store,
+            self.genesis_block_root,
+            &genesis.beacon_block,
+            &genesis.beacon_state,
+            None,
+            &self.spec,
+        )
+        .expect("should create fork choice");
+
+        let (mut head_block, _) = (*genesis.beacon_block).clone().deconstruct();
+        *head_block.slot_mut() = Slot::new(1);
+        *head_block.parent_root_mut() = self.genesis_block_root;
+        let head_block = SignedBeaconBlock::from_block(head_block, Signature::empty());
+        let head_block_root = head_block.canonical_root();
+
+        // A bid on the head's parent must build on the same payload as the head did.
+        let mut proto_block =
+            self.slot_1_proto_block(head_block_root, ExecutionBlockHash::repeat_byte(0x01));
+        proto_block.execution_payload_parent_hash = Some(self.execution_parent_hash());
+        fork_choice
+            .proto_array_mut()
+            .process_block::<E>(
+                proto_block,
+                Slot::new(1),
+                &self.spec,
+                Duration::from_secs(0),
+            )
+            .expect("should insert slot 1 head block");
+        let head_node = fork_choice
+            .get_head(Slot::new(1), &self.spec)
+            .expect("should run get_head");
+
+        let snapshot = BeaconSnapshot::new(
+            Arc::new(head_block),
+            None,
+            head_block_root,
+            genesis.beacon_state.clone(),
+        );
+        let canonical_head = CanonicalHead::new(
+            fork_choice,
+            Arc::new(snapshot),
+            head_node,
+            FastConfirmationMode::Disabled,
+            &self.store,
+            &self.spec,
+        )
+        .expect("should create canonical head");
+        Self {
+            canonical_head,
+            ..self
+        }
     }
 
     fn put_envelope_with_builder_exit(
@@ -530,6 +597,263 @@ fn invalid_bid_slot() {
         result,
         Err(PayloadBidError::InvalidBidSlot { .. })
     ));
+}
+
+#[test]
+fn bid_before_payload_attestation_due() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
+        slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        ..ExecutionPayloadBidGloas::default()
+    });
+
+    // One millisecond before the payload attestation deadline of the slot before the bid's slot.
+    ctx.slot_clock
+        .set_current_time(ctx.spec.get_payload_attestation_due() - Duration::from_millis(1));
+    let result = GossipVerifiedPayloadBid::new(bid.clone(), &gossip);
+    assert!(
+        matches!(
+            result,
+            Err(PayloadBidError::BidBeforePayloadAttestationDue { bid_slot }) if bid_slot == slot
+        ),
+        "expected BidBeforePayloadAttestationDue, got: {result:?}"
+    );
+
+    // The same bid is accepted once the deadline is reached.
+    ctx.slot_clock.advance_time(Duration::from_millis(1));
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(result.is_ok(), "expected Ok, got: {result:?}");
+}
+
+#[test]
+fn bid_on_head_parent_for_next_slot_when_head_timely_and_not_equivocated() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    // The head is a slot 1 block whose parent is genesis. `is_head_late` is `false` and
+    // `observed_slashable` is empty, so the head is timely and its proposer did not equivocate.
+    let ctx = TestContext::new().with_slot_1_head();
+    let gossip = ctx.gossip_ctx();
+    ctx.slot_clock.set_slot(1);
+    ctx.slot_clock
+        .advance_time(ctx.spec.get_payload_attestation_due());
+    let slot = Slot::new(2);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    // Builds on the head's parent (genesis) and its payload, for the slot after the head.
+    let bid = ctx.make_signed_bid(
+        slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    );
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        matches!(
+            result,
+            Err(PayloadBidError::BidNotCompatibleWithHead { .. })
+        ),
+        "expected BidNotCompatibleWithHead, got: {result:?}"
+    );
+}
+
+#[test]
+fn bid_on_head_parent_not_for_next_slot_when_head_late() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    // The head is a slot 1 block whose parent is genesis. Assume the head was observed after the
+    // attestation deadline. `observed_slashable` is empty, so its proposer did not equivocate.
+    let ctx = TestContext::new().with_slot_1_head();
+    let gossip = GossipVerificationContext {
+        is_head_late: &|_, _| true,
+        ..ctx.gossip_ctx()
+    };
+    ctx.slot_clock.set_slot(2);
+    ctx.slot_clock
+        .advance_time(ctx.spec.get_payload_attestation_due());
+    let slot = Slot::new(3);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    // Builds on the head's parent (genesis) and its payload, but not for the slot after the head.
+    let bid = ctx.make_signed_bid(
+        slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    );
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        matches!(
+            result,
+            Err(PayloadBidError::BidNotCompatibleWithHead { .. })
+        ),
+        "expected BidNotCompatibleWithHead, got: {result:?}"
+    );
+}
+
+#[test]
+fn bid_on_head_parent_not_for_next_slot_when_equivocated() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    // The head is a slot 1 block whose parent is genesis. `is_head_late` is `false`, so the head
+    // is timely.
+    let ctx = TestContext::new().with_slot_1_head();
+    let gossip = ctx.gossip_ctx();
+
+    // The head's proposer also proposed a different block at the head's slot.
+    let cached_head = ctx.canonical_head.cached_head();
+    let head_proposer_index = cached_head.snapshot.beacon_block.message().proposer_index();
+    let mut observed_slashable = ctx.observed_slashable.write();
+    observed_slashable
+        .observe_slashable(
+            Slot::new(1),
+            head_proposer_index,
+            cached_head.head_block_root(),
+        )
+        .expect("should observe the head block");
+    observed_slashable
+        .observe_slashable(
+            Slot::new(1),
+            head_proposer_index,
+            Hash256::repeat_byte(0xee),
+        )
+        .expect("should observe the equivocating block");
+    drop(observed_slashable);
+
+    ctx.slot_clock.set_slot(2);
+    ctx.slot_clock
+        .advance_time(ctx.spec.get_payload_attestation_due());
+    let slot = Slot::new(3);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    // Builds on the head's parent (genesis) and its payload, but not for the slot after the head.
+    let bid = ctx.make_signed_bid(
+        slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    );
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        matches!(
+            result,
+            Err(PayloadBidError::BidNotCompatibleWithHead { .. })
+        ),
+        "expected BidNotCompatibleWithHead, got: {result:?}"
+    );
+}
+
+#[test]
+fn bid_on_head_parent_for_next_slot_when_head_late() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    // The head is a slot 1 block whose parent is genesis. Assume the head was observed after the
+    // attestation deadline. `observed_slashable` is empty, so its proposer did not equivocate.
+    let ctx = TestContext::new().with_slot_1_head();
+    let gossip = GossipVerificationContext {
+        is_head_late: &|_, _| true,
+        ..ctx.gossip_ctx()
+    };
+    ctx.slot_clock.set_slot(1);
+    ctx.slot_clock
+        .advance_time(ctx.spec.get_payload_attestation_due());
+    let slot = Slot::new(2);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    // Builds on the head's parent (genesis) and its payload, for the slot after the head. A bid on
+    // the head's parent must carry the parent's RANDAO mix.
+    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
+        slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx
+            .canonical_head
+            .cached_head()
+            .parent_random()
+            .expect("should read the head's parent randao"),
+        ..ExecutionPayloadBidGloas::default()
+    });
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(result.is_ok(), "expected Ok, got: {result:?}");
+}
+
+#[test]
+fn bid_on_head_parent_for_next_slot_when_equivocated() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    // The head is a slot 1 block whose parent is genesis. `is_head_late` is `false`, so the head
+    // is timely.
+    let ctx = TestContext::new().with_slot_1_head();
+    let gossip = ctx.gossip_ctx();
+
+    // The head's proposer also proposed a different block at the head's slot.
+    let cached_head = ctx.canonical_head.cached_head();
+    let head_proposer_index = cached_head.snapshot.beacon_block.message().proposer_index();
+    let mut observed_slashable = ctx.observed_slashable.write();
+    observed_slashable
+        .observe_slashable(
+            Slot::new(1),
+            head_proposer_index,
+            cached_head.head_block_root(),
+        )
+        .expect("should observe the head block");
+    observed_slashable
+        .observe_slashable(
+            Slot::new(1),
+            head_proposer_index,
+            Hash256::repeat_byte(0xee),
+        )
+        .expect("should observe the equivocating block");
+    drop(observed_slashable);
+
+    ctx.slot_clock.set_slot(1);
+    ctx.slot_clock
+        .advance_time(ctx.spec.get_payload_attestation_due());
+    let slot = Slot::new(2);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    // Builds on the head's parent (genesis) and its payload, for the slot after the head. A bid on
+    // the head's parent must carry the parent's RANDAO mix.
+    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
+        slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: cached_head
+            .parent_random()
+            .expect("should read the head's parent randao"),
+        ..ExecutionPayloadBidGloas::default()
+    });
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(result.is_ok(), "expected Ok, got: {result:?}");
 }
 
 #[test]
@@ -1084,6 +1408,8 @@ fn parent_block_root_not_canonical() {
     // The non-canonical fork block is at slot 1, so use slot 2 to satisfy the `bid.slot > parent
     // block slot` rule and exercise the  bid descendant from parent check specifically.
     ctx.slot_clock.set_slot(1);
+    ctx.slot_clock
+        .advance_time(ctx.spec.get_payload_attestation_due());
     let slot = Slot::new(2);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
@@ -1240,6 +1566,8 @@ fn valid_bid_with_parent_in_previous_epoch() {
     ] {
         let ctx = TestContext::new();
         ctx.slot_clock.set_slot(current_slot);
+        ctx.slot_clock
+            .advance_time(ctx.spec.get_payload_attestation_due());
         let slot = Slot::new(bid_slot);
         seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
         let parent_state = &ctx.canonical_head.cached_head().snapshot.beacon_state;
