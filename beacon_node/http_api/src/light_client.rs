@@ -5,8 +5,7 @@ use crate::version::{
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::beacon_response::BeaconResponse;
 use eth2::types::{
-    self as api_types, LightClientUpdate, LightClientUpdateResponseChunk,
-    LightClientUpdateResponseChunkInner, LightClientUpdatesQuery,
+    self as api_types, LightClientUpdate, LightClientUpdateResponseChunk, LightClientUpdatesQuery,
 };
 use ssz::Encode;
 use std::sync::Arc;
@@ -158,16 +157,9 @@ fn map_light_client_update_to_response_chunk<T: BeaconChainTypes>(
         .epoch(T::EthSpec::slots_per_epoch());
     let fork_digest = chain.compute_fork_digest(epoch);
 
-    let response_chunk_len = fork_digest.len() + light_client_update.ssz_bytes_len();
-
-    let response_chunk = LightClientUpdateResponseChunkInner {
+    LightClientUpdateResponseChunk {
         context: fork_digest,
         payload: light_client_update,
-    };
-
-    LightClientUpdateResponseChunk {
-        response_chunk_len: response_chunk_len as u64,
-        response_chunk,
     }
 }
 
