@@ -1919,7 +1919,6 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 
 #[cfg(test)]
 mod test {
-    use crate::ChainConfig;
     use crate::data_column_verification::{
         GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
         GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumnFulu,
@@ -2150,16 +2149,11 @@ mod test {
             return;
         }
 
-        let chain_config = ChainConfig {
-            enable_partial_columns: true,
-            ..Default::default()
-        };
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec)
             .deterministic_keypairs(64)
             .fresh_ephemeral_store()
             .mock_execution_layer()
-            .chain_config(chain_config)
             .build();
 
         partial_empty_message_without_cells_returns_error(&harness).await;
