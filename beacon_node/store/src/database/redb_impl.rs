@@ -263,21 +263,16 @@ impl Redb {
             let table = read_txn.open_table(table_definition)?;
             let range = table.range(from..)?;
 
-            Ok(range
-                .take_while(move |res| match res.as_ref() {
-                    Ok((_, _)) => true,
-                    Err(_) => false,
-                })
-                .map(move |res| {
-                    let (key, value) = res?;
-                    metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
-                    metrics::inc_counter_vec_by(
-                        &metrics::DISK_DB_READ_BYTES,
-                        &[column.into()],
-                        value.value().len() as u64,
-                    );
-                    Ok((K::from_bytes(key.value())?, value.value().to_vec()))
-                }))
+            Ok(range.map(move |res| {
+                let (key, value) = res?;
+                metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
+                metrics::inc_counter_vec_by(
+                    &metrics::DISK_DB_READ_BYTES,
+                    &[column.into()],
+                    value.value().len() as u64,
+                );
+                Ok((K::from_bytes(key.value())?, value.value().to_vec()))
+            }))
         })();
 
         match result {
@@ -292,14 +287,14 @@ impl Redb {
 
     pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {
         let open_db = self.db.read();
-        let mut tx = Self::begin_write(&open_db)?;
-
-        tx.set_durability(redb::Durability::None);
+        let tx = Self::begin_write(&open_db)?;
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
 
         let mut table = tx.open_table(table_definition)?;
-        table.retain(|key, _| !ops.contains(key))?;
+        for key in ops {
+            table.remove(key)?;
+        }
 
         drop(table);
         tx.commit()?;
@@ -312,9 +307,7 @@ impl Redb {
         mut f: impl FnMut(&[u8]) -> Result<bool, Error>,
     ) -> Result<(), Error> {
         let open_db = self.db.read();
-        let mut tx = Self::begin_write(&open_db)?;
-
-        tx.set_durability(redb::Durability::None);
+        let tx = Self::begin_write(&open_db)?;
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
@@ -373,7 +366,6 @@ mod tests {
         .unwrap();
         copy_and_open_without_repair(dir.path());
 
-        // These deletes are non-durable, so they are persisted by the next durable commit.
         let (key_0, key_1, value_2) = (key(0), key(1), value(2));
         db.delete_batch(col, HashSet::from([key_0.as_slice(), key_1.as_slice()]))
             .unwrap();
