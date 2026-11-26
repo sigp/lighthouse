@@ -20,7 +20,7 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
     pooled_payload_attestation_bits, ptc_seats, test_spec,
 };
-use beacon_chain::{BeaconChain, WhenSlotSkipped};
+use beacon_chain::{BeaconChain, ChainConfig, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use enr::{self, CombinedKey};
 use itertools::Itertools;
@@ -100,6 +100,7 @@ pub struct TestRigParams {
     beacon_processor_config: BeaconProcessorConfig,
     node_custody_type: NodeCustodyType,
     generate_blobs: bool,
+    enable_partial_columns: bool,
     spec: ChainSpec,
 }
 
@@ -113,6 +114,7 @@ impl TestRig {
             beacon_processor_config: BeaconProcessorConfig::default(),
             node_custody_type: NodeCustodyType::Fullnode,
             generate_blobs: true,
+            enable_partial_columns: true,
             spec,
         })
         .await
@@ -127,6 +129,7 @@ impl TestRig {
             beacon_processor_config: BeaconProcessorConfig::default(),
             node_custody_type: NodeCustodyType::Supernode,
             generate_blobs: true,
+            enable_partial_columns: true,
             spec,
         })
         .await
@@ -188,6 +191,7 @@ impl TestRig {
             beacon_processor_config,
             node_custody_type,
             generate_blobs,
+            enable_partial_columns,
             spec,
         } = params;
 
@@ -198,7 +202,10 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(node_custody_type)
-            .chain_config(<_>::default())
+            .chain_config(ChainConfig {
+                enable_partial_columns,
+                ..ChainConfig::default()
+            })
             .build();
 
         harness
@@ -327,7 +334,10 @@ impl TestRig {
 
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = enr::Enr::builder().build(&enr_key).unwrap();
-        let network_config = Arc::new(NetworkConfig::default());
+        // The chain and the network must agree on whether partial columns are enabled.
+        let mut network_config = NetworkConfig::default();
+        network_config.enable_partial_columns = harness.chain.config.enable_partial_columns;
+        let network_config = Arc::new(network_config);
         let network_globals = Arc::new(NetworkGlobals::new(
             enr,
             meta_data,
@@ -1524,6 +1534,7 @@ async fn new_rig_disable_blobs_pre_fulu() -> TestRig {
         beacon_processor_config: Default::default(),
         node_custody_type: Default::default(),
         generate_blobs: enable_blobs,
+        enable_partial_columns: true,
         spec,
     })
     .await
@@ -1684,6 +1695,158 @@ async fn attestation_to_unknown_block_processed_after_engine_blobs() {
         rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns + 1
     );
+}
+
+/// With partial columns disabled, columns fetched from the EL must still be imported and published
+/// as full columns, and no partial messages are sent.
+#[tokio::test]
+async fn engine_blobs_import_with_partial_columns_disabled() {
+    use beacon_chain::fetch_blobs::PartialHeaderOrBid;
+    use beacon_chain::payload_envelope_verification::EnvelopeSource;
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use lighthouse_network::PubsubMessage;
+    use types::block::BlockImportSource;
+
+    // There are no data columns before Fulu.
+    let mut spec = test_spec::<E>();
+    if spec.fulu_fork_epoch.is_none() {
+        return;
+    }
+    let is_gloas = spec.gloas_fork_epoch.is_some();
+    spec.shard_committee_period = 2;
+
+    let mut rig = TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
+        beacon_processor_config: BeaconProcessorConfig::default(),
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
+        enable_partial_columns: false,
+        spec,
+    })
+    .await;
+    assert!(
+        rig.chain
+            .data_availability_checker
+            .partial_assembler()
+            .is_none(),
+        "no partial assembler should exist when partial columns are disabled"
+    );
+    assert!(
+        !rig.network_beacon_processor
+            .network_globals
+            .config
+            .enable_partial_columns
+    );
+
+    // Process the block directly, without starting the network processor's concurrent EL fetch.
+    // Withhold the columns so they can only come from the explicit EL fetch below.
+    let block_root = rig.next_block.canonical_root();
+    let epoch = rig.next_block.epoch();
+    let expected_indices = rig
+        .chain
+        .custody_context
+        .sampling_columns_for_epoch(epoch)
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    let result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(block_root, rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Gossip,
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+    if is_gloas {
+        // The block is imported on its own, the columns belong to the payload envelope.
+        assert_matches!(result, AvailabilityProcessingStatus::Imported(..));
+    } else {
+        assert_matches!(result, AvailabilityProcessingStatus::MissingComponents(..));
+    }
+
+    // Fetch the blobs from the EL and publish the resulting columns, as done after a gossip block.
+    let header_or_bid = PartialHeaderOrBid::try_from_block(rig.next_block.as_ref()).unwrap();
+    rig.network_beacon_processor
+        .fetch_engine_blobs_and_publish_full(
+            header_or_bid.clone(),
+            block_root,
+            true,
+            EnvelopeSource::Gossip,
+        )
+        .await;
+    rig.network_beacon_processor
+        .publish_partial_data_columns(header_or_bid, block_root)
+        .await;
+    if is_gloas {
+        assert!(
+            expected_indices.iter().all(|index| rig
+                .chain
+                .pending_payload_cache
+                .is_column_complete(&block_root, *index)),
+            "the columns from the EL should be held for the payload envelope"
+        );
+        assert!(!rig.chain.is_block_data_imported(block_root));
+
+        // The envelope arrives after its columns and can be imported right away.
+        rig.network_beacon_processor
+            .clone()
+            .process_lookup_envelope(
+                block_root,
+                rig.next_block_envelope
+                    .clone()
+                    .expect("the next block should have an envelope post-Gloas"),
+                BlockProcessType::SinglePayloadEnvelope(1),
+            )
+            .await;
+        assert!(
+            rig.chain
+                .get_payload_envelope(&block_root)
+                .unwrap()
+                .is_some(),
+            "the payload envelope should be imported using the columns from the EL"
+        );
+    } else {
+        assert_eq!(
+            rig.head_root(),
+            block_root,
+            "the block should be imported using the columns from the EL"
+        );
+    }
+    assert!(rig.chain.is_block_data_imported(block_root));
+
+    // Every sampled column must be published as a full column, and nothing as a partial.
+    let mut published_indices = HashSet::new();
+    let mut record_network_message = |message: NetworkMessage<E>| match message {
+        NetworkMessage::Publish { messages } => {
+            for message in messages {
+                if let PubsubMessage::DataColumnSidecar(subnet_and_column) = message {
+                    published_indices.insert(*subnet_and_column.1.index());
+                }
+            }
+            published_indices.len()
+        }
+        NetworkMessage::PublishPartialColumns { .. } => {
+            panic!("partial columns must not be published when disabled")
+        }
+        _ => published_indices.len(),
+    };
+    // Columns are published gradually by a background task.
+    tokio::time::timeout(STANDARD_TIMEOUT, async {
+        while let Some(message) = rig.network_rx.recv().await {
+            if record_network_message(message) == expected_indices.len() {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("all sampled columns should be published as full columns");
+    while let Ok(message) = rig.network_rx.try_recv() {
+        record_network_message(message);
+    }
+    assert_eq!(published_indices, expected_indices);
 }
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and
@@ -2611,6 +2774,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         beacon_processor_config,
         node_custody_type: NodeCustodyType::Fullnode,
         generate_blobs: true,
+        enable_partial_columns: true,
         spec: test_spec::<E>(),
     })
     .await;
@@ -2698,6 +2862,7 @@ async fn test_blobs_by_range_spans_fulu_fork() {
         beacon_processor_config: BeaconProcessorConfig::default(),
         node_custody_type: NodeCustodyType::Fullnode,
         generate_blobs: true,
+        enable_partial_columns: true,
         spec,
     })
     .await;
