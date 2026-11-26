@@ -159,8 +159,7 @@ pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
 
 /// Verify that the bid's builder is a payload builder and is active in `head_state`.
 ///
-/// Split out of [`verify_bid_state_conditions`] so the gossip verifier can run the gossip-only
-/// bid-limit check between this and [`verify_builder_can_cover_bid`], in gossip-spec order.
+/// Split out so gossip can run its bid-limit check before [`verify_builder_can_cover_bid`].
 pub(crate) fn verify_builder_eligibility<E: EthSpec>(
     builder_index: u64,
     head_state: &BeaconState<E>,
