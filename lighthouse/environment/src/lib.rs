@@ -21,7 +21,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use tracing::{error, info, warn};
 use tracing_subscriber::filter::LevelFilter;
-use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, Spec};
 
 #[cfg(target_family = "unix")]
 use {
@@ -124,42 +124,22 @@ pub struct EnvironmentBuilder<E: EthSpec> {
     eth2_network_config: Option<Eth2NetworkConfig>,
 }
 
-impl EnvironmentBuilder<MinimalEthSpec> {
-    /// Creates a new builder using the `minimal` eth2 specification.
-    pub fn minimal() -> Self {
+impl EnvironmentBuilder<Spec> {
+    /// Creates a new builder for the preset this binary was compiled for.
+    pub fn new() -> Self {
         Self {
             runtime: None,
             sse_logging_components: None,
-            eth_spec_instance: MinimalEthSpec,
-            eth2_config: Eth2Config::minimal(),
+            eth_spec_instance: Spec::default(),
+            eth2_config: Eth2Config::default(),
             eth2_network_config: None,
         }
     }
 }
 
-impl EnvironmentBuilder<MainnetEthSpec> {
-    /// Creates a new builder using the `mainnet` eth2 specification.
-    pub fn mainnet() -> Self {
-        Self {
-            runtime: None,
-            sse_logging_components: None,
-            eth_spec_instance: MainnetEthSpec,
-            eth2_config: Eth2Config::mainnet(),
-            eth2_network_config: None,
-        }
-    }
-}
-
-impl EnvironmentBuilder<GnosisEthSpec> {
-    /// Creates a new builder using the `gnosis` eth2 specification.
-    pub fn gnosis() -> Self {
-        Self {
-            runtime: None,
-            sse_logging_components: None,
-            eth_spec_instance: GnosisEthSpec,
-            eth2_config: Eth2Config::gnosis(),
-            eth2_network_config: None,
-        }
+impl Default for EnvironmentBuilder<Spec> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

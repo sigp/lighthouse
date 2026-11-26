@@ -2,11 +2,13 @@
 
 use clap::ArgMatches;
 use clap::builder::styling::*;
-use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig};
+use eth2_network_config::{
+    Eth2NetworkConfig, default_hardcoded_network_for_preset, supported_hardcoded_net_names,
+};
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::{ChainSpec, Config, EthSpec};
+use types::{ChainSpec, Config, EthSpec, EthSpecId, Spec};
 
 pub mod flags;
 
@@ -17,16 +19,31 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 
 pub const FLAG_HEADER: &str = "Flags";
 
+/// The default network name as a string.
+pub const fn default_network_name() -> &'static str {
+    Spec::PRESET_BASE
+}
+
+/// The default hardcoded network to load when no network flags are supplied.
+pub const fn default_hardcoded_network() -> Option<&'static str> {
+    default_hardcoded_network_for_preset(Spec::SPEC_ID)
+}
+
 /// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
-/// Returns the default hardcoded testnet if neither flags are set.
+/// Returns the compiled preset's default hardcoded network if neither flag is set and one exists.
 pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
     let optional_network_config = if cli_args.contains_id("network") {
         parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.contains_id("testnet-dir") {
         parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        // if neither is present, assume the default network
-        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
+        // If neither is present, assume the default hardcoded network for this compiled preset.
+        let network_name = default_hardcoded_network().ok_or_else(|| {
+            "This binary was compiled for the minimal preset, which has no default hardcoded \
+             network. Please specify --network or --testnet-dir."
+                .to_string()
+        })?;
+        Eth2NetworkConfig::constant(network_name)?
     };
 
     let eth2_network_config =
@@ -55,6 +72,31 @@ pub fn parse_hardcoded_network(
 ) -> Result<Option<Eth2NetworkConfig>, String> {
     let network_name = parse_required::<String>(matches, name)?;
     Eth2NetworkConfig::constant(network_name.as_str())
+}
+
+/// Errors if the network uses a different preset from the one this binary was compiled for.
+pub fn check_network_preset(eth2_network_config: &Eth2NetworkConfig) -> Result<(), String> {
+    let network_preset = eth2_network_config.eth_spec_id()?;
+    if network_preset == Spec::SPEC_ID {
+        return Ok(());
+    }
+
+    let build_hint = match network_preset {
+        EthSpecId::Mainnet => "without the `spec-minimal` or `spec-gnosis` features".to_string(),
+        other => format!("with `--features spec-{other}`"),
+    };
+    let supported_networks = match supported_hardcoded_net_names() {
+        [] => "none (use --testnet-dir)".to_string(),
+        names => names.join(", "),
+    };
+    Err(format!(
+        "This binary was compiled for the `{}` preset and cannot run a `{}` preset network. \
+         Build it {} to run this network. Built-in networks for this binary: {}.",
+        Spec::PRESET_BASE,
+        network_preset,
+        build_hint,
+        supported_networks,
+    ))
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's

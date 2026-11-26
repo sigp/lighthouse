@@ -3604,13 +3604,8 @@ mod yaml_tests {
         // write fresh minimal config to file
         yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = File::options()
-            .read(true)
-            .write(false)
-            .open(tmp_file.as_ref())
-            .expect("error while opening the file");
         // deserialize minimal config from file
-        let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
+        let from = Config::from_file(tmp_file.as_ref()).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
@@ -3626,12 +3621,7 @@ mod yaml_tests {
         let yamlconfig = Config::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = File::options()
-            .read(true)
-            .write(false)
-            .open(tmp_file.as_ref())
-            .expect("error while opening the file");
-        let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
+        let from = Config::from_file(tmp_file.as_ref()).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 

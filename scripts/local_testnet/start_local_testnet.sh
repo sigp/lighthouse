@@ -86,7 +86,11 @@ fi
 if [ "$BUILD_IMAGE" = true ]; then
     echo "Building Lighthouse Docker image."
     ROOT_DIR="$SCRIPT_DIR/../.."
-    docker build --build-arg FEATURES=portable,spec-minimal -f $ROOT_DIR/Dockerfile -t $LH_IMAGE_NAME $ROOT_DIR
+    FEATURES=portable
+    if [ "$(yq eval '.network_params.preset // "mainnet"' $NETWORK_PARAMS_FILE)" = minimal ]; then
+        FEATURES=portable,spec-minimal
+    fi
+    docker build --build-arg FEATURES=$FEATURES -f $ROOT_DIR/Dockerfile -t $LH_IMAGE_NAME $ROOT_DIR
 else
     echo "Not rebuilding Lighthouse Docker image."
 fi

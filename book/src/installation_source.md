@@ -158,19 +158,25 @@ You can customise the features that Lighthouse is built with using the `FEATURES
 variable. E.g.
 
 ```
-FEATURES=gnosis,slasher-lmdb,beacon-node-leveldb make
+FEATURES=slasher-lmdb,beacon-node-leveldb make
 ```
 
 Commonly used features include:
 
-- `gnosis`: support for the Gnosis Beacon Chain.
 - `portable`: the default feature as Lighthouse now uses runtime detection of hardware CPU features.
 - `slasher-lmdb`: support for the LMDB slasher backend. Enabled by default.
 - `slasher-redb`: support for the redb slasher backend.
 - `beacon-node-leveldb`: support for the leveldb backend. Enabled by default.
 - `sysmalloc`: use the system memory allocator rather than jemalloc. This is always enabled on
   Windows.
-- `spec-minimal`: support for the minimal preset (useful for testing).
+- `spec-gnosis`: build for the Gnosis preset, to run on Gnosis and Chiado.
+- `spec-minimal`: build for the minimal preset (useful for testing).
+- `gnosis`: deprecated and does nothing. Building with it prints a warning; use `spec-gnosis` to
+  build for Gnosis.
+
+Lighthouse is built for only one preset. By default this is the mainnet preset, which runs on mainnet, Sepolia and Hoodi.
+You can build Lighthouse for other presets using `spec-gnosis` or `spec-minimal` (these are mutually exclusive).
+You can use `lighthouse --version` to show which preset the binary was built for.
 
 Default features (e.g. `slasher-lmdb`, `beacon-node-leveldb`) may be opted out of using the `--no-default-features`
 argument for `cargo`, which can be plumbed in via the `CARGO_INSTALL_EXTRA_FLAGS` environment variable.

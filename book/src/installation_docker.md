@@ -51,7 +51,7 @@ docker pull sigp/lighthouse:latest
 Image tags follow this format:
 
 ```text
-${version}${arch}${stability}
+${version}${arch}${preset}${stability}
 ```
 
 The `version` is:
@@ -65,6 +65,13 @@ The `arch` is:
 * `-arm64` for aarch64, e.g. Raspberry Pi 4
 * empty for a multi-arch image (works on either `amd64` or `arm64` platforms)
 
+The `preset` is:
+
+* empty for the mainnet preset (mainnet, Sepolia and Hoodi)
+* `-minimal` for the minimal preset (for test networks)
+
+To run with Gnosis or Chiado in Docker, you will have to build an image with the `spec-gnosis` feature (see below).
+
 The `stability` is:
 
 * `-unstable` for the `unstable` branch
@@ -75,6 +82,7 @@ Examples:
 * `latest-unstable`: most recent `unstable` build
 * `latest-amd64`: most recent Lighthouse release for older x86_64 CPUs
 * `latest-amd64-unstable`: most recent `unstable` build for older x86_64 CPUs
+* `latest-minimal`: most recent Lighthouse release for the minimal preset
 
 ## Building the Docker Image
 
@@ -89,6 +97,12 @@ The build will likely take several minutes. Once it's built, test it with:
 
 ```bash
 docker run lighthouse:local lighthouse --help
+```
+
+To build for a different preset, pass its feature, e.g. for Gnosis:
+
+```bash
+docker build . --build-arg FEATURES=spec-gnosis -t lighthouse:gnosis
 ```
 
 ## Using the Docker image

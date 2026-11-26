@@ -11,32 +11,20 @@ mod state_root;
 mod transition_blocks;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::{FLAG_HEADER, parse_optional};
+use clap_utils::{FLAG_HEADER, check_network_preset, default_hardcoded_network, parse_optional};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::Eth2NetworkConfig;
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
-use std::str::FromStr;
 use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use types::{EthSpec, EthSpecId};
+use types::EthSpec;
 
 fn main() {
     let matches = Command::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
         .display_order(0)
         .about("Performs various testing-related tasks, including defining testnets.")
-        .arg(
-            Arg::new("spec")
-                .short('s')
-                .long("spec")
-                .value_name("STRING")
-                .action(ArgAction::Set)
-                .value_parser(["minimal", "mainnet", "gnosis"])
-                .default_value("mainnet")
-                .global(true)
-                .display_order(0)
-        )
         .arg(
             Arg::new("testnet-dir")
                 .short('d')
@@ -53,7 +41,7 @@ fn main() {
                 .value_name("NAME")
                 .action(ArgAction::Set)
                 .global(true)
-                .help("The network to use. Defaults to mainnet.")
+                .help("The network to use.")
                 .conflicts_with("testnet-dir")
                 .display_order(0)
         )
@@ -636,7 +624,7 @@ fn main() {
                         .value_name("NAME")
                         .action(ArgAction::Set)
                         .global(true)
-                        .help("The network to use. Defaults to mainnet.")
+                        .help("The network to use.")
                         .conflicts_with("testnet-dir")
                         .display_order(0)
                 )
@@ -659,15 +647,7 @@ fn main() {
         )
         .get_matches();
 
-    let result = matches
-        .get_one::<String>("spec")
-        .ok_or_else(|| "Missing --spec flag".to_string())
-        .and_then(|s| FromStr::from_str(s))
-        .and_then(|eth_spec_id| match eth_spec_id {
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
-            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches),
-        });
+    let result = run(EnvironmentBuilder::new(), &matches);
 
     match result {
         Ok(()) => process::exit(0),
@@ -725,24 +705,31 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
         if let Some(testnet_dir) = parse_optional::<PathBuf>(matches, "testnet-dir")? {
             (Some(testnet_dir), None)
         } else {
-            let network_name =
-                parse_optional(matches, "network")?.unwrap_or_else(|| "mainnet".to_string());
+            let network_name = parse_optional(matches, "network")?
+                .or_else(|| default_hardcoded_network().map(ToString::to_string))
+                .ok_or_else(|| {
+                    "This lcli binary was compiled for the minimal preset, which has no default \
+                     hardcoded network. Please specify --network or --testnet-dir."
+                        .to_string()
+                })?;
             (None, Some(network_name))
         };
 
     let get_network_config = || {
-        if let Some(testnet_dir) = &testnet_dir {
+        let network_config = if let Some(testnet_dir) = &testnet_dir {
             Eth2NetworkConfig::load(testnet_dir.clone()).map_err(|e| {
                 format!(
                     "Unable to open testnet dir at {}: {}",
                     testnet_dir.display(),
                     e
                 )
-            })
+            })?
         } else {
             let network_name = network_name.ok_or("no network name or testnet-dir provided")?;
-            Eth2NetworkConfig::constant(&network_name)?.ok_or("invalid network name".into())
-        }
+            Eth2NetworkConfig::constant(&network_name)?.ok_or("invalid network name")?
+        };
+        check_network_preset(&network_config)?;
+        Ok::<_, String>(network_config)
     };
 
     match matches.subcommand() {

@@ -19,9 +19,19 @@ write_ssz_files = ["beacon_node/write_ssz_files"]
 portable = ["bls/supranational-portable"]
 # Compiles BLST so that it always uses ADX instructions.
 modern = ["bls/supranational-force-adx"]
-# Support minimal spec (used for testing only).
-spec-minimal = []
-# Support Gnosis spec and Gnosis Beacon Chain.
+# Compile for the minimal preset (used for testing only).
+spec-minimal = [
+    "types/spec-minimal",
+    "eth2_network_config/spec-minimal",
+    "environment/spec-minimal",
+]
+# Compile for the Gnosis preset (Gnosis and Chiado).
+spec-gnosis = [
+    "types/spec-gnosis",
+    "eth2_network_config/spec-gnosis",
+    "environment/spec-gnosis",
+]
+# Deprecated: does nothing. Use `spec-gnosis`.
 gnosis = []
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]

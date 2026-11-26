@@ -25,7 +25,7 @@ use create_signed_voluntary_exit::create_signed_voluntary_exit;
 use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
 };
-use directory::{DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{DEFAULT_ROOT_DIR, DEFAULT_VALIDATOR_DIR, default_network_dir_name};
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
@@ -118,7 +118,7 @@ impl Default for Config {
         let http_token_path = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)
-            .join(DEFAULT_HARDCODED_NETWORK)
+            .join(default_network_dir_name())
             .join(DEFAULT_VALIDATOR_DIR)
             .join(PK_FILENAME);
         Self {

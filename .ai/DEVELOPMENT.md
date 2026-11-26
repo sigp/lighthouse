@@ -11,7 +11,7 @@ Development patterns, commands, and architecture for AI assistants and contribut
 - `make install` - Build and install Lighthouse in release mode
 - `make install-lcli` - Build and install `lcli` utility
 - `cargo build --release` - Standard release build
-- `cargo build --bin lighthouse --features "gnosis,slasher-lmdb"` - Build with specific features
+- `cargo build --bin lighthouse --features "slasher-lmdb"` - Build with specific features
 
 ### Testing
 

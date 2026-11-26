@@ -7,13 +7,14 @@ use clap::FromArgMatches;
 use clap::Subcommand;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::{
-    FLAG_HEADER, flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config,
+    FLAG_HEADER, check_network_preset, default_network_name, flags::DISABLE_MALLOC_TUNING_FLAG,
+    get_color_style, get_eth2_network_config,
 };
 use cli::LighthouseSubcommands;
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default};
 use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
+use eth2_network_config::{Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
@@ -31,7 +32,7 @@ use task_executor::ShutdownReason;
 use tracing::{Level, info};
 use tracing_samplers::PrefixBasedSampler;
 use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use types::{EthSpec, EthSpecId};
+use types::{EthSpec, Spec};
 use validator_client::ProductionValidatorClient;
 
 pub static SHORT_VERSION: LazyLock<String> = LazyLock::new(|| VERSION.replace("Lighthouse/", ""));
@@ -43,15 +44,14 @@ pub static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
          SHA256 hardware acceleration: {}\n\
          Allocator: {}\n\
          Profile: {}\n\
-         Specs: mainnet (true), minimal ({}), gnosis ({})",
+         Preset: {}",
         SHORT_VERSION.as_str(),
         bls_library_name(),
         bls_hardware_acceleration(),
         have_sha_extensions(),
         allocator_name(),
         build_profile_name(),
-        cfg!(feature = "spec-minimal"),
-        cfg!(feature = "gnosis"),
+        Spec::PRESET_BASE,
     )
 });
 
@@ -102,6 +102,13 @@ fn main() {
             std::env::set_var("RUST_BACKTRACE", "1");
         }
     }
+
+    #[cfg(feature = "gnosis")]
+    eprintln!(
+        "WARNING: The `gnosis` feature is deprecated and does nothing. This binary runs the `{}` \
+         preset; build with `--features spec-gnosis` for Gnosis.",
+        Spec::PRESET_BASE
+    );
 
     // Parse the CLI parameters.
     let cli = Command::new("Lighthouse")
@@ -440,7 +447,7 @@ fn main() {
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
-        let eth_spec_id = eth2_network_config.eth_spec_id()?;
+        check_network_preset(&eth2_network_config)?;
 
         // boot node subcommand circumvents the environment
         if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
@@ -450,33 +457,12 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(
-                &matches,
-                bootnode_matches,
-                eth_spec_id,
-                &eth2_network_config,
-                debug_info,
-            );
+            boot_node::run(&matches, bootnode_matches, &eth2_network_config, debug_info);
 
             return Ok(());
         }
 
-        match eth_spec_id {
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, eth2_network_config),
-            #[cfg(feature = "gnosis")]
-            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
-            #[cfg(feature = "spec-minimal")]
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
-            #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
-            other => {
-                eprintln!(
-                    "Eth spec `{}` is not supported by this build of Lighthouse",
-                    other
-                );
-                eprintln!("You must compile with a feature flag to enable this spec variant");
-                exit(1);
-            }
-        }
+        run(EnvironmentBuilder::new(), &matches, eth2_network_config)
     });
 
     // `std::process::exit` does not run destructors so we drop manually.
@@ -766,7 +752,7 @@ fn run<E: EthSpec>(
     let network_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
-        (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
+        (None, None) => default_network_name().to_string(),
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 

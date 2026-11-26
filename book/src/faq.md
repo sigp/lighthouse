@@ -455,7 +455,7 @@ Lighthouse v4.1.0-693886b
 BLS library: blst-modern
 SHA256 hardware acceleration: false
 Allocator: jemalloc
-Specs: mainnet (true), minimal (false), gnosis (true)
+Preset: mainnet
 ```
 
 If you download the binary file, navigate to the location of the directory, for example, the binary file is in `/usr/local/bin`, run `/usr/local/bin/lighthouse --version`, the example of output is the same as above.
