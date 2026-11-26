@@ -28,6 +28,9 @@ impl ServerBuilder {
 
     pub async fn build(self) -> Result<Server, BuilderError> {
         let rustls_config = if let Some(tls) = self.tls_config {
+            // Both ring and aws-lc-rs backends could be compiled in, so make sure we explicitly
+            // enable aws-lc-rs to avoid rustls panicking due to ambiguity.
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
             Some(RustlsConfig::from_pem_file(&tls.cert, &tls.key).await?)
         } else {
             None

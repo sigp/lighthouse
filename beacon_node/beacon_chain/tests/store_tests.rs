@@ -24,7 +24,7 @@ use beacon_chain::{
     },
     custody_context::NodeCustodyType,
     historical_blocks::HistoricalBlockError,
-    kzg_utils::reconstruct_blob_sidecars,
+    kzg_utils::{min_columns_for_reconstruction, reconstruct_blob_sidecars},
     migrate::MigratorConfig,
 };
 use bls::{Keypair, Signature, SignatureBytes};
@@ -99,7 +99,7 @@ fn get_or_reconstruct_blobs<T: BeaconChainTypes>(
     if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
         let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
         if let Some(columns) = chain.store.get_data_columns(block_root, fork_name)? {
-            let num_required_columns = T::EthSpec::number_of_columns() / 2;
+            let num_required_columns = min_columns_for_reconstruction::<T::EthSpec>();
             if columns.len() >= num_required_columns {
                 reconstruct_blob_sidecars(&chain.kzg, columns, None, &block, &chain.spec)
                     .map(Some)
