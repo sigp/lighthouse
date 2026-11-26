@@ -19,8 +19,8 @@ use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
-use std::fs::{File, create_dir_all};
-use std::io::{Read, Write};
+use std::fs::{File, create_dir_all, remove_file};
+use std::io::{ErrorKind, Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -277,6 +277,7 @@ impl Eth2NetworkConfig {
     }
 
     /// Write the files to the directory, even if the directory already exists.
+    /// Remove existing files for absent optional fields.
     pub fn force_write_to_file(&self, base_dir: PathBuf) -> Result<(), String> {
         create_dir_all(&base_dir)
             .map_err(|e| format!("Unable to create testnet directory: {:?}", e))?;
@@ -305,10 +306,21 @@ impl Eth2NetworkConfig {
             };
         }
 
+        let remove_optional_file = |filename: &str| {
+            let path = base_dir.join(filename);
+            match remove_file(&path) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(format!("Unable to remove {path:?}: {e:?}")),
+            }
+        };
+
         write_to_yaml_file!(DEPLOY_BLOCK_FILE, self.deposit_contract_deploy_block);
 
         if let Some(boot_enr) = &self.boot_enr {
             write_to_yaml_file!(BOOT_ENR_FILE, boot_enr);
+        } else {
+            remove_optional_file(BOOT_ENR_FILE)?;
         }
 
         write_to_yaml_file!(BASE_CONFIG_FILE, &self.config);
@@ -323,6 +335,8 @@ impl Eth2NetworkConfig {
                     file.write_all(genesis_state_bytes.as_ref())
                         .map_err(|e| format!("Unable to write {:?}: {:?}", file, e))
                 })?;
+        } else {
+            remove_optional_file(GENESIS_STATE_FILE)?;
         }
 
         Ok(())
@@ -573,6 +587,52 @@ mod tests {
 
         do_test::<E>(boot_enr, genesis_state, config.clone());
         do_test::<E>(None, None, config);
+    }
+
+    #[test]
+    fn overwrite_removes_stale_optional_files() {
+        let temp_dir = TempBuilder::new()
+            .tempdir()
+            .expect("should create temp dir");
+        let base_dir = temp_dir.path().join("my_testnet");
+        let spec = &E::default_spec();
+        let enr_key = CombinedKey::generate_secp256k1();
+        let enr = Enr::builder().build(&enr_key).expect("should build ENR");
+        let genesis_state = BeaconState::<E>::new(42, Eth1Data::default(), spec);
+        let mut testnet = Eth2NetworkConfig {
+            deposit_contract_deploy_block: 42,
+            boot_enr: Some(vec![enr]),
+            genesis_state_source: GenesisStateSource::IncludedBytes,
+            genesis_state_bytes: Some(genesis_state.as_ssz_bytes().into()),
+            config: Config::from_chain_spec::<E>(spec),
+            kzg_trusted_setup: get_trusted_setup(),
+        };
+
+        testnet
+            .write_to_file(base_dir.clone(), false)
+            .expect("should write initial config");
+        let loaded = Eth2NetworkConfig::load(base_dir.clone()).expect("should load initial config");
+        assert_eq!(loaded, testnet);
+
+        testnet.boot_enr = None;
+        testnet.genesis_state_bytes = None;
+        testnet.genesis_state_source = GenesisStateSource::Unknown;
+        testnet
+            .write_to_file(base_dir.clone(), true)
+            .expect("should overwrite config");
+
+        let loaded =
+            Eth2NetworkConfig::load(base_dir.clone()).expect("should load overwritten config");
+        assert_eq!(
+            (
+                loaded.boot_enr.is_some(),
+                loaded.genesis_state_bytes.is_some(),
+                loaded.genesis_state_source,
+            ),
+            (false, false, GenesisStateSource::Unknown),
+        );
+        assert!(!base_dir.join(BOOT_ENR_FILE).exists());
+        assert!(!base_dir.join(GENESIS_STATE_FILE).exists());
     }
 
     fn do_test<E: EthSpec>(
