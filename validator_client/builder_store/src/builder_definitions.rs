@@ -174,13 +174,6 @@ impl ValidatorBuilderConfig {
             if BuilderPubkeys::new(builder.builder_pubkeys.clone()).is_err() {
                 return Err(Error::TooManyBuilderPubkeys(builder.url.clone()));
             }
-            if builder
-                .auth_data
-                .as_ref()
-                .is_some_and(|data| data.is_empty())
-            {
-                return Err(Error::EmptyAuthData(builder.url.clone()));
-            }
         }
 
         Ok(())
@@ -453,6 +446,12 @@ fn validate_builder_definition(
         return Err(Error::UnsupportedUrlScheme(url.clone()));
     }
 
+    // A zero-length auth `data` is invalid on the wire; reject it here at config load, rather than
+    // silently omitting the builder during block proposal.
+    if auth_data.as_ref().is_some_and(|data| data.is_empty()) {
+        return Err(Error::EmptyAuthData(url.clone()));
+    }
+
     let auth = auth_data
         .clone()
         .map(Ok)
@@ -539,5 +538,32 @@ mod tests {
 
         let invalid = "validator_configs:\n  not-a-public-key: {}\n";
         assert!(yaml_serde::from_str::<BuilderConfigFile>(invalid).is_err());
+    }
+
+    fn definition(enabled: bool, auth_data: Option<RequestAuthData>) -> BuilderDefinition {
+        BuilderDefinition {
+            enabled,
+            url: "https://builder.example".parse().unwrap(),
+            auth_data,
+            builder_pubkeys: vec![],
+            max_execution_payment: 1,
+            min_bid: None,
+            builder_boost_factor: None,
+        }
+    }
+
+    #[test]
+    fn validate_rejects_enabled_empty_auth_allows_omitted_and_disabled() {
+        let mut config = BuilderConfigFile {
+            builders: vec![definition(true, Some(RequestAuthData::default()))],
+            ..Default::default()
+        };
+        assert!(matches!(config.validate(), Err(Error::EmptyAuthData(_))));
+
+        config.builders = vec![definition(true, None)];
+        assert!(config.validate().is_ok());
+
+        config.builders = vec![definition(false, Some(RequestAuthData::default()))];
+        assert!(config.validate().is_ok());
     }
 }
