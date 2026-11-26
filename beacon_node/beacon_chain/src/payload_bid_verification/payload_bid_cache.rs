@@ -132,7 +132,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
             .unwrap_or_default()
     }
 
-    /// Removes all cached bids and seen-builder records for slots older than `current_slot`.
+    /// Removes all cached bids and bid counts for slots older than `current_slot`.
     ///
     /// Entries for `current_slot` and later are retained.
     pub fn prune(&self, current_slot: Slot) {
