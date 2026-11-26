@@ -44,6 +44,7 @@ use state_processing::genesis::genesis_block;
 use state_processing::{GloasVerificationContext, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
@@ -1051,6 +1052,8 @@ where
             genesis_state_root,
             fork_choice_signal_tx,
             fork_choice_signal_rx,
+            proposer_prep_generation: AtomicU64::new(0),
+            proposer_prep_send_lock: <_>::default(),
             event_handler: self.event_handler,
             shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,

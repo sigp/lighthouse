@@ -693,7 +693,7 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
 }
 
 fn publish_payload_attestation_messages<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
+    chain: &Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     messages: Vec<PayloadAttestationMessage>,
 ) -> Result<(), warp::Rejection> {
