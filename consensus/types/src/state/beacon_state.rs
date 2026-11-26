@@ -3789,8 +3789,13 @@ impl<E: EthSpec> BeaconState<E> {
         builder_index: BuilderIndex,
     ) -> Result<u64, BeaconStateError> {
         let builder = self.get_builder(builder_index)?;
-        // bid_limit = builder_balance // ETH_TO_GWEI
-        Ok(builder.balance.safe_div(1_000_000_000)?)
+        let pending_withdrawals_amount =
+            self.get_pending_balance_to_withdraw_for_builder(builder_index)?;
+        // bid_limit = (builder_balance - pending_withdrawals_amount) // ETH_TO_GWEI
+        Ok(builder
+            .balance
+            .safe_sub(pending_withdrawals_amount)?
+            .safe_div(1_000_000_000)?)
     }
 
     pub fn is_active_builder(
