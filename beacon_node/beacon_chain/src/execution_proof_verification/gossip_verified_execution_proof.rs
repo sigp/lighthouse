@@ -6,7 +6,7 @@ use crate::execution_proof_verification::observed_execution_proofs::{
     ObservedExecutionProofs, ProofObservation,
 };
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use parking_lot::RwLock;
 use proof_engine::{ProofEngine, ProofVerificationOutcome};
@@ -129,11 +129,11 @@ impl GossipVerifiedExecutionProof {
         );
         let signing_root = proof.message.signing_root(domain);
         {
-            let pubkey_cache = ctx.validator_pubkey_cache.read();
-            let pubkey = pubkey_cache
+            let pubkeys = HeadPubkeys::new(ctx.canonical_head, ctx.validator_pubkey_cache);
+            let pubkey = pubkeys
                 .get(validator_index as usize)
                 .ok_or(Error::UnknownValidatorIndex(validator_index))?;
-            if !proof.signature.verify(pubkey, signing_root) {
+            if !proof.signature.verify(&pubkey, signing_root) {
                 return Err(Error::InvalidSignature);
             }
         }

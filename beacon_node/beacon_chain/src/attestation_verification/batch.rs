@@ -19,7 +19,6 @@ use state_processing::signature_sets::{
     indexed_attestation_signature_set_from_pubkeys, signed_aggregate_selection_proof_signature_set,
     signed_aggregate_signature_set,
 };
-use std::borrow::Cow;
 use types::*;
 
 /// Verify aggregated attestations using batch BLS signature verification.
@@ -57,7 +56,7 @@ where
         let signature_setup_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_SETUP_TIMES);
 
-        let pubkey_cache = chain.validator_pubkey_cache.read();
+        let pubkeys = chain.head_pubkeys();
 
         let mut signature_sets = Vec::with_capacity(num_indexed * 3);
         // Iterate, flattening to get only the `Ok` values.
@@ -70,7 +69,7 @@ where
 
             signature_sets.push(
                 signed_aggregate_selection_proof_signature_set(
-                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    |validator_index| pubkeys.get(validator_index),
                     signed_aggregate,
                     &fork,
                     chain.genesis_validators_root,
@@ -80,7 +79,7 @@ where
             );
             signature_sets.push(
                 signed_aggregate_signature_set(
-                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    |validator_index| pubkeys.get(validator_index),
                     signed_aggregate,
                     &fork,
                     chain.genesis_validators_root,
@@ -90,7 +89,7 @@ where
             );
             signature_sets.push(
                 indexed_attestation_signature_set_from_pubkeys(
-                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    |validator_index| pubkeys.get(validator_index),
                     indexed_attestation.signature(),
                     indexed_attestation,
                     &fork,
@@ -163,7 +162,7 @@ where
             &metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETUP_TIMES,
         );
 
-        let pubkey_cache = chain.validator_pubkey_cache.read();
+        let pubkeys = chain.head_pubkeys();
 
         let mut signature_sets = Vec::with_capacity(num_partially_verified);
 
@@ -175,7 +174,7 @@ where
                 .fork_at_epoch(indexed_attestation.data().target.epoch);
 
             let signature_set = indexed_attestation_signature_set_from_pubkeys(
-                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                |validator_index| pubkeys.get(validator_index),
                 indexed_attestation.signature(),
                 indexed_attestation,
                 &fork,
