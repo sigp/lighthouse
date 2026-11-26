@@ -701,7 +701,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                         // If backfill is complete, check if we have a pending custody backfill to complete
                         let anchor_info = self.chain.store.get_anchor_info();
-                        if anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
+                        if anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot()) {
                             match self.custody_backfill_sync.start(&mut self.network) {
                                 Ok(SyncStart::Syncing {
                                     completed,

@@ -157,7 +157,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     let current_oldest_block_slot =
                         beacon_chain.store.get_anchor_info().oldest_block_slot;
                     sync_distance = current_oldest_block_slot
-                        .saturating_sub(beacon_chain.genesis_backfill_slot);
+                        .saturating_sub(beacon_chain.genesis_backfill_slot());
                     speedo
                         // For backfill sync use a fake slot which is the distance we've progressed
                         // from the starting `original_oldest_block_slot`.
@@ -255,7 +255,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         est_time = estimated_time_pretty(
                             speedo.estimated_time_till_slot(
                                 original_oldest_block_slot
-                                    .saturating_sub(beacon_chain.genesis_backfill_slot)
+                                    .saturating_sub(beacon_chain.genesis_backfill_slot())
                             )
                         ),
                         "Downloading historical blocks"
@@ -266,7 +266,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         est_time = estimated_time_pretty(
                             speedo.estimated_time_till_slot(
                                 original_oldest_block_slot
-                                    .saturating_sub(beacon_chain.genesis_backfill_slot)
+                                    .saturating_sub(beacon_chain.genesis_backfill_slot())
                             )
                         ),
                         "Downloading historical blocks"

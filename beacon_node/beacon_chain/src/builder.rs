@@ -938,32 +938,6 @@ where
         let enable_partial_columns = self.chain_config.enable_partial_columns;
         let disable_get_blobs = self.chain_config.disable_get_blobs;
 
-        // Calculate the weak subjectivity point in which to backfill blocks to.
-        let genesis_backfill_slot = if self.chain_config.genesis_backfill {
-            Slot::new(0)
-        } else {
-            let backfill_epoch_range = if cfg!(feature = "test_backfill") {
-                3
-            } else {
-                self.spec.min_validator_withdrawability_delay.as_u64()
-                    + self.spec.churn_limit_quotient / 2
-            };
-
-            match slot_clock.now() {
-                Some(current_slot) => {
-                    let genesis_backfill_epoch = current_slot
-                        .epoch(E::slots_per_epoch())
-                        .saturating_sub(backfill_epoch_range);
-                    genesis_backfill_epoch.start_slot(E::slots_per_epoch())
-                }
-                None => {
-                    // The slot clock cannot derive the current slot. We therefore assume we are
-                    // at or prior to genesis and backfill should sync all the way to genesis.
-                    Slot::new(0)
-                }
-            }
-        };
-
         // Load the persisted custody context from the db and initialize
         // the context for this run
         let (custody_context, cgc_changed_opt) = if let Some(custody) =
@@ -1074,7 +1048,6 @@ where
             ),
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
-            genesis_backfill_slot,
             custody_context: custody_context.clone(),
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
