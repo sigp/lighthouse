@@ -46,6 +46,8 @@ pub struct GossipCache {
     payload_attestation: Option<Duration>,
     /// Timeout for proposer preferences.
     proposer_preferences: Option<Duration>,
+    /// Timeout for execution proofs.
+    execution_proof: Option<Duration>,
     /// Timeout for inclusion lists.
     inclusion_list: Option<Duration>,
     /// Timeout for light client finality updates.
@@ -85,6 +87,8 @@ pub struct GossipCacheBuilder {
     payload_attestation: Option<Duration>,
     /// Timeout for proposer preferences.
     proposer_preferences: Option<Duration>,
+    /// Timeout for execution proofs.
+    execution_proof: Option<Duration>,
     /// Timeout for inclusion lists.
     inclusion_list: Option<Duration>,
     /// Timeout for light client finality updates.
@@ -179,6 +183,12 @@ impl GossipCacheBuilder {
         self
     }
 
+    /// Timeout for execution proofs.
+    pub fn execution_proof_timeout(mut self, timeout: Duration) -> Self {
+        self.execution_proof = Some(timeout);
+        self
+    }
+
     /// Timeout for inclusion lists.
     pub fn inclusion_list_timeout(mut self, timeout: Duration) -> Self {
         self.inclusion_list = Some(timeout);
@@ -214,6 +224,7 @@ impl GossipCacheBuilder {
             execution_payload_bid,
             payload_attestation,
             proposer_preferences,
+            execution_proof,
             inclusion_list,
             light_client_finality_update,
             light_client_optimistic_update,
@@ -235,6 +246,7 @@ impl GossipCacheBuilder {
             execution_payload_bid: execution_payload_bid.or(default_timeout),
             payload_attestation: payload_attestation.or(default_timeout),
             proposer_preferences: proposer_preferences.or(default_timeout),
+            execution_proof: execution_proof.or(default_timeout),
             inclusion_list: inclusion_list.or(default_timeout),
             light_client_finality_update: light_client_finality_update.or(default_timeout),
             light_client_optimistic_update: light_client_optimistic_update.or(default_timeout),
@@ -266,8 +278,7 @@ impl GossipCache {
             GossipKind::ExecutionPayloadBid => self.execution_payload_bid,
             GossipKind::PayloadAttestation => self.payload_attestation,
             GossipKind::ProposerPreferences => self.proposer_preferences,
-            // Relayed proofs are never queued for republication.
-            GossipKind::ExecutionProof => None,
+            GossipKind::ExecutionProof => self.execution_proof,
             GossipKind::InclusionList => self.inclusion_list,
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
