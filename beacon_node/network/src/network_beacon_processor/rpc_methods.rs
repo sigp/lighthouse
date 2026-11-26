@@ -1812,25 +1812,49 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 None => column_data_availability_boundary_slot,
             };
 
-        if request_start_slot < earliest_custodied_data_column_slot {
-            debug!(
-                %request_start_slot,
-                %earliest_custodied_data_column_slot,
-                %column_data_availability_boundary_slot,
-                "Range request start slot is older than the earliest custodied data column slot."
-            );
+        // The columns the node custodied at the requested epoch. After a CGC increase this is
+        // still the previous, smaller set until custody backfill reaches the epoch.
+        let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
+        let available_columns = self
+            .chain
+            .custody_context
+            .custody_columns_for_epoch(Some(request_start_epoch));
 
-            return if earliest_custodied_data_column_slot > column_data_availability_boundary_slot {
-                Err((
-                    RpcErrorResponse::ResourceUnavailable,
-                    "columns pruned within boundary",
-                ))
-            } else {
-                Err((
+        if request_start_slot < earliest_custodied_data_column_slot {
+            if earliest_custodied_data_column_slot <= column_data_availability_boundary_slot {
+                debug!(
+                    %request_start_slot,
+                    %column_data_availability_boundary_slot,
+                    "Range request start slot is older than the data availability boundary."
+                );
+                return Err((
                     RpcErrorResponse::InvalidRequest,
                     "Req outside availability period",
-                ))
-            };
+                ));
+            }
+
+            // A CGC increase has not been backfilled to this slot yet. The node still holds the
+            // columns it custodied before the increase, so only refuse the request if it needs
+            // a column the node does not have for this epoch. A peer that has not processed our
+            // updated status yet does not know about the increase either, so it only asks for
+            // the columns we do have, and refusing it would get us penalized for nothing.
+            if request_start_slot < column_data_availability_boundary_slot
+                || req
+                    .columns
+                    .iter()
+                    .any(|column| !available_columns.contains(column))
+            {
+                debug!(
+                    %request_start_slot,
+                    %earliest_custodied_data_column_slot,
+                    %column_data_availability_boundary_slot,
+                    "Range request needs columns that are not backfilled yet."
+                );
+                return Err((
+                    RpcErrorResponse::ResourceUnavailable,
+                    "columns pruned within boundary",
+                ));
+            }
         }
 
         let block_roots_and_slots =
@@ -1838,12 +1862,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let mut data_columns_sent = 0;
 
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
-        let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
-        let available_columns = self
-            .chain
-            .custody_context
-            .custody_columns_for_epoch(Some(request_start_epoch));
-
         let indices_to_retrieve = req
             .columns
             .iter()
