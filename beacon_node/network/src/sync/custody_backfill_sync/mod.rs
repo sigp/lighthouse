@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, WhenSlotSkipped};
 use lighthouse_network::{
     NetworkGlobals, PeerAction, PeerId,
     service::api_types::{CustodyBackFillBatchRequestId, CustodyBackfillBatchId},
@@ -160,7 +160,8 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// custody backfill sync will attempt to fetch.
     /// The criteria to start custody sync is:
     /// - The earliest data column epoch's custodied columns != previous epoch's custodied columns
-    /// - The earliest data column epoch is a finalied epoch
+    /// - The earliest data column epoch is a finalized epoch
+    /// - Every block to backfill has a finalized child block
     pub fn should_start_custody_backfill_sync(&mut self) -> bool {
         let Some(da_boundary_epoch) = self
             .beacon_chain
@@ -190,8 +191,32 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .finalized_checkpoint()
                 .epoch;
 
-            // Check that the earliest data column epoch is a finalized epoch.
-            return earliest_data_column_epoch <= latest_finalized_epoch;
+            if earliest_data_column_epoch > latest_finalized_epoch {
+                return false;
+            }
+
+            // Only backfill epochs whose blocks have a finalized child. Post gloas
+            // this ensures that we only backfill blocks with a finalized payload status.
+            let split = self.beacon_chain.store.get_split_info();
+            let end_slot = earliest_data_column_epoch
+                .saturating_sub(1u64)
+                .end_slot(T::EthSpec::slots_per_epoch());
+            if end_slot >= split.slot {
+                return false;
+            }
+            // If the last block of the epoch is the split block, it has no finalized child.
+            return match self
+                .beacon_chain
+                .block_root_at_slot(end_slot, WhenSlotSkipped::Prev)
+            {
+                Ok(block_root) => {
+                    block_root.is_some_and(|block_root| block_root != split.block_root)
+                }
+                Err(error) => {
+                    debug!(?error, %end_slot, "Failed to read block root for custody backfill");
+                    false
+                }
+            };
         }
 
         false
@@ -1163,6 +1188,183 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     pub fn fully_synced_peer_joined(&mut self) {
         if matches!(self.state(), CustodyBackFillState::Pending(_)) {
             self.restart_failed_sync = true;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync::block_sidecar_coupling::CouplingError;
+    use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
+    use beacon_chain::test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    };
+    use itertools::Itertools;
+    use lighthouse_network::NetworkConfig;
+    use lighthouse_network::service::api_types::{
+        DataColumnsByRangeRequestId, DataColumnsByRangeRequester,
+    };
+    use types::{DataColumnSidecarList, ForkName, Slot, Spec};
+
+    type E = Spec;
+    type Harness = BeaconChainHarness<EphemeralHarnessType<E>>;
+
+    const FINALIZED_EPOCH: Epoch = Epoch::new(3);
+
+    /// Raises the custody count at genesis, then finalizes `FINALIZED_EPOCH` with
+    /// `skip_finalized_epoch_start` deciding whether its first slot has a block. Custody is
+    /// complete from `FINALIZED_EPOCH`, so earlier epochs are missing columns.
+    async fn harness_with_custody_increase(skip_finalized_epoch_start: bool) -> Harness {
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec)
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        harness
+            .chain
+            .custody_context
+            .register_validators(vec![(1, 32_000_000_000 * 9)], Slot::new(0));
+
+        let slots_per_epoch = E::slots_per_epoch();
+        harness.advance_slot();
+        harness
+            .extend_chain(
+                (FINALIZED_EPOCH.start_slot(slots_per_epoch).as_u64() - 1) as usize,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        if skip_finalized_epoch_start {
+            harness.advance_slot();
+        }
+        for _ in 0..slots_per_epoch * 4 {
+            if harness.finalized_checkpoint().epoch == FINALIZED_EPOCH {
+                break;
+            }
+            harness.advance_slot();
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+        }
+        assert_eq!(harness.finalized_checkpoint().epoch, FINALIZED_EPOCH);
+
+        harness
+            .chain
+            .update_data_column_custody_info(Some(FINALIZED_EPOCH.start_slot(slots_per_epoch)));
+        assert_eq!(
+            harness.chain.earliest_custodied_data_column_epoch(),
+            Some(FINALIZED_EPOCH)
+        );
+        assert!(
+            !harness
+                .chain
+                .get_missing_columns_for_epoch(Epoch::new(0))
+                .is_empty()
+        );
+        harness
+    }
+
+    fn custody_backfill_sync(harness: &Harness) -> CustodyBackFillSync<EphemeralHarnessType<E>> {
+        let network_globals = Arc::new(NetworkGlobals::new_test_globals(
+            vec![],
+            Arc::new(NetworkConfig::default()),
+            harness.chain.spec.clone(),
+        ));
+        CustodyBackFillSync::new(harness.chain.clone(), network_globals)
+    }
+
+    #[tokio::test]
+    async fn custody_backfill_starts_when_epoch_has_finalized_child() {
+        let harness = harness_with_custody_increase(false).await;
+        assert!(custody_backfill_sync(&harness).should_start_custody_backfill_sync());
+    }
+
+    // The finalized checkpoint is the last block of the previous epoch, so that block has no
+    // finalized child yet.
+    #[tokio::test]
+    async fn custody_backfill_waits_for_finalized_child() {
+        let harness = harness_with_custody_increase(true).await;
+        let split = harness.chain.store.get_split_info();
+        assert_eq!(split.slot, FINALIZED_EPOCH.start_slot(E::slots_per_epoch()));
+        assert_eq!(
+            harness
+                .chain
+                .block_root_at_slot(split.slot - 1, WhenSlotSkipped::None)
+                .unwrap(),
+            Some(split.block_root)
+        );
+        assert!(!custody_backfill_sync(&harness).should_start_custody_backfill_sync());
+    }
+
+    /// Runs a custody backfill batch for `epoch` where a peer serves the stored custody columns.
+    fn batch_response(
+        harness: &Harness,
+        epoch: Epoch,
+    ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
+        let slots_per_epoch = E::slots_per_epoch();
+        let requested_columns = harness
+            .chain
+            .custody_context
+            .custody_columns_for_epoch(Some(epoch))
+            .to_vec();
+        let columns = harness
+            .chain
+            .forwards_iter_block_roots_until(
+                epoch.start_slot(slots_per_epoch),
+                epoch.end_slot(slots_per_epoch),
+            )
+            .unwrap()
+            .map(|result| result.unwrap().0)
+            .dedup()
+            .filter_map(|block_root| {
+                harness
+                    .chain
+                    .store
+                    .get_data_columns(&block_root, ForkName::Gloas)
+                    .unwrap()
+            })
+            .flatten()
+            .filter(|column| requested_columns.contains(column.index()))
+            .collect::<Vec<_>>();
+
+        let request_id = DataColumnsByRangeRequestId {
+            id: 0,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                CustodyBackFillBatchRequestId {
+                    id: 0,
+                    batch_id: CustodyBackfillBatchId { epoch, run_id: 0 },
+                },
+            ),
+            peer: PeerId::random(),
+        };
+        let mut request = RangeDataColumnBatchRequest::new(
+            vec![(request_id, requested_columns)],
+            harness.chain.clone(),
+            epoch,
+        );
+        request
+            .add_custody_columns(request_id, columns)
+            .expect("should complete request");
+        request.responses()
+    }
+
+    #[tokio::test]
+    async fn custody_backfill_batches_find_child_blocks_once_started() {
+        let harness = harness_with_custody_increase(false).await;
+        assert!(custody_backfill_sync(&harness).should_start_custody_backfill_sync());
+
+        for epoch in (0..FINALIZED_EPOCH.as_u64()).map(Epoch::new) {
+            match batch_response(&harness, epoch) {
+                Some(Ok(_)) => {}
+                response => panic!("expected epoch {epoch} to succeed, got {response:?}"),
+            }
         }
     }
 }
