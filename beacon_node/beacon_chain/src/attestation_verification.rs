@@ -289,6 +289,15 @@ pub enum Error {
         attestation: Hash256,
         expected: Option<Hash256>,
     },
+    /// The attestation votes for a head block from a later epoch than the attestation slot.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The spec does not forbid this, so honest peers forward it. Do not penalize the peer.
+    HeadBlockFromFutureEpoch {
+        head_block_slot: Slot,
+        attestation_slot: Slot,
+    },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -1438,11 +1447,9 @@ pub fn verify_attestation_target_root<E: EthSpec>(
         //
         // Reference:
         // https://github.com/ethereum/eth2.0-specs/pull/2001#issuecomment-699246659
-        return Err(Error::InvalidTargetRoot {
-            attestation: attestation_data.target.root,
-            // It is not clear what root we should expect in this case, since the attestation is
-            // fundamentally invalid.
-            expected: None,
+        return Err(Error::HeadBlockFromFutureEpoch {
+            head_block_slot: head_block.slot,
+            attestation_slot: attestation_data.slot,
         });
     } else {
         let target_root = if head_block_epoch == attestation_epoch {
