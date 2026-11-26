@@ -1,25 +1,209 @@
 use beacon_chain::{
-    BlockProductionError, ProduceBlockVerification,
+    BlockProductionError, ChainConfig, ProduceBlockVerification,
     graffiti_calculator::GraffitiSettings,
     observed_operations::ObservationOutcome,
     payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
     test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec},
 };
-use bls::PublicKeyBytes;
+use bls::{AggregateSignature, PublicKeyBytes};
 use eth2::types::{BuilderConfig, GraffitiPolicy};
 use ethereum_hashing::hash;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use proto_array::PayloadStatus;
 use ssz::Encode;
+use state_processing::common::get_attesting_indices_from_state;
 use std::sync::Arc;
 use types::{
     Address, BeaconBlock, BeaconState, Checkpoint, Epoch, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu,
-    ExecutionRequests, ExecutionRequestsGloas, Hash256, SignedExecutionPayloadBid, Slot, Spec,
-    WithdrawalRequest, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    ExecutionRequests, ExecutionRequestsGloas, Hash256, PayloadAttestationData,
+    PayloadAttestationMessage, SignedExecutionPayloadBid, Slot, Spec, WithdrawalRequest,
+    consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 type E = Spec;
+
+/// Invalid op pool attestations are dropped instead of failing block production.
+#[tokio::test]
+async fn block_production_drops_invalid_op_pool_attestations() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).electra_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    assert!(!harness.chain.config.paranoid_block_proposal);
+    harness.advance_slot();
+    harness.extend_slots_some_validators(1, vec![]).await;
+
+    let head = harness.chain.head_snapshot();
+    let head_slot = head.beacon_block.slot();
+    let attestations = harness.make_attestations(
+        &harness.get_all_validators(),
+        &head.beacon_state,
+        head.beacon_state_root(),
+        head.beacon_block_root.into(),
+        head_slot,
+    );
+
+    // Committee index 2 is invalid post-Electra.
+    let mut num_inserted = 0;
+    for (mut attestation, _) in attestations
+        .into_iter()
+        .flat_map(|(committee_attestations, _)| committee_attestations)
+    {
+        attestation.data_mut().index = 2;
+        let attesting_indices =
+            get_attesting_indices_from_state(&head.beacon_state, attestation.to_ref()).unwrap();
+        harness
+            .chain
+            .op_pool
+            .insert_attestation(attestation, attesting_indices)
+            .unwrap();
+        num_inserted += 1;
+    }
+    assert!(num_inserted > 0);
+
+    harness.advance_slot();
+    let block_slot = head_slot + 1;
+    let (block_contents, _) = harness
+        .make_block(harness.get_current_state(), block_slot)
+        .await;
+    assert_eq!(block_contents.0.message().body().attestations_len(), 0);
+
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(block_slot, block_root, block_contents)
+        .await
+        .expect("block without the invalid attestations should import");
+}
+
+/// Fills the op pool with attestations and payload attestations that have bad signatures, then
+/// produces a block. Returns the number of each in the block, and whether the block imports.
+async fn produce_block_with_bad_signature_ops(
+    paranoid_block_proposal: bool,
+) -> (usize, usize, bool) {
+    let spec = Arc::new(test_spec::<E>());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone())
+        .chain_config(ChainConfig {
+            paranoid_block_proposal,
+            verify_envelope_payload_hash_on_cl: false,
+            ..ChainConfig::default()
+        })
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+    harness.extend_slots_some_validators(1, vec![]).await;
+
+    let head = harness.chain.head_snapshot();
+    let head_slot = head.beacon_block.slot();
+    let head_root = head.beacon_block_root;
+    let bad_signature = harness.validator_keypairs[0].sk.sign(Hash256::ZERO);
+
+    let attestations = harness.make_attestations(
+        &harness.get_all_validators(),
+        &head.beacon_state,
+        head.beacon_state_root(),
+        head_root.into(),
+        head_slot,
+    );
+    for (mut attestation, _) in attestations
+        .into_iter()
+        .flat_map(|(committee_attestations, _)| committee_attestations)
+    {
+        let mut signature = AggregateSignature::infinity();
+        signature.add_assign(&bad_signature);
+        *attestation.signature_mut() = signature;
+        let attesting_indices =
+            get_attesting_indices_from_state(&head.beacon_state, attestation.to_ref()).unwrap();
+        harness
+            .chain
+            .op_pool
+            .insert_attestation(attestation, attesting_indices)
+            .unwrap();
+    }
+
+    let gloas = spec.fork_name_at_slot::<E>(head_slot).gloas_enabled();
+    if gloas {
+        let ptc = head.beacon_state.get_ptc(head_slot, &spec).unwrap();
+        let message = PayloadAttestationMessage {
+            validator_index: ptc.0[0] as u64,
+            data: PayloadAttestationData {
+                beacon_block_root: head_root,
+                slot: head_slot,
+                payload_present: true,
+                blob_data_available: true,
+            },
+            signature: bad_signature,
+        };
+        harness
+            .chain
+            .op_pool
+            .insert_payload_attestation(&message, &ptc)
+            .unwrap();
+    }
+
+    harness.advance_slot();
+    let block_slot = head_slot + 1;
+    let (block_contents, _) = harness
+        .make_block(harness.get_current_state(), block_slot)
+        .await;
+    let body = block_contents.0.message().body();
+    let num_attestations = body.attestations_len();
+    let num_payload_attestations = body.payload_attestations().map_or(0, |atts| atts.len());
+
+    let block_root = block_contents.0.canonical_root();
+    let imported = harness
+        .process_block(block_slot, block_root, block_contents)
+        .await
+        .is_ok();
+    (num_attestations, num_payload_attestations, imported)
+}
+
+/// Without paranoid mode, block production does not check signatures.
+#[tokio::test]
+async fn block_production_keeps_bad_signatures_without_paranoid_mode() {
+    if !test_spec::<E>()
+        .fork_name_at_slot::<E>(Slot::new(0))
+        .electra_enabled()
+    {
+        return;
+    }
+    let gloas = test_spec::<E>()
+        .fork_name_at_slot::<E>(Slot::new(0))
+        .gloas_enabled();
+
+    let (num_attestations, num_payload_attestations, imported) =
+        produce_block_with_bad_signature_ops(false).await;
+    assert!(num_attestations > 0);
+    assert_eq!(num_payload_attestations > 0, gloas);
+    assert!(!imported, "block with bad signatures must not import");
+}
+
+/// Paranoid mode drops ops with bad signatures.
+#[tokio::test]
+async fn paranoid_block_production_drops_bad_signatures() {
+    if !test_spec::<E>()
+        .fork_name_at_slot::<E>(Slot::new(0))
+        .electra_enabled()
+    {
+        return;
+    }
+
+    let (num_attestations, num_payload_attestations, imported) =
+        produce_block_with_bad_signature_ops(true).await;
+    assert_eq!(num_attestations, 0);
+    assert_eq!(num_payload_attestations, 0);
+    assert!(imported, "block without the bad signatures must import");
+}
 
 /// Parent partial withdrawals must be accounted for when packing voluntary exits.
 /// https://github.com/sigp/lighthouse/issues/9981
