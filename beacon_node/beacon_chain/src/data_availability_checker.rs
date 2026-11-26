@@ -700,12 +700,15 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     loop {
         match chain
             .slot_clock
-            .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
+            .start_of_next_epoch(T::EthSpec::slots_per_epoch())
         {
-            Some(duration) => {
+            Some(next_epoch_start) => {
                 // this service should run 3/4 of the way through the epoch
                 let additional_delay = (epoch_duration * 3) / 4;
-                tokio::time::sleep(duration + additional_delay).await;
+                chain
+                    .slot_clock
+                    .sleep_until(next_epoch_start + additional_delay)
+                    .await;
 
                 let Some(deneb_fork_epoch) = chain.spec.deneb_fork_epoch else {
                     // shutdown service if deneb fork epoch not set

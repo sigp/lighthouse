@@ -1,4 +1,3 @@
-use crate::checks::epoch_delay;
 use beacon_chain::custody_context::NodeCustodyType;
 use kzg::trusted_setup::get_trusted_setup;
 use node_test_rig::{
@@ -10,6 +9,7 @@ use node_test_rig::{
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
+use slot_clock::{ManualSlotClock, SlotClock};
 use std::{
     net::Ipv4Addr,
     ops::Deref,
@@ -24,6 +24,10 @@ const QUIC_PORT: u16 = 43424;
 pub const EXECUTION_PORT: u16 = 4000;
 
 pub const TERMINAL_BLOCK: u64 = 0;
+
+/// Engine API timeouts run on real time, which the simulation doesn't control, so set them well
+/// above any real delay.
+const EXECUTION_TIMEOUT_MULTIPLIER: u32 = 10;
 
 pub struct LocalNetworkParams {
     pub validator_count: usize,
@@ -48,6 +52,13 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
     beacon_config.chain.enable_light_client_server = true;
     beacon_config.chain.optimistic_finalized_sync = false;
     beacon_config.chain.node_custody_type = NodeCustodyType::Supernode;
+    // Every node imports every attestation and sync committee message, so the simulation driver
+    // can check any node for them.
+    beacon_config.network.subscribe_all_subnets = true;
+    beacon_config.network.import_all_attestations = true;
+    // This limit runs on real time, which the simulation doesn't control, so set it well above any
+    // real delay.
+    beacon_config.chain.fork_choice_before_proposal_timeout_ms = 30_000;
     beacon_config.trusted_setup = get_trusted_setup();
 
     let el_config = execution_layer::Config {
@@ -120,9 +131,11 @@ fn default_mock_execution_config<E: EthSpec>(
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
     pub context: RuntimeContext<E>,
-    pub beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
-    pub proposer_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
-    pub validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
+    /// The clock every node reads the time from. Only the simulation moves it forward.
+    pub slot_clock: ManualSlotClock,
+    pub beacon_nodes: RwLock<Vec<LocalBeaconNode<E, ManualSlotClock>>>,
+    pub proposer_nodes: RwLock<Vec<LocalBeaconNode<E, ManualSlotClock>>>,
+    pub validator_clients: RwLock<Vec<LocalValidatorClient<E, ManualSlotClock>>>,
     pub execution_nodes: RwLock<Vec<LocalExecutionNode<E>>>,
 }
 
@@ -147,6 +160,14 @@ impl<E: EthSpec> Deref for LocalNetwork<E> {
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
+}
+
+/// Turns off the validator client's early duties, which run as soon as its own beacon node
+/// imports a block or payload. Those race the same import on the other beacon nodes, so every duty
+/// waits for its deadline instead, by which time the simulation has every node holding the block.
+fn disable_early_duties(validator_config: &mut ValidatorConfig) {
+    validator_config.enable_beacon_head_monitor = false;
+    validator_config.enable_payload_available_monitor = false;
 }
 
 impl<E: EthSpec> LocalNetwork<E> {
@@ -174,9 +195,23 @@ impl<E: EthSpec> LocalNetwork<E> {
             default_mock_execution_config::<E>(&context.eth2_config().spec, genesis_time)
         };
 
+        let spec = &context.eth2_config().spec;
+        let slot_clock = ManualSlotClock::new(
+            spec.genesis_slot,
+            Duration::from_secs(genesis_time),
+            spec.get_slot_duration(),
+        );
+        // Start one slot before genesis so nodes and validator clients start up pre-genesis.
+        slot_clock.set_current_time(
+            slot_clock
+                .genesis_duration()
+                .saturating_sub(spec.get_slot_duration()),
+        );
+
         let network = Self {
             inner: Arc::new(Inner {
                 context,
+                slot_clock,
                 beacon_nodes: RwLock::new(vec![]),
                 proposer_nodes: RwLock::new(vec![]),
                 execution_nodes: RwLock::new(vec![]),
@@ -215,7 +250,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         &self,
         mut beacon_config: ClientConfig,
         mock_execution_config: MockExecutionConfig,
-    ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
+    ) -> Result<(LocalBeaconNode<E, ManualSlotClock>, LocalExecutionNode<E>), String> {
         beacon_config.network.set_ipv4_listening_address(
             std::net::Ipv4Addr::UNSPECIFIED,
             BOOTNODE_PORT,
@@ -233,10 +268,16 @@ impl<E: EthSpec> LocalNetwork<E> {
             execution_endpoint: Some(SensitiveUrl::parse(&execution_node.server.url()).unwrap()),
             default_datadir: execution_node.datadir.path().to_path_buf(),
             secret_file: Some(execution_node.datadir.path().join("jwt.hex")),
+            execution_timeout_multiplier: Some(EXECUTION_TIMEOUT_MULTIPLIER),
             ..Default::default()
         });
 
-        let beacon_node = LocalBeaconNode::production(self.context.clone(), beacon_config).await?;
+        let beacon_node = LocalBeaconNode::production_with_manual_clock(
+            self.context.clone(),
+            beacon_config,
+            self.slot_clock.clone(),
+        )
+        .await?;
 
         Ok((beacon_node, execution_node))
     }
@@ -246,7 +287,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut beacon_config: ClientConfig,
         mut mock_execution_config: MockExecutionConfig,
         is_proposer: bool,
-    ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
+    ) -> Result<(LocalBeaconNode<E, ManualSlotClock>, LocalExecutionNode<E>), String> {
         let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
 
         // Set config.
@@ -273,11 +314,17 @@ impl<E: EthSpec> LocalNetwork<E> {
             execution_endpoint: Some(SensitiveUrl::parse(&execution_node.server.url()).unwrap()),
             default_datadir: execution_node.datadir.path().to_path_buf(),
             secret_file: Some(execution_node.datadir.path().join("jwt.hex")),
+            execution_timeout_multiplier: Some(EXECUTION_TIMEOUT_MULTIPLIER),
             ..Default::default()
         });
 
         // Construct beacon node using the config,
-        let beacon_node = LocalBeaconNode::production(self.context.clone(), beacon_config).await?;
+        let beacon_node = LocalBeaconNode::production_with_manual_clock(
+            self.context.clone(),
+            beacon_config,
+            self.slot_clock.clone(),
+        )
+        .await?;
 
         Ok((beacon_node, execution_node))
     }
@@ -324,24 +371,6 @@ impl<E: EthSpec> LocalNetwork<E> {
         Ok(())
     }
 
-    // Add a new node with a delay. This node will not have validators and is only used to test
-    // sync.
-    pub async fn add_beacon_node_with_delay(
-        &self,
-        beacon_config: ClientConfig,
-        mock_execution_config: MockExecutionConfig,
-        wait_until_epoch: u64,
-        slot_duration: Duration,
-        slots_per_epoch: u64,
-    ) -> Result<(), String> {
-        epoch_delay(Epoch::new(wait_until_epoch), slot_duration, slots_per_epoch).await;
-
-        self.add_beacon_node(beacon_config, mock_execution_config, false)
-            .await?;
-
-        Ok(())
-    }
-
     /// Adds a validator client to the network, connecting it to the beacon node with index
     /// `beacon_node`.
     pub async fn add_validator_client(
@@ -378,6 +407,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         )
         .unwrap();
         validator_config.beacon_nodes = vec![beacon_node];
+        disable_early_duties(&mut validator_config);
 
         // If we have a proposer node established, use it.
         if let Some(proposer_socket_addr) = proposer_socket_addr {
@@ -393,10 +423,11 @@ impl<E: EthSpec> LocalNetwork<E> {
             validator_config.proposer_nodes = vec![url];
         }
 
-        let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
+        let validator_client = LocalValidatorClient::production_with_manual_clock(
             context,
             validator_config,
             validator_files,
+            self.slot_clock.clone(),
         )
         .await?;
         self_1.validator_clients.write().push(validator_client);
@@ -431,11 +462,13 @@ impl<E: EthSpec> LocalNetwork<E> {
         }
 
         validator_config.beacon_nodes = beacon_node_urls;
+        disable_early_duties(&mut validator_config);
 
-        let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
+        let validator_client = LocalValidatorClient::production_with_manual_clock(
             context,
             validator_config,
             validator_files,
+            self.slot_clock.clone(),
         )
         .await?;
         self_1.validator_clients.write().push(validator_client);
@@ -463,23 +496,5 @@ impl<E: EthSpec> LocalNetwork<E> {
             .await
             .map_err(|e| format!("Cannot get head: {:?}", e))
             .map(|body| body.unwrap().data.finalized.epoch)
-    }
-
-    pub async fn duration_to_genesis(&self) -> Result<Duration, &'static str> {
-        let nodes = self.remote_nodes().expect("Failed to get remote nodes");
-        let bootnode = nodes.first().expect("Should contain bootnode");
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let genesis_time = Duration::from_secs(
-            bootnode
-                .get_beacon_genesis()
-                .await
-                .unwrap()
-                .data
-                .genesis_time,
-        );
-        genesis_time.checked_sub(now).ok_or(
-            "The genesis time has already passed since all nodes started. The node startup time \
-            may have regressed, and the current `GENESIS_DELAY` is no longer sufficient.",
-        )
     }
 }

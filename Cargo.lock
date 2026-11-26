@@ -6913,6 +6913,7 @@ dependencies = [
  "execution_layer",
  "reqwest 0.12.28",
  "sensitive_url",
+ "slot_clock",
  "tempfile",
  "tokio",
  "types",
@@ -9276,6 +9277,7 @@ dependencies = [
  "clap",
  "environment",
  "execution_layer",
+ "fork_choice",
  "futures",
  "kzg",
  "logging",
@@ -9284,6 +9286,8 @@ dependencies = [
  "rayon",
  "sensitive_url",
  "serde_json",
+ "slot_clock",
+ "state_processing",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -9380,7 +9384,7 @@ name = "slot_clock"
 version = "0.2.0"
 dependencies = [
  "metrics",
- "parking_lot",
+ "tokio",
  "types",
 ]
 

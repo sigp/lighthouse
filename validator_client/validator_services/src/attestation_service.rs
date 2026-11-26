@@ -1,7 +1,7 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
 use beacon_node_fallback::{
     ApiTopic, BeaconNodeFallback,
-    beacon_head_monitor::{HeadEvent, head_event_or_deadline},
+    beacon_head_monitor::{HeadEvent, head_event_until},
 };
 use futures::StreamExt;
 use logging::crit;
@@ -11,7 +11,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, broadcast};
-use tokio::time::{Duration, Instant, sleep, sleep_until};
+use tokio::time::{Duration, sleep};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use tree_hash::TreeHash;
 use types::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
@@ -209,10 +209,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 };
 
-                let beacon_node_data = head_event_or_deadline(
+                let beacon_node_data = head_event_until(
                     &mut head_monitor_rx,
                     &self.slot_clock,
-                    duration_to_attestation_deadline,
+                    now + duration_to_attestation_deadline,
                 )
                 .await
                 .map(|event| (event.beacon_node_index, event.beacon_block_root));
@@ -308,18 +308,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let attestation_data = if let Some(attestation_data) = attestation_data_from_head_event {
             attestation_data
         } else {
-            let duration_to_deadline = self
-                .slot_clock
-                .duration_to_slot(slot + 1)
-                .and_then(|duration_to_next_slot| {
-                    duration_to_next_slot
-                        .checked_add(self.chain_spec.get_attestation_due::<S::E>(slot))
-                })
-                .map(|next_slot_deadline| {
-                    next_slot_deadline.saturating_sub(self.chain_spec.get_slot_duration())
-                })
-                .unwrap_or(Duration::from_secs(0));
-            sleep(duration_to_deadline).await;
+            if let Some(slot_start) = self.slot_clock.start_of(slot) {
+                let deadline = slot_start + self.chain_spec.get_attestation_due::<S::E>(slot);
+                self.slot_clock.sleep_until(deadline).await;
+            }
 
             attestation_service
                 .beacon_nodes
@@ -367,16 +359,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .ok_or("Failed to spawn attestation data task")?;
 
         // If a validator needs to publish an aggregate attestation, trigger it at the
-        // fork-appropriate aggregate due time.
-        let duration_to_next_slot = self
+        // fork-appropriate aggregate due time. It's too late to aggregate once the slot has ended.
+        if self.slot_clock.duration_to_slot(slot + 1).is_none() {
+            return Err("Unable to determine duration to next slot".to_string());
+        }
+        let aggregate_production_time = self
             .slot_clock
-            .duration_to_slot(slot + 1)
-            .ok_or("Unable to determine duration to next slot")?;
-        let aggregate_production_instant = Instant::now()
-            + duration_to_next_slot
-                .checked_add(self.chain_spec.get_aggregate_attestation_due::<S::E>(slot))
-                .and_then(|offset| offset.checked_sub(self.chain_spec.get_slot_duration()))
-                .unwrap_or_else(|| Duration::from_secs(0));
+            .start_of(slot)
+            .ok_or("Unable to determine start of slot")?
+            + self.chain_spec.get_aggregate_attestation_due::<S::E>(slot);
 
         let aggregate_duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
             .duties_service
@@ -418,7 +409,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                                 slot,
                                 committee_index,
                                 validator_duties,
-                                aggregate_production_instant,
+                                aggregate_production_time,
                                 attestation_data,
                             ),
                             "aggregate publish",
@@ -432,7 +423,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         // Schedule pruning of the slashing protection database once all unaggregated
         // attestations have (hopefully) been signed, i.e. at the same time as aggregate
         // production.
-        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
+        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_time);
 
         Ok(())
     }
@@ -447,7 +438,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         slot: Slot,
         committee_index: CommitteeIndex,
         validator_duties: Vec<DutyAndProof>,
-        aggregate_production_instant: Instant,
+        aggregate_production_time: Duration,
         attestation_data: AttestationData,
     ) -> Result<(), ()> {
         // There's not need to produce `SignedAggregateAndProof` if we do not have
@@ -456,11 +447,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             return Ok(());
         }
 
-        // Wait until the `aggregation_production_instant` (2/3rds
-        // of the way though the slot). As verified in the
-        // `delay_triggers_when_in_the_past` test, this code will still run
-        // even if the instant has already elapsed.
-        sleep_until(aggregate_production_instant).await;
+        // Wait until the `aggregate_production_time` (2/3rds of the way though the slot). This
+        // returns immediately if the time has already passed.
+        self.slot_clock.sleep_until(aggregate_production_time).await;
 
         // Start the metrics timer *after* we've done the delay.
         let _aggregates_timer = validator_metrics::start_timer_vec(
@@ -798,16 +787,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
     /// Spawn a blocking task to run the slashing protection pruning process.
     ///
-    /// Start the task at `pruning_instant` to avoid interference with other tasks.
-    fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
+    /// Start the task at `pruning_time` to avoid interference with other tasks.
+    fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_time: Duration) {
         let attestation_service = self.clone();
         let executor = self.inner.executor.clone();
         let current_epoch = slot.epoch(S::E::slots_per_epoch());
 
-        // Wait for `pruning_instant` in a regular task, and then switch to a blocking one.
+        // Wait for `pruning_time` in a regular task, and then switch to a blocking one.
+        let pruning_sleep = self.slot_clock.sleep_until(pruning_time);
         self.inner.executor.spawn(
             async move {
-                sleep_until(pruning_instant).await;
+                pruning_sleep.await;
 
                 executor.spawn_blocking(
                     move || {
@@ -826,8 +816,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::future::FutureExt;
-    use parking_lot::RwLock;
     use slot_clock::ManualSlotClock;
     use types::{Epoch, Spec};
 
@@ -876,23 +864,5 @@ mod tests {
                 "{case}"
             );
         }
-    }
-
-    /// This test is to ensure that a `tokio_timer::Sleep` with an instant in the past will still
-    /// trigger.
-    #[tokio::test]
-    async fn delay_triggers_when_in_the_past() {
-        let in_the_past = Instant::now() - Duration::from_secs(2);
-        let state_1 = Arc::new(RwLock::new(in_the_past));
-        let state_2 = state_1.clone();
-
-        sleep_until(in_the_past)
-            .map(move |()| *state_1.write() = Instant::now())
-            .await;
-
-        assert!(
-            *state_2.read() > in_the_past,
-            "state should have been updated"
-        );
     }
 }

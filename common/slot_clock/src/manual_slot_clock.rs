@@ -1,17 +1,20 @@
 use super::SlotClock;
-use parking_lot::RwLock;
-use std::ops::Add;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::watch;
 use types::Slot;
 
 /// Determines the present slot based upon a manually-incremented UNIX timestamp.
+///
+/// Clones share the same time. Futures from `sleep_until` complete when the time is moved to or
+/// past their deadline.
 pub struct ManualSlotClock {
     genesis_slot: Slot,
     /// Duration from UNIX epoch to genesis.
     genesis_duration: Duration,
     /// Duration from UNIX epoch to right now.
-    current_time: Arc<RwLock<Duration>>,
+    current_time: Arc<watch::Sender<Duration>>,
     /// The length of each slot.
     slot_duration: Duration,
 }
@@ -34,17 +37,20 @@ impl ManualSlotClock {
             .expect("slot must be post-genesis")
             .try_into()
             .expect("slot must fit within a u32");
-        *self.current_time.write() =
-            self.genesis_duration + self.slot_duration * slots_since_genesis;
+        self.set_current_time(self.genesis_duration + self.slot_duration * slots_since_genesis);
     }
 
     pub fn set_current_time(&self, duration: Duration) {
-        *self.current_time.write() = duration;
+        self.current_time.send_replace(duration);
     }
 
     pub fn advance_time(&self, duration: Duration) {
-        let current_time = *self.current_time.read();
-        *self.current_time.write() = current_time.add(duration);
+        self.current_time
+            .send_modify(|current_time| *current_time += duration);
+    }
+
+    fn current_time(&self) -> Duration {
+        *self.current_time.borrow()
     }
 
     pub fn advance_slot(&self) {
@@ -96,22 +102,22 @@ impl SlotClock for ManualSlotClock {
 
         Self {
             genesis_slot,
-            current_time: Arc::new(RwLock::new(genesis_duration)),
+            current_time: Arc::new(watch::Sender::new(genesis_duration)),
             genesis_duration,
             slot_duration,
         }
     }
 
     fn now(&self) -> Option<Slot> {
-        self.slot_of(*self.current_time.read())
+        self.slot_of(self.current_time())
     }
 
     fn is_prior_to_genesis(&self) -> Option<bool> {
-        Some(*self.current_time.read() < self.genesis_duration)
+        Some(self.current_time() < self.genesis_duration)
     }
 
     fn now_duration(&self) -> Option<Duration> {
-        Some(*self.current_time.read())
+        Some(self.current_time())
     }
 
     fn slot_of(&self, now: Duration) -> Option<Slot> {
@@ -130,11 +136,11 @@ impl SlotClock for ManualSlotClock {
     }
 
     fn duration_to_next_slot(&self) -> Option<Duration> {
-        self.duration_to_next_slot_from(*self.current_time.read())
+        self.duration_to_next_slot_from(self.current_time())
     }
 
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration> {
-        self.duration_to_next_epoch_from(*self.current_time.read(), slots_per_epoch)
+        self.duration_to_next_epoch_from(self.current_time(), slots_per_epoch)
     }
 
     fn slot_duration(&self) -> Duration {
@@ -142,7 +148,7 @@ impl SlotClock for ManualSlotClock {
     }
 
     fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {
-        self.duration_to_slot(slot, *self.current_time.read())
+        self.duration_to_slot(slot, self.current_time())
     }
 
     /// Returns the duration between UNIX epoch and the start of `slot`.
@@ -164,11 +170,101 @@ impl SlotClock for ManualSlotClock {
     fn genesis_duration(&self) -> Duration {
         self.genesis_duration
     }
+
+    fn sleep_until(&self, deadline: Duration) -> impl Future<Output = ()> + Send + use<> {
+        let mut current_time = self.current_time.subscribe();
+        async move {
+            // The sender lives as long as any clone of this clock. If every clone is dropped the
+            // time can never reach the deadline, so wait forever like a timer that never fires.
+            if current_time.wait_for(|now| *now >= deadline).await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::poll_fn;
+    use std::pin::Pin;
+    use std::pin::pin;
+    use std::task::Poll;
+
+    /// Polls `future` once and returns whether it completed.
+    async fn is_ready(future: &mut (impl Future<Output = ()> + Unpin)) -> bool {
+        poll_fn(|cx| Poll::Ready(Pin::new(&mut *future).poll(cx).is_ready())).await
+    }
+
+    #[tokio::test]
+    async fn sleep_until_completes_when_time_reaches_deadline() {
+        let clock = ManualSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(10),
+            Duration::from_secs(1),
+        );
+        let mut sleep = pin!(clock.sleep_until(Duration::from_secs(12)));
+        assert!(!is_ready(&mut sleep).await, "deadline not reached");
+
+        clock.advance_time(Duration::from_millis(1_999));
+        assert!(!is_ready(&mut sleep).await, "1ms before deadline");
+
+        // A clone shares the time, so advancing it wakes the sleep too.
+        clock.clone().advance_time(Duration::from_millis(1));
+        assert!(is_ready(&mut sleep).await, "deadline reached");
+    }
+
+    #[tokio::test]
+    async fn sleep_until_past_deadline_completes_immediately() {
+        let clock = ManualSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(10),
+            Duration::from_secs(1),
+        );
+        clock.set_slot(5);
+        let mut sleep = pin!(clock.sleep_until(Duration::from_secs(12)));
+        assert!(is_ready(&mut sleep).await);
+    }
+
+    #[test]
+    fn start_of_next_slot() {
+        let clock = ManualSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(10),
+            Duration::from_secs(2),
+        );
+        clock.set_current_time(Duration::from_secs(3));
+        assert_eq!(
+            clock.start_of_next_slot(),
+            Some(Duration::from_secs(10)),
+            "before genesis"
+        );
+        clock.set_current_time(Duration::from_secs(10));
+        assert_eq!(clock.start_of_next_slot(), Some(Duration::from_secs(12)));
+        clock.set_current_time(Duration::from_millis(13_999));
+        assert_eq!(clock.start_of_next_slot(), Some(Duration::from_secs(14)));
+    }
+
+    #[test]
+    fn start_of_next_epoch() {
+        let clock = ManualSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(10),
+            Duration::from_secs(2),
+        );
+        clock.set_current_time(Duration::from_secs(3));
+        assert_eq!(
+            clock.start_of_next_epoch(4),
+            Some(Duration::from_secs(10)),
+            "before genesis"
+        );
+        clock.set_current_time(Duration::from_secs(10));
+        assert_eq!(clock.start_of_next_epoch(4), Some(Duration::from_secs(18)));
+        clock.set_current_time(Duration::from_millis(17_999));
+        assert_eq!(clock.start_of_next_epoch(4), Some(Duration::from_secs(18)));
+        clock.set_current_time(Duration::from_secs(18));
+        assert_eq!(clock.start_of_next_epoch(4), Some(Duration::from_secs(26)));
+    }
 
     #[test]
     fn test_slot_now() {
@@ -192,13 +288,13 @@ mod tests {
             Duration::from_secs(1),
         );
 
-        *clock.current_time.write() = Duration::from_secs(genesis_secs - 1);
+        clock.set_current_time(Duration::from_secs(genesis_secs - 1));
         assert!(clock.is_prior_to_genesis().unwrap(), "prior to genesis");
 
-        *clock.current_time.write() = Duration::from_secs(genesis_secs);
+        clock.set_current_time(Duration::from_secs(genesis_secs));
         assert!(!clock.is_prior_to_genesis().unwrap(), "at genesis");
 
-        *clock.current_time.write() = Duration::from_secs(genesis_secs + 1);
+        clock.set_current_time(Duration::from_secs(genesis_secs + 1));
         assert!(!clock.is_prior_to_genesis().unwrap(), "after genesis");
     }
 
@@ -245,17 +341,17 @@ mod tests {
 
         // Genesis time is now.
         let clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-        *clock.current_time.write() = Duration::from_secs(0);
+        clock.set_current_time(Duration::from_secs(0));
         assert_eq!(clock.duration_to_next_slot(), Some(Duration::from_secs(1)));
 
         // Genesis time is in the future.
         let clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(10), slot_duration);
-        *clock.current_time.write() = Duration::from_secs(0);
+        clock.set_current_time(Duration::from_secs(0));
         assert_eq!(clock.duration_to_next_slot(), Some(Duration::from_secs(10)));
 
         // Genesis time is in the past.
         let clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-        *clock.current_time.write() = Duration::from_secs(10);
+        clock.set_current_time(Duration::from_secs(10));
         assert_eq!(clock.duration_to_next_slot(), Some(Duration::from_secs(1)));
     }
 
@@ -266,7 +362,7 @@ mod tests {
 
         // Genesis time is now.
         let clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-        *clock.current_time.write() = Duration::from_secs(0);
+        clock.set_current_time(Duration::from_secs(0));
         assert_eq!(
             clock.duration_to_next_epoch(slots_per_epoch),
             Some(Duration::from_secs(32))
@@ -274,7 +370,7 @@ mod tests {
 
         // Genesis time is in the future.
         let clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(10), slot_duration);
-        *clock.current_time.write() = Duration::from_secs(0);
+        clock.set_current_time(Duration::from_secs(0));
         assert_eq!(
             clock.duration_to_next_epoch(slots_per_epoch),
             Some(Duration::from_secs(10))
@@ -282,7 +378,7 @@ mod tests {
 
         // Genesis time is in the past.
         let clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-        *clock.current_time.write() = Duration::from_secs(10);
+        clock.set_current_time(Duration::from_secs(10));
         assert_eq!(
             clock.duration_to_next_epoch(slots_per_epoch),
             Some(Duration::from_secs(22))
@@ -294,7 +390,7 @@ mod tests {
             Duration::from_secs(0),
             Duration::from_secs(12),
         );
-        *clock.current_time.write() = Duration::from_secs(72_333);
+        clock.set_current_time(Duration::from_secs(72_333));
         assert!(clock.duration_to_next_epoch(slots_per_epoch).is_some(),);
     }
 
@@ -307,7 +403,7 @@ mod tests {
         );
 
         // Set clock to the 0'th slot.
-        *clock.current_time.write() = Duration::from_secs(10);
+        clock.set_current_time(Duration::from_secs(10));
         assert_eq!(
             clock
                 .now_with_future_tolerance(Duration::from_secs(0))
@@ -338,7 +434,7 @@ mod tests {
         );
 
         // Set clock to part-way through the 1st slot.
-        *clock.current_time.write() = Duration::from_millis(11_200);
+        clock.set_current_time(Duration::from_millis(11_200));
         assert_eq!(
             clock
                 .now_with_future_tolerance(Duration::from_secs(0))

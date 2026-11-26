@@ -346,7 +346,7 @@ pub enum StateSkipConfig {
 pub trait BeaconChainTypes: Send + Sync + 'static {
     type HotStore: store::ItemStore;
     type ColdStore: store::ItemStore;
-    type SlotClock: slot_clock::SlotClock;
+    type SlotClock: slot_clock::SlotClock + 'static;
     type EthSpec: types::EthSpec;
 }
 

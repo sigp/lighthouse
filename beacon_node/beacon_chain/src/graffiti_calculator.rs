@@ -213,10 +213,11 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
     let partial_firing_delay =
         epoch_duration * ENGINE_VERSION_CACHE_REFRESH_EPOCH_MULTIPLE.saturating_sub(1);
     loop {
-        match slot_clock.duration_to_next_epoch(T::EthSpec::slots_per_epoch()) {
-            Some(duration_to_next_epoch) => {
-                let firing_delay = partial_firing_delay + duration_to_next_epoch + epoch_delay;
-                tokio::time::sleep(firing_delay).await;
+        match slot_clock.start_of_next_epoch(T::EthSpec::slots_per_epoch()) {
+            Some(next_epoch_start) => {
+                slot_clock
+                    .sleep_until(next_epoch_start + partial_firing_delay + epoch_delay)
+                    .await;
 
                 debug!("Engine version cache refresh service firing");
 

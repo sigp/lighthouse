@@ -250,11 +250,13 @@ impl DoppelgangerService {
                 loop {
                     let slot_duration = slot_clock.slot_duration();
 
-                    if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
+                    if let Some(next_slot_start) = slot_clock.start_of_next_slot() {
                         // Run the doppelganger protection check 75% through each epoch. This
                         // *should* mean that the BN has seen the blocks and attestations for this
                         // slot.
-                        sleep(duration_to_next_slot + (slot_duration / 4) * 3).await;
+                        slot_clock
+                            .sleep_until(next_slot_start + (slot_duration / 4) * 3)
+                            .await;
                     } else {
                         // Just sleep for one slot if we are unable to read the system clock, this gives
                         // us an opportunity for the clock to eventually come good.

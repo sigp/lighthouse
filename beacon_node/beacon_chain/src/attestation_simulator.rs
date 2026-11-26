@@ -46,7 +46,10 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
                     sleep(slot_duration).await;
                     continue;
                 };
-                sleep(time_to_deadline).await;
+                chain
+                    .slot_clock
+                    .sleep_until(now_duration + time_to_deadline)
+                    .await;
 
                 debug!("Simulating unagg. attestation production");
 
