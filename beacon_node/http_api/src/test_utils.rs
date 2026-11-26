@@ -6,6 +6,7 @@ use beacon_chain::{
 };
 use beacon_processor::{
     BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
+    NOTHING_TO_DO,
 };
 use directory::DEFAULT_ROOT_DIR;
 use enr::CombinedKey;
@@ -28,6 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
+use tokio::sync::mpsc;
 use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
@@ -41,6 +43,7 @@ pub struct InteractiveTester<E: EthSpec> {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
+    pub work_journal_rx: Option<mpsc::Receiver<&'static str>>,
 }
 
 /// The result of calling `create_api_server`.
@@ -53,6 +56,7 @@ pub struct ApiServer<T: BeaconChainTypes, SFut: Future<Output = ()>> {
     pub network_rx: NetworkReceivers<T::EthSpec>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
+    pub work_journal_rx: Option<mpsc::Receiver<&'static str>>,
 }
 
 type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
@@ -86,6 +90,21 @@ impl<E: EthSpec> InteractiveTester<E> {
         .await
     }
 
+    /// Like [`Self::new`], with the work journal enabled and the mock builder disabled.
+    pub async fn new_with_work_journal(spec: Option<ChainSpec>, validator_count: usize) -> Self {
+        Self::new_inner(
+            spec,
+            validator_count,
+            None,
+            None,
+            Config::default(),
+            false,
+            NodeCustodyType::Fullnode,
+            true,
+        )
+        .await
+    }
+
     pub async fn new_with_initializer_and_mutator(
         spec: Option<ChainSpec>,
         validator_count: usize,
@@ -94,6 +113,30 @@ impl<E: EthSpec> InteractiveTester<E> {
         config: Config,
         use_mock_builder: bool,
         node_custody_type: NodeCustodyType,
+    ) -> Self {
+        Self::new_inner(
+            spec,
+            validator_count,
+            initializer,
+            mutator,
+            config,
+            use_mock_builder,
+            node_custody_type,
+            false,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn new_inner(
+        spec: Option<ChainSpec>,
+        validator_count: usize,
+        initializer: Option<Initializer<E>>,
+        mutator: Option<Mutator<E>>,
+        config: Config,
+        use_mock_builder: bool,
+        node_custody_type: NodeCustodyType,
+        enable_work_journal: bool,
     ) -> Self {
         let harness_builder =
             BeaconChainHarness::builder(E::default()).spec_or_default(spec.map(Arc::new));
@@ -124,8 +167,15 @@ impl<E: EthSpec> InteractiveTester<E> {
             server,
             listening_socket,
             network_rx,
+            work_journal_rx,
             ..
-        } = create_api_server_with_config(harness.chain.clone(), config, &harness.runtime).await;
+        } = create_api_server_with_config(
+            harness.chain.clone(),
+            config,
+            &harness.runtime,
+            enable_work_journal,
+        )
+        .await;
 
         tokio::spawn(server);
 
@@ -168,7 +218,43 @@ impl<E: EthSpec> InteractiveTester<E> {
             harness,
             client,
             network_rx,
+            work_journal_rx,
         }
+    }
+
+    /// Wait for `expected` work-journal events in order. `nothing_to_do` events are ignored.
+    pub async fn wait_for_journal_events(&mut self, expected: &[&str], timeout: Duration) {
+        let work_journal_rx = self
+            .work_journal_rx
+            .as_mut()
+            .expect("work journal must be enabled");
+
+        let mut seen = Vec::with_capacity(expected.len());
+        let drain = async {
+            while seen.len() < expected.len() {
+                match work_journal_rx.recv().await {
+                    Some(event) if event == NOTHING_TO_DO => {
+                        // Ignore these.
+                    }
+                    Some(event) => seen.push(event),
+                    None => break,
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = tokio::time::sleep(timeout) => {
+                panic!(
+                    "Timeout ({timeout:?}) waiting for journal events. Expected {expected:?} but got {seen:?}"
+                );
+            }
+            _ = drain => {}
+        }
+
+        assert_eq!(
+            seen, expected,
+            "unexpected journal events (expected {expected:?}, got {seen:?})"
+        );
     }
 }
 
@@ -176,13 +262,14 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     test_runtime: &TestRuntime,
 ) -> ApiServer<T, impl Future<Output = ()> + use<T>> {
-    create_api_server_with_config(chain, Config::default(), test_runtime).await
+    create_api_server_with_config(chain, Config::default(), test_runtime, false).await
 }
 
 pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     http_config: Config,
     test_runtime: &TestRuntime,
+    enable_work_journal: bool,
 ) -> ApiServer<T, impl Future<Output = ()> + use<T>> {
     // Use port 0 to allocate a new unused port.
     let port = 0;
@@ -251,6 +338,14 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         beacon_processor_rx,
     } = BeaconProcessorChannels::new(&beacon_processor_config);
 
+    // Test-only work journal (same capacity as the network TestRig).
+    let (work_journal_tx, work_journal_rx) = if enable_work_journal {
+        let (tx, rx) = mpsc::channel(16_384);
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
+
     let beacon_processor_send = beacon_processor_tx;
     BeaconProcessor {
         network_globals: network_globals.clone(),
@@ -260,7 +355,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     }
     .spawn_manager(
         beacon_processor_rx,
-        None,
+        work_journal_tx,
         chain.slot_clock.clone(),
         chain.spec.maximum_gossip_clock_disparity(),
         BeaconProcessorQueueLengths::from_state(
@@ -301,5 +396,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         network_rx: network_receivers,
         local_enr: enr,
         external_peer_id: peer_id,
+        work_journal_rx,
     }
 }
