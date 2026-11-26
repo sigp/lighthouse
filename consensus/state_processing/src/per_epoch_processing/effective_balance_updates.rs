@@ -27,7 +27,6 @@ pub fn process_effective_balance_updates<E: EthSpec>(
     while let Some((index, validator)) = validators_iter.next_cow() {
         let balance = balances
             .get(index)
-            .copied()
             .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
 
         let new_effective_balance = if balance.safe_add(downward_threshold)?

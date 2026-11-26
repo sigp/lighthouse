@@ -792,7 +792,7 @@ pub fn get_beacon_state_validators_id<T: BeaconChainTypes>(
                                     index_opt
                                         .and_then(|index| {
                                             let validator = state.validators().get(index)?;
-                                            let balance = *state.balances().get(index)?;
+                                            let balance = state.balances().get(index)?;
                                             let epoch = state.current_epoch();
                                             let far_future_epoch = chain.spec.far_future_epoch;
 

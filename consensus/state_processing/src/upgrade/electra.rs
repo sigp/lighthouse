@@ -52,12 +52,11 @@ pub fn upgrade_to_electra<E: EthSpec>(
 
     // Process validators to queue entire balance and reset them
     for index in pre_activation {
-        let balance = post
-            .balances_mut()
-            .into_get_mut(index)
+        let balance_copy = post
+            .balances()
+            .get(index)
             .ok_or(Error::UnknownValidator(index))?;
-        let balance_copy = *balance;
-        *balance = 0_u64;
+        post.set_balance(index, 0)?;
 
         let validator = post
             .validators_mut()

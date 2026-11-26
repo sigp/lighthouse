@@ -3,11 +3,13 @@ use crate::common::{
     attesting_indices_base::get_attesting_indices, get_attestation_participation_flag_indices,
 };
 use milhouse::List;
+use silver_hashing::HashFormat;
 use std::mem;
 use std::sync::Arc;
 use types::{
-    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
-    Fork, ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee,
+    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EpochCache,
+    EpochParticipation, EthSpec, Fork, InactivityScores, ParticipationFlags, PendingAttestation,
+    RelativeEpoch, SyncCommittee,
 };
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
@@ -31,15 +33,19 @@ pub fn translate_participation<E: EthSpec>(
         let committee = state.get_beacon_committee(data.slot, data.index)?;
         let attesting_indices =
             get_attesting_indices::<E>(committee.committee, &attestation.aggregation_bits)?;
-        let mut epoch_participation = state.previous_epoch_participation_mut()?;
+        let epoch_participation = state.previous_epoch_participation_mut()?;
 
         for index in attesting_indices {
+            let index = index as usize;
+            let mut flags = epoch_participation
+                .get(index)
+                .ok_or(Error::UnknownValidator(index))?;
             for flag_index in &participation_flag_indices {
-                epoch_participation
-                    .get_mut(index as usize)
-                    .ok_or(Error::UnknownValidator(index as usize))?
-                    .add_flag(*flag_index)?;
+                flags.add_flag(*flag_index)?;
             }
+            epoch_participation
+                .set(index, flags)
+                .map_err(|_| Error::UnknownValidator(index))?;
         }
     }
     Ok(())
@@ -53,9 +59,12 @@ pub fn upgrade_to_altair<E: EthSpec>(
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_base_mut()?;
 
-    let default_epoch_participation =
-        List::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
-    let inactivity_scores = List::new(vec![0; pre.validators.len()])?;
+    let default_epoch_participation = EpochParticipation::<E>::new(
+        vec![ParticipationFlags::default(); pre.validators.len()],
+        HashFormat::Fixed,
+    )?;
+    let inactivity_scores =
+        InactivityScores::<E>::new(vec![0; pre.validators.len()], HashFormat::Fixed)?;
 
     let temp_sync_committee = Arc::new(SyncCommittee::temporary());
 

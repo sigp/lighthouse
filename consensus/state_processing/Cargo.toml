@@ -39,6 +39,7 @@ parking_lot = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 safe_arith = { workspace = true }
+silver_hashing = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }
 tracing = { workspace = true }
