@@ -17,6 +17,16 @@ use tree_hash::TreeHash;
 use types::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
 use validator_store::{AggregateAuthorization, AggregateToSign, AttestationToSign, ValidatorStore};
 
+fn aggregate_delay(to_next_slot: Duration, slot_duration: Duration, due: Duration) -> Duration {
+    to_next_slot
+        .saturating_add(due)
+        .saturating_sub(slot_duration)
+}
+
+fn valid_pq_aggregator_position(position: Option<u64>) -> bool {
+    position.is_some_and(|position| position < types::consts::pq::AGGREGATORS_PER_COMMITTEE)
+}
+
 /// Builds an `AttestationService`.
 #[derive(Default)]
 pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> {
@@ -339,6 +349,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 .map_err(|e| e.to_string())?
         };
 
+        // PQ aggregate timers must not wait for the last local validator to finish signing.
+        // The data is already known; proving is scheduled independently by the beacon node.
+        let pq_aggregate_data = (self.chain_spec.fork_name_at_slot::<S::E>(slot)
+            == types::ForkName::Pq)
+            .then(|| attestation_data.clone());
+
         // Sign and publish attestations.
         let publication_handle = self
             .inner
@@ -372,53 +388,96 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .slot_clock
             .duration_to_slot(slot + 1)
             .ok_or("Unable to determine duration to next slot")?;
-        let aggregate_production_instant = Instant::now()
-            + duration_to_next_slot
-                .checked_add(self.chain_spec.get_aggregate_attestation_due::<S::E>(slot))
-                .and_then(|offset| offset.checked_sub(self.chain_spec.get_slot_duration()))
-                .unwrap_or_else(|| Duration::from_secs(0));
+        let aggregate_clock_instant = Instant::now();
+        let aggregate_production_instant = aggregate_clock_instant
+            .checked_add(aggregate_delay(
+                duration_to_next_slot,
+                self.chain_spec.get_slot_duration(),
+                self.chain_spec.get_aggregate_attestation_due::<S::E>(slot),
+            ))
+            .ok_or("Aggregate timer overflow")?;
 
-        let aggregate_duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
-            .duties_service
-            .attesters(slot)
-            .into_iter()
-            .fold(HashMap::new(), |mut map, duty_and_proof| {
-                map.entry(duty_and_proof.duty.committee_index)
+        let aggregate_duties_by_committee_index: HashMap<(CommitteeIndex, u64), Vec<DutyAndProof>> =
+            self.duties_service
+                .attesters(slot)
+                .into_iter()
+                .filter(DutyAndProof::is_aggregator)
+                .filter(|duty| {
+                    if pq_aggregate_data.is_some()
+                        && !valid_pq_aggregator_position(duty.duty.aggregator_position)
+                    {
+                        error!(slot = slot.as_u64(), validator_index = duty.duty.validator_index,
+                            position = ?duty.duty.aggregator_position,
+                            "Beacon node returned missing or invalid PQ aggregator position");
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .fold(HashMap::new(), |mut map, duty_and_proof| {
+                    map.entry((
+                        duty_and_proof.duty.committee_index,
+                        duty_and_proof.duty.aggregator_position.unwrap_or(0),
+                    ))
                     .or_default()
                     .push(duty_and_proof);
-                map
-            });
+                    map
+                });
 
-        // Spawn a task that awaits the attestation data handle and then spawns aggregate tasks
+        // Schedule PQ aggregation independently; legacy forks await attestation publication.
         let attestation_service_clone = self.clone();
         let executor = self.inner.executor.clone();
         self.inner.executor.spawn(
             async move {
-                // Log an error if the handle fails and return, skipping aggregates
-                let attestation_data = match publication_handle.await {
-                    Ok(Some(Ok(data))) => data,
-                    Ok(Some(Err(err))) => {
-                        error!(?err, "Attestation production failed");
-                        return;
-                    }
-                    Ok(None) | Err(_) => {
-                        info!("Aborting attestation production due to shutdown");
-                        return;
+                // Legacy paths require successful publication before attempting aggregation.
+                let attestation_data = if let Some(data) = pq_aggregate_data {
+                    // Dropping a Tokio JoinHandle detaches the already-running publication
+                    // task. Its own error path logs signing/publication failures.
+                    data
+                } else {
+                    match publication_handle.await {
+                        Ok(Some(Ok(data))) => data,
+                        Ok(Some(Err(err))) => {
+                            error!(?err, "Attestation production failed");
+                            return;
+                        }
+                        Ok(None) | Err(_) => {
+                            info!("Aborting attestation production due to shutdown");
+                            return;
+                        }
                     }
                 };
 
                 // For each committee index for this slot:
                 // Create and publish `SignedAggregateAndProof` for all aggregating validators.
                 aggregate_duties_by_committee_index.into_iter().for_each(
-                    |(committee_index, validator_duties)| {
+                    |((committee_index, position), validator_duties)| {
                         let attestation_service = attestation_service_clone.clone();
                         let attestation_data = attestation_data.clone();
+                        let production_instant = if attestation_service
+                            .chain_spec
+                            .fork_name_at_slot::<S::E>(slot)
+                            == types::ForkName::Pq
+                        {
+                            let delay = aggregate_delay(
+                                duration_to_next_slot,
+                                attestation_service.chain_spec.get_slot_duration(),
+                                attestation_service.chain_spec.get_pq_aggregate_due(position),
+                            );
+                            let Some(instant) = aggregate_clock_instant.checked_add(delay) else {
+                                error!(%slot, committee_index, position, "PQ aggregate timer overflow");
+                                return;
+                            };
+                            instant
+                        } else {
+                            aggregate_production_instant
+                        };
                         executor.spawn_ignoring_error(
                             attestation_service.handle_aggregates(
                                 slot,
                                 committee_index,
                                 validator_duties,
-                                aggregate_production_instant,
+                                production_instant,
                                 attestation_data,
                             ),
                             "aggregate publish",
@@ -661,10 +720,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 );
                 if fork_name == types::ForkName::Pq {
                     let result = beacon_node
-                        .get_validator_pq_aggregate(
+                        .get_validator_pq_aggregate_at(
                             attestation_data.slot,
                             attestation_data.tree_hash_root(),
                             committee_index,
+                            validator_duties
+                                .iter()
+                                .find(|duty| duty.is_aggregator())
+                                .and_then(|duty| duty.duty.aggregator_position)
+                                .ok_or_else(|| "Missing PQ aggregator position".to_string())?,
                         )
                         .await
                         .map_err(|error| format!("Failed to fetch PQ aggregate: {error:?}"))?
@@ -917,5 +981,43 @@ mod tests {
             *state_2.read() > in_the_past,
             "state should have been updated"
         );
+    }
+}
+
+#[cfg(test)]
+mod pq_position_tests {
+    use super::{aggregate_delay, valid_pq_aggregator_position};
+    use std::time::Duration;
+
+    #[test]
+    fn delayed_start_preserves_each_positions_absolute_due_time() {
+        // Called eight seconds into a 12-second slot: position zero is already due,
+        // but position three is due one second from now, not 1.8 seconds from now.
+        assert_eq!(
+            aggregate_delay(
+                Duration::from_secs(4),
+                Duration::from_secs(12),
+                Duration::from_millis(7200)
+            ),
+            Duration::ZERO
+        );
+        assert_eq!(
+            aggregate_delay(
+                Duration::from_secs(4),
+                Duration::from_secs(12),
+                Duration::from_secs(9)
+            ),
+            Duration::from_secs(1)
+        );
+    }
+
+    #[test]
+    fn rejects_missing_and_unbounded_positions_before_timer_arithmetic() {
+        assert!(!valid_pq_aggregator_position(None));
+        for position in 0..4 {
+            assert!(valid_pq_aggregator_position(Some(position)));
+        }
+        assert!(!valid_pq_aggregator_position(Some(4)));
+        assert!(!valid_pq_aggregator_position(Some(u64::MAX)));
     }
 }

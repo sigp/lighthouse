@@ -248,9 +248,9 @@ fn convert_to_api_response<T: BeaconChainTypes>(
             let duty = duty_opt?;
             let pubkey = *index_to_pubkey_map.get(&(validator_index as usize))?;
             Some((|| {
-                let is_aggregator = pq_state
+                let aggregator_position = pq_state
                     .map(|state| {
-                        state_processing::pq::is_aggregator(
+                        state_processing::pq::aggregator_position(
                             state,
                             duty.slot,
                             duty.index,
@@ -268,7 +268,8 @@ fn convert_to_api_response<T: BeaconChainTypes>(
                     committee_length: duty.committee_len as u64,
                     validator_committee_index: duty.committee_position as u64,
                     slot: duty.slot,
-                    is_aggregator,
+                    is_aggregator: aggregator_position.map(|position| position.is_some()),
+                    aggregator_position: aggregator_position.flatten(),
                 })
             })())
         })

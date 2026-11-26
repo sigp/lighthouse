@@ -14,7 +14,7 @@ const _: () = assert!(lean_xmss::SECRET_KEY_LEN == XMSS_SECRET_KEY_BYTES_LEN);
 const _: () = assert!(lean_xmss::MESSAGE_LEN == XMSS_MESSAGE_BYTES_LEN);
 const _: () = assert!(lean_xmss::internals::LAYER_HEIGHT == crate::SUBTREE_LEAVES.ilog2() as usize);
 
-pub(crate) const MAX_CACHED_BOTTOM_TREES: usize = lean_xmss::MAX_CACHED_BOTTOM_TREES;
+pub(crate) const DEFAULT_BOTTOM_TREE_CACHE_SIZE: usize = lean_xmss::DEFAULT_BOTTOM_TREE_CACHE_SIZE;
 
 pub(crate) fn public_parameter(seed: &[u8; XMSS_SECRET_KEY_BYTES_LEN]) -> [u8; 16] {
     public_param(&scheme_seed(seed))

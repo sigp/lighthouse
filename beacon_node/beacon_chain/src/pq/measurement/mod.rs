@@ -260,11 +260,11 @@ impl<E: EthSpec> Measurement<E> {
                         "lighthouse_version": lighthouse_version::version_with_platform(),
                         "lighthouse_commit": (!lighthouse_version::COMMIT.is_empty()).then_some(lighthouse_version::COMMIT),
                         "leanvm_revision": pq_prover::LEANVM_REV,
-                        "leanvm_bindings_version": (pq_prover::LEANVM_REV == "241b009a61ba5fde797d1213b5bf76310f0d5060").then_some("0.16.0"),
-                        "prover_backend": "leanvm-sidecar",
+                        "leanvm_bindings_version": (pq_prover::LEANVM_REV == "351f7ae421529ce164ed747eee1f78bdeaec3e80").then_some("0.19.0"),
+                        "prover_backend": "leanvm-in-process",
                         "prover_log_inv_rate": 2,
                         "prover_cpu_profile": Value::Null,
-                        "prover_cpu_profile_requested": std::env::var("LEANVM_CPU_PROFILE").ok(),
+                        "prover_cpu_profile_requested": std::env::var("LEANVM_TIER").ok(),
                         "prover_threads": Value::Null,
                         "prover_threads_configured": std::env::var("LEANVM_THREADS").ok()
                             .and_then(|threads| threads.parse::<u64>().ok()),
@@ -272,7 +272,9 @@ impl<E: EthSpec> Measurement<E> {
                         "timing": {
                             "slot_ns": ns(spec.get_slot_duration()),
                             "attestation_ns": ns(attest),
-                            "committee_collection_ns": ns(attest + aggregate.saturating_sub(attest) / 2),
+                            "committee_collection_ns": ns(spec.get_pq_aggregation_cutoff(0)),
+                            "aggregator_position": 0,
+                            "aggregator_delay_ns": ns(spec.get_pq_aggregate_due(1).saturating_sub(aggregate)),
                             "aggregate_ns": ns(aggregate),
                             "initial_merge_ns": ns(super::prover_scheduler::INITIAL_DELAY),
                             "useful_margin_ns": ns(super::prover_scheduler::SAFETY_MARGIN),
@@ -684,7 +686,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             {
                 return;
             }
-            inputs.signatures.insert(slot, attestation, bits)
+            inputs.signatures.insert(slot, now, attestation, bits)
         };
         if let Some(priority) = priority {
             provers
@@ -780,8 +782,8 @@ mod tests {
         let config = ChainConfig {
             pq_measurement: true,
             pq_timing_output: Some(output.path().to_path_buf()),
-            pq_prover: std::env::var_os("PQ_MEASUREMENT_TEST_SOCKET")
-                .map(|socket| PqProverConfig::Sidecar(socket.into())),
+            pq_prover: std::env::var_os("PQ_MEASUREMENT_TEST_LEANVM")
+                .map(|_| PqProverConfig::InProcess { threads: 0 }),
             ..ChainConfig::default()
         };
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
@@ -894,12 +896,12 @@ mod tests {
         assert_eq!(signers.signature_count(), 1);
         let trace = measurement.job(committee_job, committee.start);
         chain
-            .prove_pq_committee(committee_job, slot, 0, &trace)
+            .prove_pq_committee(committee_job, slot, 0, 0, &trace)
             .unwrap();
         use tree_hash::TreeHash;
         assert!(
             chain
-                .pq_aggregate(slot, attestation.data.tree_hash_root(), 0)
+                .pq_aggregate(slot, attestation.data.tree_hash_root(), 0, 0)
                 .is_none()
         );
         assert!(chain.op_pool.pq_attestation_candidates(slot).is_empty());

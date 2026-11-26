@@ -176,11 +176,11 @@ initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 itertools = "0.14"
 kzg = { path = "crypto/kzg" }
-# leanVM crates: all of them, and the `leanvm-sidecar` binary nodes run, must be at one revision.
-# This revision matches the upstream bindings-v0.16.0 release tag.
-lean_xmss = { git = "https://github.com/leanEthereum/leanVM", rev = "241b009a61ba5fde797d1213b5bf76310f0d5060" }
-leanvm_claims = { package = "claims", git = "https://github.com/leanEthereum/leanVM", rev = "241b009a61ba5fde797d1213b5bf76310f0d5060" }
-leanvm_sidecar = { package = "sidecar", git = "https://github.com/leanEthereum/leanVM", rev = "241b009a61ba5fde797d1213b5bf76310f0d5060" }
+# All leanVM crates must share one protocol revision. Proving runs in process.
+# This revision matches the upstream bindings-v0.19.0 release tag.
+lean_xmss = { git = "https://github.com/leanEthereum/leanVM", rev = "351f7ae421529ce164ed747eee1f78bdeaec3e80" }
+leanvm_claims = { package = "claims", git = "https://github.com/leanEthereum/leanVM", rev = "351f7ae421529ce164ed747eee1f78bdeaec3e80" }
+lean_vm = { git = "https://github.com/leanEthereum/leanVM", rev = "351f7ae421529ce164ed747eee1f78bdeaec3e80", features = ["cpu_tiers"] }
 libp2p = { git = "https://github.com/sigp/rust-libp2p", rev = "a5abdd2038d68362bdd3c0226ae177fe64a3a3d0", default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "secp256k1", "macros", "metrics", "quic", "upnp", "gossipsub", "gossipsub-partial-messages"] }
 libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p", rev = "a5abdd2038d68362bdd3c0226ae177fe64a3a3d0" }
 lighthouse_network = { path = "beacon_node/lighthouse_network" }

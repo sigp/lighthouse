@@ -889,6 +889,23 @@ pub struct ValidatorIndexDataRef<'a>(
     #[serde(serialize_with = "serde_utils::quoted_u64_vec::serialize")] pub &'a [u64],
 );
 
+mod optional_quoted_u64 {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use serde_utils::quoted_u64::MaybeQuoted;
+
+    pub fn serialize<S: Serializer>(value: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error> {
+        value
+            .map(|value| MaybeQuoted { value })
+            .serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<u64>, D::Error> {
+        Ok(Option::<MaybeQuoted<u64>>::deserialize(deserializer)?.map(|value| value.value))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
     #[serde(with = "duty_pubkey")]
@@ -906,6 +923,13 @@ pub struct AttesterData {
     pub slot: Slot,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_aggregator: Option<bool>,
+    /// Position in the PQ aggregation committee (absent for non-aggregators).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_quoted_u64"
+    )]
+    pub aggregator_position: Option<u64>,
 }
 
 impl AttesterData {
@@ -1104,6 +1128,8 @@ pub struct ValidatorPayloadAttestationDataQuery {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ValidatorAggregateAttestationQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregator_position: Option<u64>,
     pub attestation_data_root: Hash256,
     pub slot: Slot,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -1,57 +1,10 @@
-#!/bin/bash
+#!/bin/sh
+# Compatibility entrypoint used by ethereum-package. Proving is inside Lighthouse.
 set -eu
-
-socket_dir=$(mktemp -d "${TMPDIR:-/tmp}/leanvm.XXXXXXXX")
-socket_path="$socket_dir/prover.sock"
-prover_pid=
-beacon_pid=
-
-cleanup() {
-    if [[ -n "$beacon_pid" ]]; then
-        kill "$beacon_pid" 2>/dev/null || true
-        wait "$beacon_pid" 2>/dev/null || true
-    fi
-    if [[ -n "$prover_pid" ]]; then
-        kill "$prover_pid" 2>/dev/null || true
-        wait "$prover_pid" 2>/dev/null || true
-    fi
-    rm -f -- "$socket_path" "$socket_path.lock"
-    rmdir -- "$socket_dir"
-}
-
-trap cleanup EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
-
-leanvm-sidecar --socket "$socket_path" --threads "${LEANVM_THREADS:-0}" &
-prover_pid=$!
-ready_deadline=$((SECONDS + 120))
-until [[ -S "$socket_path" ]]; do
-    if ! kill -0 "$prover_pid" 2>/dev/null; then
-        echo 'leanvm-sidecar exited before creating its socket' >&2
-        exit 1
-    fi
-    if (( SECONDS >= ready_deadline )); then
-        echo 'leanvm-sidecar did not create its socket within 120 seconds' >&2
-        exit 1
-    fi
-    sleep 0.1
+# Explicit CLI configuration wins over the historical wrapper environment variable.
+for argument in "$@"; do
+    case "$argument" in
+        --pq-prover-threads|--pq-prover-threads=*) exec lighthouse beacon_node "$@" ;;
+    esac
 done
-
-lighthouse beacon_node --pq-prover-socket "$socket_path" "$@" &
-beacon_pid=$!
-
-while kill -0 "$prover_pid" 2>/dev/null && kill -0 "$beacon_pid" 2>/dev/null; do
-    sleep 0.2
-done
-
-if kill -0 "$prover_pid" 2>/dev/null; then
-    status=0
-    wait "$beacon_pid" || status=$?
-    beacon_pid=
-    exit "$status"
-fi
-
-prover_pid=
-echo 'leanvm-sidecar exited while the PQ beacon node was running' >&2
-exit 1
+exec lighthouse beacon_node --pq-prover-threads "${LEANVM_THREADS:-0}" "$@"

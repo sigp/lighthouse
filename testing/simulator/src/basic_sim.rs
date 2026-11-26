@@ -72,9 +72,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .get_one::<String>("log-dir")
         .map(PathBuf::from);
     let disable_stdout_logging = subcommand_matches.get_flag("disable-stdout-logging");
-    let pq_socket = subcommand_matches
-        .get_one::<String>("pq-prover-socket")
-        .map(PathBuf::from);
+    let pq = subcommand_matches.get_flag("pq");
 
     println!("Basic Simulator:");
     println!(" nodes: {}", node_count);
@@ -171,11 +169,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let mut spec = (*env.eth2_config.spec).clone();
 
     let total_validator_count = validators_per_node * node_count;
-    let genesis_delay = if pq_socket.is_some() {
-        90
-    } else {
-        GENESIS_DELAY
-    };
+    let genesis_delay = if pq { 90 } else { GENESIS_DELAY };
 
     // Convenience variables. Update these values when adding a newer fork.
     let latest_fork_version = spec.gloas_fork_version;
@@ -196,7 +190,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
     spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
     spec.gloas_fork_epoch = Some(Epoch::new(GLOAS_FORK_EPOCH));
-    if pq_socket.is_some() {
+    if pq {
         spec = types::ForkName::Pq.make_genesis_spec(spec);
         // Several committees per slot exercise recursive proof folding even
         // with a small validator registry.
@@ -232,10 +226,9 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             ))
         })
         .await?;
-        if let Some(socket) = &pq_socket {
-            beacon_config.chain.pq_prover = Some(
-                beacon_chain::chain_config::PqProverConfig::Sidecar(socket.clone()),
-            );
+        if pq {
+            beacon_config.chain.pq_prover =
+                Some(beacon_chain::chain_config::PqProverConfig::InProcess { threads: 0 });
             beacon_config.network.subscribe_all_subnets = true;
             beacon_config.network.import_all_attestations = true;
             beacon_config.network.enable_light_client_server = false;
@@ -306,7 +299,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 
-        if pq_socket.is_some() {
+        if pq {
             let result =
                 verify_pq_simulation(&network, &spec, slot_duration, total_validator_count).await;
             if continue_after_checks && result.is_ok() {

@@ -29,7 +29,7 @@ pub(super) const MERGE_MULTIPLIER: f64 = 1.6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Work {
-    Committee(Slot, u64),
+    Committee(Slot, u64, u64),
     Initial(Slot),
     Improvement(Slot),
     Fallback(Slot),
@@ -38,7 +38,7 @@ pub(super) enum Work {
 impl Work {
     pub(super) fn slot(self) -> Slot {
         match self {
-            Self::Committee(slot, _)
+            Self::Committee(slot, _, _)
             | Self::Initial(slot)
             | Self::Improvement(slot)
             | Self::Fallback(slot) => slot,
@@ -46,7 +46,7 @@ impl Work {
     }
     pub(super) fn reference_slot(self) -> Slot {
         match self {
-            Self::Committee(slot, _) => slot,
+            Self::Committee(slot, _, _) => slot,
             _ => self.slot().saturating_sub(2u64),
         }
     }
@@ -67,6 +67,7 @@ pub(super) struct Window {
     pub(super) end: Duration,
 }
 
+#[cfg(test)]
 pub(super) fn committee_window(start: Duration, attest: Duration, aggregate: Duration) -> Window {
     Window {
         start: start
@@ -133,7 +134,6 @@ struct Committee {
     window: Window,
     generation: u64,
     local: bool,
-    learned_late: bool,
     experiment: Option<u64>,
     priority: usize,
     attempted: Option<Attempt>,
@@ -154,12 +154,12 @@ struct Proposal<E: EthSpec> {
     attempted: Option<Attempt>,
 }
 
-pub(super) type CommitteeDuties = BTreeMap<(Slot, u64), Window>;
+pub(super) type CommitteeDuties = BTreeMap<(Slot, u64, u64), Window>;
 pub(super) type ProposalDuties = BTreeMap<Slot, (Window, Duration, u64)>;
 
 #[derive(Default)]
 struct Schedule<E: EthSpec> {
-    committees: BTreeMap<(Slot, u64), Committee>,
+    committees: BTreeMap<(Slot, u64, u64), Committee>,
     proposals: BTreeMap<Slot, Proposal<E>>,
     snapshots: BTreeMap<Slot, (Duration, Option<Arc<PreparedAttestations<E>>>)>,
     fallbacks: BTreeMap<Slot, Duration>,
@@ -181,7 +181,7 @@ struct Schedule<E: EthSpec> {
 impl<E: EthSpec> Schedule<E> {
     fn expire(&mut self, now: Duration) {
         let count = self.committees.len() + self.proposals.len();
-        self.committees.retain(|(slot, committee), duty| {
+        self.committees.retain(|(slot, committee, _position), duty| {
             if now < duty.window.end {
                 true
             } else {
@@ -246,7 +246,6 @@ impl<E: EthSpec> Schedule<E> {
                         window,
                         generation: self.generation,
                         local: true,
-                        learned_late: now >= window.start,
                         experiment: None,
                         priority: 0,
                         attempted: None,
@@ -286,8 +285,8 @@ impl<E: EthSpec> Schedule<E> {
 
     fn attempt(&self, work: Work) -> Option<Attempt> {
         let (generation, input_revision, experiment, round, depth, cutoff) = match work {
-            Work::Committee(slot, committee) => {
-                let duty = self.committees.get(&(slot, committee))?;
+            Work::Committee(slot, committee, position) => {
+                let duty = self.committees.get(&(slot, committee, position))?;
                 (
                     duty.generation,
                     duty.revision,
@@ -336,21 +335,21 @@ impl<E: EthSpec> Schedule<E> {
     }
 
     fn due(&self, now: Duration) -> Option<(Duration, Attempt)> {
-        let committees = self
-            .committees
-            .iter()
-            .filter_map(|(&(slot, committee), duty)| {
-                let attempt = self.attempt(Work::Committee(slot, committee))?;
-                (now >= duty.window.start
-                    && now < duty.window.end
-                    && duty.attempted != Some(attempt))
-                .then_some((
-                    duty.window.end,
-                    false,
-                    std::cmp::Reverse(duty.priority),
-                    attempt,
-                ))
-            });
+        let committees =
+            self.committees
+                .iter()
+                .filter_map(|(&(slot, committee, position), duty)| {
+                    let attempt = self.attempt(Work::Committee(slot, committee, position))?;
+                    (now >= duty.window.start
+                        && now < duty.window.end
+                        && duty.attempted != Some(attempt))
+                    .then_some((
+                        duty.window.end,
+                        false,
+                        std::cmp::Reverse(duty.priority),
+                        attempt,
+                    ))
+                });
         let proposals = self.proposals.iter().filter_map(|(&slot, duty)| {
             let attempt = self.attempt(Work::Initial(slot))?;
             (now >= duty.window.start && duty.attempted != Some(attempt)).then_some((
@@ -438,8 +437,8 @@ impl<E: EthSpec> Schedule<E> {
 
     fn mark_attempt(&mut self, job: Attempt) {
         match job.work {
-            Work::Committee(slot, committee) => {
-                if let Some(duty) = self.committees.get_mut(&(slot, committee)) {
+            Work::Committee(slot, committee, position) => {
+                if let Some(duty) = self.committees.get_mut(&(slot, committee, position)) {
                     duty.attempted = Some(job);
                 }
             }
@@ -520,7 +519,7 @@ impl<E: EthSpec> ProverScheduler<E> {
         debug_window: Option<Window>,
     ) -> bool {
         let mut schedule = self.schedule.lock();
-        let key = (slot, committee);
+        let key = (slot, committee, 0);
         if let Some(window) = debug_window
             && now < window.start
             && !schedule.committees.contains_key(&key)
@@ -533,7 +532,6 @@ impl<E: EthSpec> ProverScheduler<E> {
                     window,
                     generation,
                     local: false,
-                    learned_late: false,
                     experiment: None,
                     priority: 0,
                     attempted: None,
@@ -542,19 +540,35 @@ impl<E: EthSpec> ProverScheduler<E> {
             );
             self.changed.notify_one();
         }
-        schedule.committees.get(&key).is_some_and(|duty| {
-            duty.experiment.is_none()
-                && now < duty.window.end
-                && (now < duty.window.start || duty.learned_late)
-        })
+        schedule
+            .committees
+            .iter()
+            .any(|(&(duty_slot, duty_committee, _), duty)| {
+                duty_slot == slot
+                    && duty_committee == committee
+                    && duty.experiment.is_none()
+                    && now < duty.window.start
+            })
     }
 
-    pub(super) fn committee_changed(&self, slot: Slot, committee: u64, priority: usize) {
-        if let Some(duty) = self.schedule.lock().committees.get_mut(&(slot, committee)) {
-            duty.revision += 1;
-            duty.priority = priority;
-            self.changed.notify_one();
+    pub(super) fn committee_changed(
+        &self,
+        now: Duration,
+        slot: Slot,
+        committee: u64,
+        priority: usize,
+    ) {
+        for (&(duty_slot, duty_committee, _), duty) in self.schedule.lock().committees.iter_mut() {
+            if duty_slot == slot
+                && duty_committee == committee
+                && duty.attempted.is_none()
+                && now < duty.window.start
+            {
+                duty.revision += 1;
+                duty.priority = priority;
+            }
         }
+        self.changed.notify_one();
     }
 
     #[cfg(test)]
@@ -710,7 +724,7 @@ impl<E: EthSpec> ProverScheduler<E> {
             || schedule.unavailable
             || schedule.measurements_suspended
             || committee.is_some_and(|(key, window)| {
-                now >= window.start || schedule.committees.contains_key(&key)
+                now >= window.start || schedule.committees.contains_key(&(key.0, key.1, 0))
             })
             || proposal.is_some_and(|(slot, window)| {
                 now >= window.start
@@ -724,12 +738,11 @@ impl<E: EthSpec> ProverScheduler<E> {
         let generation = schedule.generation;
         if let Some((key, window)) = committee {
             schedule.committees.insert(
-                key,
+                (key.0, key.1, 0),
                 Committee {
                     window,
                     generation,
                     local: true,
-                    learned_late: false,
                     experiment: Some(id),
                     priority: 0,
                     attempted: None,
@@ -766,7 +779,11 @@ impl<E: EthSpec> ProverScheduler<E> {
         committee: u64,
         priority: usize,
     ) {
-        if let Some(duty) = self.schedule.lock().committees.get_mut(&(slot, committee))
+        if let Some(duty) = self
+            .schedule
+            .lock()
+            .committees
+            .get_mut(&(slot, committee, 0))
             && duty.experiment.is_some()
         {
             duty.revision += 1;
@@ -861,9 +878,9 @@ impl<E: EthSpec> ProverScheduler<E> {
             return None;
         }
         let reserved_start = match job.work {
-            Work::Committee(slot, committee) => schedule
+            Work::Committee(slot, committee, position) => schedule
                 .committees
-                .get(&(slot, committee))
+                .get(&(slot, committee, position))
                 .map(|duty| duty.window.start),
             Work::Initial(slot) => schedule.proposals.get(&slot).map(|duty| duty.window.start),
             _ => None,
@@ -871,9 +888,9 @@ impl<E: EthSpec> ProverScheduler<E> {
         let reserve_delay = reserved_start.map(|start| now.saturating_sub(start));
         let next_reservation = schedule.next_reservation(now);
         let deadline = match job.work {
-            Work::Committee(slot, committee) => schedule
+            Work::Committee(slot, committee, position) => schedule
                 .committees
-                .get(&(slot, committee))
+                .get(&(slot, committee, position))
                 .map(|duty| duty.window.end),
             Work::Initial(slot) | Work::Improvement(slot) => schedule
                 .proposals
@@ -938,14 +955,14 @@ impl<E: EthSpec> ProverScheduler<E> {
     }
 
     pub(super) fn committee_result_is_current(&self, now: Duration, job: Attempt) -> bool {
-        let Work::Committee(slot, committee) = job.work else {
+        let Work::Committee(slot, committee, position) = job.work else {
             return false;
         };
         let schedule = self.schedule.lock();
         schedule.head_revision == job.head_revision
             && schedule
                 .committees
-                .get(&(slot, committee))
+                .get(&(slot, committee, position))
                 .is_some_and(|duty| duty.generation == job.generation && now < duty.window.end)
     }
 
@@ -995,7 +1012,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let trace = chain.pq_measurement.job(job, now);
                 chain.task_executor.spawn_blocking(move || {
                     let result = match job.work() {
-                        Work::Committee(slot, committee) => owner.prove_pq_committee(job, slot, committee, &trace),
+                        Work::Committee(slot, committee, position) => owner.prove_pq_committee(job, slot, committee, position, &trace),
                         Work::Initial(slot) | Work::Improvement(slot) => owner.prepare_pq_attestations_with_trace(job, slot, &trace),
                         Work::Fallback(_) => Ok(()),
                     };
@@ -1023,14 +1040,6 @@ pub(crate) struct Active<E: EthSpec> {
 }
 
 impl<E: EthSpec> Active<E> {
-    pub(super) fn release_unused(mut self) {
-        let mut schedule = self.scheduler.schedule.lock();
-        schedule.active = None;
-        schedule.active_job = None;
-        self.completed = true;
-        self.scheduler.changed.notify_one();
-    }
-
     #[cfg(test)]
     pub(crate) fn run(
         self,
@@ -1087,10 +1096,7 @@ impl<E: EthSpec> Active<E> {
     }
 
     fn complete(mut self, result: &Result<pq_prover::Proof, Error>, elapsed: Duration) {
-        let uncertain = matches!(
-            result,
-            Err(Error::SidecarIo(_) | Error::SidecarProtocol(_) | Error::SidecarIncompatible(_))
-        );
+        let uncertain = matches!(result, Err(Error::BackendPanicked));
         let mut schedule = self.scheduler.schedule.lock();
         schedule.active = None;
         schedule.active_job = None;
@@ -1100,7 +1106,7 @@ impl<E: EthSpec> Active<E> {
         schedule.unavailable |= uncertain;
         let measured_merge = matches!(
             result,
-            Ok(_) | Err(Error::SidecarProvingFailed(_) | Error::SidecarClaimsMismatch { .. })
+            Ok(_) | Err(Error::ProvingFailed(_) | Error::ClaimsMismatch { .. })
         );
         if measured_merge
             && matches!(self.work, Work::Initial(_) | Work::Improvement(_))
@@ -1111,7 +1117,7 @@ impl<E: EthSpec> Active<E> {
         }
         debug!(work = ?self.work, ?elapsed, uncertain, "PQ backend request returned");
         if uncertain {
-            warn!("PQ proving lane is unavailable after an ambiguous sidecar failure");
+            warn!("PQ proving lane is unavailable after an internal leanVM failure");
         }
         self.completed = true;
         self.scheduler.changed.notify_one();
@@ -1151,7 +1157,7 @@ mod tests {
 
     fn committee(committee: u64) -> CommitteeDuties {
         let window = committee_window(seconds(12), seconds(3), seconds(6));
-        BTreeMap::from([((Slot::new(1), committee), window)])
+        BTreeMap::from([((Slot::new(1), committee, 0), window)])
     }
 
     fn candidate(
@@ -1214,6 +1220,48 @@ mod tests {
     }
 
     #[test]
+    fn staggered_local_positions_have_separate_reservations() {
+        let scheduler = Arc::new(Scheduler::default());
+        let slot = Slot::new(1);
+        scheduler.replace(
+            seconds(12),
+            BTreeMap::from([
+                (
+                    (slot, 0, 0),
+                    Window {
+                        start: Duration::from_millis(16_800),
+                        end: Duration::from_millis(19_200),
+                    },
+                ),
+                (
+                    (slot, 0, 1),
+                    Window {
+                        start: Duration::from_millis(17_400),
+                        end: Duration::from_millis(19_800),
+                    },
+                ),
+            ]),
+            BTreeMap::new(),
+            0,
+        );
+        scheduler.committee_changed(seconds(16), slot, 0, 1);
+        let first = scheduler.next(Duration::from_millis(16_800)).unwrap();
+        assert_eq!(first.work(), Work::Committee(slot, 0, 0));
+        let active = scheduler
+            .start(Duration::from_millis(16_800), first)
+            .unwrap();
+        assert!(scheduler.accept_committee_input(Duration::from_millis(17_000), slot, 0, None));
+        scheduler.committee_changed(Duration::from_millis(17_000), slot, 0, 2);
+        active.complete(&Ok(Proof::default()), Duration::from_millis(100));
+        assert!(scheduler.next(Duration::from_millis(17_000)).is_none());
+        let second = scheduler.next(Duration::from_millis(17_400)).unwrap();
+        assert_eq!(second.work(), Work::Committee(slot, 0, 1));
+        assert!(!scheduler.accept_committee_input(Duration::from_millis(17_400), slot, 0, None));
+        assert_eq!(first.cutoff(), Duration::from_millis(16_800));
+        assert_eq!(second.cutoff(), Duration::from_millis(17_400));
+    }
+
+    #[test]
     fn early_prover_schedules_initial_work_and_protects_known_reservations() {
         let scheduler = Arc::new(Scheduler::default());
         scheduler.replace(seconds(1), committee(0), proposal(), 0);
@@ -1242,7 +1290,7 @@ mod tests {
 
         let due = Duration::from_millis(16_500);
         let job = scheduler.next(due).unwrap();
-        assert_eq!(job.work(), Work::Committee(Slot::new(1), 0));
+        assert_eq!(job.work(), Work::Committee(Slot::new(1), 0, 0));
         let active = scheduler.start(due, job).unwrap();
         assert!(scheduler.next(seconds(18)).is_none());
         active.complete(&Ok(Proof::default()), seconds(1));
@@ -1273,7 +1321,7 @@ mod tests {
         let improvement = scheduler.next(seconds(9)).unwrap();
         scheduler.aggregate_changed();
         let active = scheduler.start(seconds(9), improvement).unwrap();
-        let rejected = Err(Error::SidecarProvingFailed("test failure".into()));
+        let rejected = Err(Error::ProvingFailed("test failure".into()));
         active.complete(&rejected, seconds(4));
         let duty = scheduler.schedule.lock();
         assert_eq!(
@@ -1300,7 +1348,7 @@ mod tests {
 
         let cutoff = Duration::from_millis(16_500);
         let old = scheduler.next(cutoff).unwrap();
-        assert_eq!(old.work(), Work::Committee(Slot::new(1), 0));
+        assert_eq!(old.work(), Work::Committee(Slot::new(1), 0, 0));
         assert!(scheduler.committee_result_is_current(cutoff, old));
         scheduler.head_changed();
         assert!(!scheduler.committee_result_is_current(cutoff, old));
@@ -1312,7 +1360,7 @@ mod tests {
         );
         scheduler.replace(seconds(17), committee(1), proposal(), 1);
         let current = scheduler.next(seconds(17)).unwrap();
-        assert_eq!(current.work(), Work::Committee(Slot::new(1), 1));
+        assert_eq!(current.work(), Work::Committee(Slot::new(1), 1, 0));
         assert!(scheduler.start(seconds(17), old).is_none());
         assert!(scheduler.start(seconds(18), current).is_none());
         assert!(scheduler.schedule.lock().committees.is_empty());
@@ -1449,8 +1497,8 @@ mod tests {
                 .start_fallback(now, Slot::new(0), now + seconds(1))
                 .unwrap();
             assert!(matches!(
-                normal.run(|| Err(Error::SidecarInvalidInput("known completion".into()))),
-                Err(Error::SidecarInvalidInput(_)),
+                normal.run(|| Err(Error::InvalidInput("known completion".into()))),
+                Err(Error::InvalidInput(_)),
             ));
             assert!(!scheduler.is_unavailable());
             assert!(harness.shutdown_reasons().is_empty());
@@ -1459,8 +1507,8 @@ mod tests {
                 .start_fallback(now, Slot::new(1), now + seconds(1))
                 .unwrap();
             assert!(matches!(
-                failed.run(|| Err(Error::SidecarIo(std::io::ErrorKind::BrokenPipe.into()))),
-                Err(Error::SidecarIo(_)),
+                failed.run(|| Err(Error::BackendPanicked)),
+                Err(Error::BackendPanicked),
             ));
             assert!(scheduler.is_unavailable());
             assert!(
@@ -1500,10 +1548,7 @@ mod tests {
         scheduler.replace(seconds(1), BTreeMap::new(), proposal(), 0);
         let job = scheduler.next(seconds(8)).unwrap();
         let active = scheduler.start(seconds(8), job).unwrap();
-        active.complete(
-            &Err(Error::SidecarIo(std::io::ErrorKind::TimedOut.into())),
-            seconds(1),
-        );
+        active.complete(&Err(Error::BackendPanicked), seconds(1));
         assert!(
             scheduler
                 .start_fallback(seconds(24), TARGET, seconds(26))

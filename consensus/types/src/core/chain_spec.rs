@@ -116,6 +116,9 @@ pub struct ChainSpec {
     pub payload_attestation_due_bps: u64,
     pub aggregate_due_bps: u64,
     pub aggregate_due_bps_gloas: u64,
+    pub aggregation_cutoff_bps: u64,
+    pub aggregate_due_bps_pq: u64,
+    pub aggregator_delay_bps: u64,
     pub sync_message_due_bps: u64,
     pub sync_message_due_bps_gloas: u64,
     pub contribution_due_bps: u64,
@@ -1039,11 +1042,38 @@ impl ChainSpec {
 
     /// Spec: `get_aggregate_attestation_due_ms`. Returns the epoch-appropriate threshold.
     pub fn get_aggregate_attestation_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        if self.fork_name_at_slot::<E>(slot) == ForkName::Pq {
+            return self.get_pq_aggregate_due(0);
+        }
         if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
             self.aggregate_attestation_due_gloas
         } else {
             self.aggregate_attestation_due
         }
+    }
+
+    /// PQ collection cutoff, in aggregation-committee order.
+    pub fn get_pq_aggregation_cutoff(&self, position: u64) -> Duration {
+        self.pq_staggered_duration(self.aggregation_cutoff_bps, position)
+    }
+
+    /// PQ aggregate publication time, in aggregation-committee order.
+    pub fn get_pq_aggregate_due(&self, position: u64) -> Duration {
+        self.pq_staggered_duration(self.aggregate_due_bps_pq, position)
+    }
+
+    fn pq_staggered_duration(&self, base: u64, position: u64) -> Duration {
+        // Round each component separately, as specified by get_slot_component_duration_ms.
+        let component = |bps: u64| {
+            self.get_slot_duration()
+                .as_millis()
+                .saturating_mul(u128::from(bps))
+                / u128::from(BASIS_POINTS)
+        };
+        let millis = component(base).saturating_add(
+            component(self.aggregator_delay_bps).saturating_mul(u128::from(position)),
+        );
+        Duration::from_millis(u64::try_from(millis).unwrap_or(u64::MAX))
     }
 
     /// Spec: `get_contribution_due_ms`. Returns the epoch-appropriate threshold.
@@ -1099,6 +1129,17 @@ impl ChainSpec {
     ///
     /// Panics if any computation fails (indicates invalid config).
     pub fn compute_derived_values<E: EthSpec>(mut self) -> Self {
+        assert!(
+            self.aggregation_cutoff_bps < self.aggregate_due_bps_pq,
+            "invalid PQ timing: collection cutoff must precede aggregate publication"
+        );
+        assert!(
+            self.aggregator_delay_bps
+                .checked_mul(crate::consts::pq::AGGREGATORS_PER_COMMITTEE.saturating_sub(1))
+                .and_then(|delay| self.aggregate_due_bps_pq.checked_add(delay))
+                .is_some_and(|last| last <= BASIS_POINTS),
+            "invalid PQ timing: last aggregator publication exceeds the slot"
+        );
         assert!(
             self.attestation_due_bps <= BASIS_POINTS,
             "invalid chain spec: attestation_due_bps ({}) exceeds slot duration",
@@ -1314,6 +1355,9 @@ impl ChainSpec {
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             aggregate_due_bps_gloas: 5000,
+            aggregation_cutoff_bps: 4000,
+            aggregate_due_bps_pq: 6000,
+            aggregator_delay_bps: 500,
             sync_message_due_bps: 3333,
             sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
@@ -1790,6 +1834,9 @@ impl ChainSpec {
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             aggregate_due_bps_gloas: 5000,
+            aggregation_cutoff_bps: 4000,
+            aggregate_due_bps_pq: 6000,
+            aggregator_delay_bps: 500,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -2508,6 +2555,15 @@ pub struct Config {
     #[serde(default = "default_aggregate_due_bps_gloas")]
     #[serde(with = "serde_utils::quoted_u64")]
     aggregate_due_bps_gloas: u64,
+    #[serde(default = "default_aggregation_cutoff_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    aggregation_cutoff_bps: u64,
+    #[serde(default = "default_aggregate_due_bps_pq")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    aggregate_due_bps_pq: u64,
+    #[serde(default = "default_aggregator_delay_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    aggregator_delay_bps: u64,
     #[serde(default = "default_sync_message_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     sync_message_due_bps: u64,
@@ -2802,6 +2858,16 @@ const fn default_payload_attestation_due_bps() -> u64 {
 
 const fn default_aggregate_due_bps() -> u64 {
     6667
+}
+
+const fn default_aggregation_cutoff_bps() -> u64 {
+    4000
+}
+const fn default_aggregate_due_bps_pq() -> u64 {
+    6000
+}
+const fn default_aggregator_delay_bps() -> u64 {
+    500
 }
 
 const fn default_aggregate_due_bps_gloas() -> u64 {
@@ -3127,6 +3193,9 @@ impl Config {
             payload_attestation_due_bps: spec.payload_attestation_due_bps,
             aggregate_due_bps: spec.aggregate_due_bps,
             aggregate_due_bps_gloas: spec.aggregate_due_bps_gloas,
+            aggregation_cutoff_bps: spec.aggregation_cutoff_bps,
+            aggregate_due_bps_pq: spec.aggregate_due_bps_pq,
+            aggregator_delay_bps: spec.aggregator_delay_bps,
             sync_message_due_bps: spec.sync_message_due_bps,
             sync_message_due_bps_gloas: spec.sync_message_due_bps_gloas,
             contribution_due_bps: spec.contribution_due_bps,
@@ -3247,6 +3316,9 @@ impl Config {
             payload_attestation_due_bps,
             aggregate_due_bps,
             aggregate_due_bps_gloas,
+            aggregation_cutoff_bps,
+            aggregate_due_bps_pq,
+            aggregator_delay_bps,
             sync_message_due_bps,
             sync_message_due_bps_gloas,
             contribution_due_bps,
@@ -3404,6 +3476,9 @@ impl Config {
             payload_attestation_due_bps,
             aggregate_due_bps,
             aggregate_due_bps_gloas,
+            aggregation_cutoff_bps,
+            aggregate_due_bps_pq,
+            aggregator_delay_bps,
             sync_message_due_bps,
             sync_message_due_bps_gloas,
             contribution_due_bps,
@@ -4937,5 +5012,33 @@ mod yaml_tests {
     fn minimal_config_consistent() {
         let spec = ChainSpec::minimal();
         config_test::<MinimalEthSpec>(&spec, "minimal");
+    }
+}
+
+#[cfg(test)]
+mod pq_stagger_tests {
+    use super::*;
+    #[test]
+    fn staggered_aggregators_have_equal_proving_windows() {
+        let spec = ChainSpec::mainnet();
+        for position in 0..4 {
+            assert_eq!(
+                spec.get_pq_aggregation_cutoff(position),
+                Duration::from_millis(4800 + position * 600)
+            );
+            assert_eq!(
+                spec.get_pq_aggregate_due(position),
+                Duration::from_millis(7200 + position * 600)
+            );
+            assert_eq!(
+                spec.get_pq_aggregate_due(position) - spec.get_pq_aggregation_cutoff(position),
+                Duration::from_millis(2400)
+            );
+        }
+        let decoded = Config::from_chain_spec::<MainnetEthSpec>(&spec);
+        let yaml = yaml_serde::to_string(&decoded).unwrap();
+        assert!(yaml.contains("AGGREGATION_CUTOFF_BPS"));
+        assert!(yaml.contains("AGGREGATOR_DELAY_BPS"));
+        assert!(yaml.contains("AGGREGATE_DUE_BPS_PQ"));
     }
 }

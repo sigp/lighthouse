@@ -13,6 +13,7 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     slot: Slot,
     attestation_data_root: &Hash256,
     committee_index: Option<CommitteeIndex>,
+    aggregator_position: Option<u64>,
     endpoint_version: EndpointVersion,
     chain: Arc<BeaconChain<T>>,
     accept_header: Option<Accept>,
@@ -26,7 +27,12 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
             warp_utils::reject::custom_bad_request("missing committee index".into())
         })?;
         let entry = chain
-            .pq_aggregate(slot, *attestation_data_root, committee)
+            .pq_aggregate(
+                slot,
+                *attestation_data_root,
+                committee,
+                aggregator_position.unwrap_or(0),
+            )
             .ok_or_else(|| {
                 warp_utils::reject::custom_not_found("no matching PQ aggregate found".into())
             })?;

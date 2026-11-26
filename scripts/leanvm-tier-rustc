@@ -1,0 +1,24 @@
+#!/bin/sh
+# Cargo's rustc wrapper (RUSTC_WRAPPER): compiles the library of a CPU tier's copy of the experimental prover
+# (crates/experimental_tiers) with the tier's target features and `--cfg leanvm_tier`, and everything else as asked.
+# Only at opt-level 2 or 3 without share-generics: otherwise crates share generic instances, so code outside a tier
+# could run the tier's instructions. Never a build script, which runs on the build machine.
+rustc="$1"
+shift
+case "${CARGO_MANIFEST_DIR:-}" in
+*/experimental_tiers/*/*)
+    lib= opt= shared=
+    for arg in "$@"; do
+        case "$arg" in
+        lib) lib=1 ;;
+        *opt-level=*) opt=${arg##*opt-level=} ;;
+        *share-generics*) shared=1 ;;
+        esac
+    done
+    features=$(sed -n 's/^target-features = "\(.*\)"$/\1/p' "$CARGO_MANIFEST_DIR/Cargo.toml")
+    case "$lib$shared,$opt,${features:+1}" in
+    1,2,1 | 1,3,1) exec "$rustc" "$@" -C target-feature="$features" --cfg leanvm_tier ;;
+    esac
+    ;;
+esac
+exec "$rustc" "$@"

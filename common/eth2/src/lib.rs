@@ -4076,6 +4076,17 @@ impl BeaconNodeHttpClient {
         attestation_data_root: Hash256,
         committee_index: CommitteeIndex,
     ) -> Result<Option<ForkVersionedResponse<types::PqAggregate<E>>>, Error> {
+        self.get_validator_pq_aggregate_at(slot, attestation_data_root, committee_index, 0)
+            .await
+    }
+
+    pub async fn get_validator_pq_aggregate_at<E: EthSpec>(
+        &self,
+        slot: Slot,
+        attestation_data_root: Hash256,
+        committee_index: CommitteeIndex,
+        aggregator_position: u64,
+    ) -> Result<Option<ForkVersionedResponse<types::PqAggregate<E>>>, Error> {
         let mut path = self.eth_path(V2)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -4087,7 +4098,8 @@ impl BeaconNodeHttpClient {
                 "attestation_data_root",
                 &format!("{attestation_data_root:?}"),
             )
-            .append_pair("committee_index", &committee_index.to_string());
+            .append_pair("committee_index", &committee_index.to_string())
+            .append_pair("aggregator_position", &aggregator_position.to_string());
         self.get_opt_with_timeout(path, self.timeouts.attestation)
             .await
     }

@@ -14,7 +14,7 @@ use ethereum_hashing::{HASH_LEN, hash_fixed};
 
 const PUBLIC_KEY_DOMAIN: &[u8] = b"lighthouse-fake-xmss-pk";
 
-pub(crate) const MAX_CACHED_BOTTOM_TREES: usize = 0;
+pub(crate) const DEFAULT_BOTTOM_TREE_CACHE_SIZE: usize = 0;
 
 pub(crate) struct ExpandedKey;
 

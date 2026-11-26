@@ -366,3 +366,40 @@ fn pq_head_flag_uses_attested_ancestor_across_skipped_slots() {
             .unwrap();
     assert!(flags.contains(&TIMELY_HEAD_FLAG_INDEX));
 }
+
+#[test]
+fn vrf_secret_commitment_vectors_and_slot_binding() {
+    // Independent PyCryptodome Keccak-256 vectors for spec b5d422b2.
+    let secret = compute_vrf_secret(&[42; 32], 7);
+    assert_eq!(
+        secret,
+        "0xcef6f41253dbe815bd5ddac6d1dc658f03f8e18757e784ffaf43019d3cb40f43"
+            .parse::<Hash256>()
+            .unwrap()
+    );
+    let leaf = compute_vrf_leaf(&secret.0, 7);
+    assert_eq!(
+        leaf,
+        "0x17d6a0b463d01c3994bdca6123d71dd681a100da7cf604cbfd3dbb17ef06e13d"
+            .parse::<Hash256>()
+            .unwrap()
+    );
+    assert_ne!(leaf, compute_vrf_leaf(&secret.0, 6));
+    let branch = vec![Hash256::repeat_byte(0x55); VRF_TREE_DEPTH];
+    let root = branch
+        .iter()
+        .enumerate()
+        .fold(leaf, |value, (height, sibling)| {
+            if (7 >> height) & 1 == 1 {
+                hash_vrf_node(*sibling, value)
+            } else {
+                hash_vrf_node(value, *sibling)
+            }
+        });
+    let mut proof = VrfProof::new([vec![secret], branch].concat()).unwrap();
+    assert!(is_valid_vrf_proof(&proof, Slot::new(7), root));
+    assert!(!is_valid_vrf_proof(&proof, Slot::new(6), root));
+    // A neighboring branch commitment cannot be used as the revealed secret.
+    proof[0] = proof[1];
+    assert!(!is_valid_vrf_proof(&proof, Slot::new(7), root));
+}

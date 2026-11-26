@@ -4867,6 +4867,7 @@ impl ApiTester {
                             validator_committee_index: duty.committee_position as u64,
                             slot: duty.slot,
                             is_aggregator: None,
+                            aggregator_position: None,
                         };
 
                         let result = result_duties

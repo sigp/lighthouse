@@ -224,6 +224,7 @@ pub fn get_validator_aggregate_attestation<T: BeaconChainTypes>(
                         query.slot,
                         &query.attestation_data_root,
                         query.committee_index,
+                        query.aggregator_position,
                         endpoint_version,
                         chain,
                         accept_header,

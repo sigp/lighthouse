@@ -1,4 +1,4 @@
-FROM rust:1.91.0-bookworm AS builder
+FROM rust:1.99.1-bookworm AS builder
 RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev clang
 ARG FEATURES
 ARG PROFILE=release
@@ -22,3 +22,5 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-reco
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/cargo/bin/lighthouse /usr/local/bin/lighthouse
+COPY --from=builder /lighthouse/scripts/local_testnet/pq-genesis/lighthouse-pq-bn /usr/local/bin/lighthouse-pq-bn
+COPY --from=builder /lighthouse/leanvm-revision /usr/local/share/lighthouse/leanvm-revision

@@ -38,7 +38,7 @@ pub fn statements_to_claims(statements: &[Statement]) -> AggregateClaims {
     }
 }
 
-/// [`statements_to_claims`] in the sidecar protocol's byte form (`AggregateClaims::to_bytes`):
+/// [`statements_to_claims`] in leanVM's byte form (`AggregateClaims::to_bytes`):
 ///
 /// | field | type |
 /// | --- | --- |
@@ -73,7 +73,7 @@ mod tests {
     }
 
     #[test]
-    fn claims_bytes_match_the_sidecar_format() {
+    fn claims_bytes_match_the_leanvm_format() {
         // Out of order within and across statements, with one repeated claim, and one key
         // signing two messages. The leaf index does not appear.
         let mut low_key = [3; 32];
@@ -96,7 +96,7 @@ mod tests {
             },
         ];
 
-        // Written out by hand from the format in the sidecar's README.
+        // Written out by hand from the format in leanVM's canonical claims format.
         let mut expected = Vec::new();
         expected.extend_from_slice(&5u64.to_le_bytes());
         for (key, message) in [

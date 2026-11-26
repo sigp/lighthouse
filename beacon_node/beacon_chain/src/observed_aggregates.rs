@@ -738,3 +738,61 @@ mod tests {
         get_attestation
     );
 }
+
+#[cfg(test)]
+mod pq_stagger_tests {
+    use super::*;
+    use types::{AttestationPq, Checkpoint, CommitteeBitsPq, MinimalEthSpec};
+
+    fn aggregate(
+        signers: &[usize],
+        committee: usize,
+        root: Hash256,
+    ) -> Attestation<MinimalEthSpec> {
+        let mut aggregation_bits = ProgressiveBitList::with_capacity(4);
+        for &signer in signers {
+            aggregation_bits.set(signer, true).unwrap();
+        }
+        let mut committee_bits = CommitteeBitsPq::<MinimalEthSpec>::default();
+        committee_bits.set(committee, true).unwrap();
+        Attestation::Pq(AttestationPq {
+            aggregation_bits,
+            committee_bits,
+            data: AttestationData {
+                slot: Slot::new(1),
+                index: 0,
+                beacon_block_root: root,
+                source: Checkpoint::default(),
+                target: Checkpoint::default(),
+            },
+        })
+    }
+
+    #[test]
+    fn only_one_same_committee_same_data_superset_suppresses_publication() {
+        let mut observed = ObservedAggregateAttestations::<MinimalEthSpec>::default();
+        let candidate = aggregate(&[0, 1], 0, Hash256::ZERO);
+        let known = |observed: &mut ObservedAggregateAttestations<MinimalEthSpec>| {
+            observed
+                .is_known_subset(
+                    candidate.as_reference(),
+                    candidate.as_reference().root().unwrap(),
+                )
+                .unwrap()
+        };
+        assert!(!known(&mut observed));
+        for partial in [
+            aggregate(&[0], 0, Hash256::ZERO),
+            aggregate(&[1], 0, Hash256::ZERO),
+            aggregate(&[0, 1, 2], 1, Hash256::ZERO),
+            aggregate(&[0, 1, 2], 0, Hash256::repeat_byte(1)),
+        ] {
+            observed.observe_item(partial.as_reference(), None).unwrap();
+            assert!(!known(&mut observed));
+        }
+        observed
+            .observe_item(candidate.as_reference(), None)
+            .unwrap();
+        assert!(known(&mut observed));
+    }
+}

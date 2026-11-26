@@ -816,12 +816,13 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.paranoid_block_proposal = cli_args.get_flag("paranoid-block-proposal");
 
     client_config.chain.ignore_ws_check = cli_args.get_flag("ignore-ws-check");
-    let pq_socket = clap_utils::parse_optional(cli_args, "pq-prover-socket")?;
-    if spec.is_pq_scheduled() && pq_socket.is_none() {
-        return Err("A PQ network requires --pq-prover-socket".into());
-    }
     client_config.chain.pq_prover =
-        pq_socket.map(beacon_chain::chain_config::PqProverConfig::Sidecar);
+        spec.is_pq_scheduled()
+            .then_some(beacon_chain::chain_config::PqProverConfig::InProcess {
+                threads: *cli_args
+                    .get_one::<usize>("pq-prover-threads")
+                    .ok_or("Missing PQ prover threads")?,
+            });
     client_config.chain.pq_aggregate_all = cli_args.get_flag("pq-aggregate-all");
     client_config.chain.pq_measurement = cli_args.get_flag("pq-measurement");
     client_config.chain.pq_timing_output =

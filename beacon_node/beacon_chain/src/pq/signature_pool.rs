@@ -1,6 +1,6 @@
 use super::{
     measurement::{Job, ns, proof_id},
-    prover_scheduler::{Attempt, committee_window},
+    prover_scheduler::{Attempt, Window},
 };
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use operation_pool::CompactIndexedAttestationPq;
@@ -11,6 +11,7 @@ use state_processing::pq;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
+    time::Duration,
 };
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -28,15 +29,14 @@ pub(super) struct CommitteeInputs {
     data: AttestationData,
     committee_index: u64,
     committee_len: usize,
-    signatures: BTreeMap<usize, (u64, XmssSignature)>,
+    signatures: BTreeMap<usize, (u64, XmssSignature, Duration)>,
 }
 
 #[derive(Default)]
 pub(crate) struct SignaturePool<E: EthSpec> {
     raw: BTreeMap<Key, Arc<CommitteeInputs>>,
     seen: BTreeSet<Key>,
-    proven: BTreeMap<Key, Arc<CompactIndexedAttestationPq<E>>>,
-    closed_committees: BTreeSet<(Slot, u64)>,
+    proven: BTreeMap<(Key, u64), Arc<CompactIndexedAttestationPq<E>>>,
 }
 
 impl<E: EthSpec> SignaturePool<E> {
@@ -44,20 +44,20 @@ impl<E: EthSpec> SignaturePool<E> {
         let earliest = now.saturating_sub(RETAIN_SLOTS - 1);
         self.raw.retain(|(slot, _, _), _| *slot >= now);
         self.seen.retain(|(slot, _, _)| *slot >= now);
-        self.proven.retain(|(slot, _, _), _| *slot >= earliest);
-        self.closed_committees.retain(|(slot, _)| *slot >= now);
+        self.proven.retain(|((slot, _, _), _), _| *slot >= earliest);
     }
 
     pub(super) fn insert(
         &mut self,
         now: Slot,
+        received_at: Duration,
         attestation: &SingleAttestationPq,
         bits: &ProgressiveBitList,
     ) -> Option<usize> {
         self.prune(now);
         let slot = attestation.data.slot;
         let committee = attestation.committee_index;
-        if slot < now || self.closed_committees.contains(&(slot, committee)) {
+        if slot < now || committee as usize >= E::max_committees_per_slot_pq() {
             return None;
         }
         let position = bits.iter().position(|bit| bit)?;
@@ -67,11 +67,12 @@ impl<E: EthSpec> SignaturePool<E> {
                 return None;
             }
             let first_key = (slot, Hash256::ZERO, 0);
-            let max_groups = E::max_committees_per_slot_pq().saturating_mul(4);
+            let max_groups = 4;
             if self
                 .seen
                 .range(first_key..)
                 .take_while(|(entry_slot, _, _)| *entry_slot == slot)
+                .filter(|(_, _, index)| *index == committee)
                 .take(max_groups)
                 .count()
                 == max_groups
@@ -93,7 +94,11 @@ impl<E: EthSpec> SignaturePool<E> {
         }
         Arc::make_mut(inputs).signatures.insert(
             position,
-            (attestation.attester_index, attestation.signature.clone()),
+            (
+                attestation.attester_index,
+                attestation.signature.clone(),
+                received_at,
+            ),
         );
         self.best(slot, committee)
             .map(|(_, inputs)| inputs.signatures.len())
@@ -108,10 +113,29 @@ impl<E: EthSpec> SignaturePool<E> {
             .map(|(key, inputs)| (*key, inputs))
     }
 
-    fn take(&mut self, key: Key) -> Option<Arc<CommitteeInputs>> {
-        let inputs = self.raw.remove(&key)?;
-        self.closed_committees.insert((key.0, key.2));
-        Some(inputs)
+    // Keep collecting for later aggregator positions. Each job reads an immutable cutoff view.
+    fn best_at(
+        &self,
+        slot: Slot,
+        committee: u64,
+        cutoff: Duration,
+    ) -> Option<(Key, Arc<CommitteeInputs>)> {
+        let (key, inputs) = self
+            .raw
+            .iter()
+            .filter(|((entry_slot, _, index), _)| *entry_slot == slot && *index == committee)
+            .max_by_key(|(_, inputs)| {
+                inputs
+                    .signatures
+                    .values()
+                    .filter(|(_, _, received)| *received <= cutoff)
+                    .count()
+            })?;
+        let mut inputs = (**inputs).clone();
+        inputs
+            .signatures
+            .retain(|_, (_, _, received)| *received <= cutoff);
+        (!inputs.signatures.is_empty()).then(|| (*key, Arc::new(inputs)))
     }
 }
 
@@ -137,14 +161,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .pq_aggregate_all
             .then(|| self.pq_committee_window(vote_slot))
             .flatten();
-        if provers
+        // Retain bounded current-slot inputs even before a local duty is discovered. A reorg
+        // or delayed subscription can then use the correct pre-cutoff snapshot instead of
+        // collecting after its cutoff. Only subscribed/verified gossip reaches this pool.
+        // Raw inputs expire on the next slot; verified near-future gossip can also be
+        // retained within the gossip clock disparity. Each committee has at most four
+        // vote-data groups and one signature per validated position per group.
+        let last_position = types::consts::pq::AGGREGATORS_PER_COMMITTEE.saturating_sub(1);
+        let Some(last_window) = self.pq_committee_window_at(vote_slot, last_position) else {
+            return;
+        };
+        if now >= last_window.start {
+            return;
+        }
+        provers
             .scheduler
-            .accept_committee_input(now, vote_slot, committee, debug_window)
-            && let Some(priority) = self.pq_signatures.lock().insert(slot, attestation, bits)
+            .accept_committee_input(now, vote_slot, committee, debug_window);
+        if let Some(priority) = self
+            .pq_signatures
+            .lock()
+            .insert(slot, now, attestation, bits)
         {
             provers
                 .scheduler
-                .committee_changed(vote_slot, committee, priority);
+                .committee_changed(now, vote_slot, committee, priority);
         }
     }
 
@@ -152,11 +192,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         slot: Slot,
     ) -> Option<super::prover_scheduler::Window> {
-        Some(committee_window(
-            self.slot_clock.start_of(slot)?,
-            self.spec.get_attestation_due::<T::EthSpec>(slot),
-            self.spec.get_aggregate_attestation_due::<T::EthSpec>(slot),
-        ))
+        self.pq_committee_window_at(slot, 0)
+    }
+
+    pub(super) fn pq_committee_window_at(&self, slot: Slot, position: u64) -> Option<Window> {
+        let start = self.slot_clock.start_of(slot)?;
+        Some(Window {
+            start: start.saturating_add(self.spec.get_pq_aggregation_cutoff(position)),
+            end: start.saturating_add(self.spec.get_pq_aggregate_due(position)),
+        })
     }
 
     pub fn pq_aggregate(
@@ -164,11 +208,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         data_root: Hash256,
         committee: u64,
+        position: u64,
     ) -> Option<Arc<CompactIndexedAttestationPq<T::EthSpec>>> {
         self.pq_signatures
             .lock()
             .proven
-            .get(&(slot, data_root, committee))
+            .get(&((slot, data_root, committee), position))
             .cloned()
     }
 
@@ -177,6 +222,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         job: Attempt,
         slot: Slot,
         committee: u64,
+        position: u64,
         trace: &Job<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         let Some(provers) = &self.pq_provers else {
@@ -189,8 +235,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             self.pq_signatures
                 .lock()
-                .best(slot, committee)
-                .map(|(key, inputs)| (Some(key), Arc::clone(inputs)))
+                .best_at(slot, committee, job.cutoff())
+                .map(|(key, inputs)| (Some(key), inputs))
         };
         let Some((key, input)) = input else {
             trace.emit(
@@ -208,27 +254,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let Some(now) = self.slot_clock.now_duration() else {
             return Ok(());
         };
+        // Several local aggregators may have identical cutoff inputs. Reuse our own
+        // completed proof, while keeping each position's independent broadcast time.
+        if let Some(key) = key {
+            let cached = self
+                .pq_signatures
+                .lock()
+                .proven
+                .range((key, 0)..=(key, u64::MAX))
+                .find(|(_, entry)| entry.statement == statement && entry.attestation == attestation)
+                .map(|(_, entry)| Arc::clone(entry));
+            if let Some(cached) = cached {
+                if provers.scheduler.committee_result_is_current(now, job) {
+                    self.pq_signatures
+                        .lock()
+                        .proven
+                        .insert((key, position), cached);
+                    trace.emit(
+                        "candidate_ready",
+                        "reused",
+                        now,
+                        || json!({"committee": committee, "aggregator_position": position}),
+                    );
+                    provers.scheduler.skip(job);
+                }
+                return Ok(());
+            }
+        }
         let Some(active) = provers.scheduler.start(now, job) else {
             return Ok(());
         };
-        if let Some(key) = key {
-            let remaining = {
-                let mut pool = self.pq_signatures.lock();
-                if pool.take(key).is_none() {
-                    active.release_unused();
-                    return Ok(());
-                }
-                pool.best(slot, committee)
-                    .map_or(0, |(_, input)| input.signatures.len())
-            };
-            provers
-                .scheduler
-                .committee_changed(slot, committee, remaining);
-        }
         trace.emit("experiment_selected", "selected", now, || {
             use tree_hash::TreeHash;
             json!({
-                "committee": committee, "signature_count": signatures.len(),
+                "committee": committee, "aggregator_position": position, "signature_count": signatures.len(),
                 "committee_size": input.committee_len,
                 "unique_claims": statement.pubkeys.len(),
                 "vote_data_root": input.data.tree_hash_root(),
@@ -309,7 +368,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         if let Some(key) = key {
             let publication_id = trace.detailed().then(|| proof_id(&aggregate.proof));
-            self.pq_signatures.lock().proven.insert(key, aggregate);
+            self.pq_signatures
+                .lock()
+                .proven
+                .insert((key, position), aggregate);
             trace.emit(
                 "candidate_ready",
                 "ready",
@@ -354,7 +416,7 @@ impl CommitteeInputs {
         committee_bits.set(self.committee_index as usize, true)?;
         let mut indices = Vec::new();
         let mut signatures = Vec::new();
-        for (&position, (index, signature)) in &self.signatures {
+        for (&position, (index, signature, _)) in &self.signatures {
             if committee.committee.get(position).copied() == Some(*index as usize) {
                 aggregation_bits.set(position, true)?;
                 indices.push(*index);
@@ -399,18 +461,121 @@ mod tests {
     }
 
     #[test]
-    fn raw_signatures_deduplicate_and_close_after_dispatch() {
+    fn staggered_cutoffs_keep_late_signatures_for_later_positions() {
         let mut pool = SignaturePool::<Spec>::default();
         let slot = Slot::new(3);
         let mut bits = ProgressiveBitList::with_capacity(2);
+        bits.set(0, true).unwrap();
+        let first = attestation(slot, 123, Hash256::ZERO);
+        assert_eq!(
+            pool.insert(slot, Duration::from_secs(4), &first, &bits),
+            Some(1)
+        );
+        assert_eq!(
+            pool.insert(slot, Duration::from_secs(4), &first, &bits),
+            None
+        );
+        let early = pool.best_at(slot, 0, Duration::from_secs(5)).unwrap().1;
+        bits.set(0, false).unwrap();
         bits.set(1, true).unwrap();
-        let attestation = attestation(slot, 123, Hash256::ZERO);
-        assert_eq!(pool.insert(slot, &attestation, &bits), Some(1));
-        assert_eq!(pool.insert(slot, &attestation, &bits), None);
-        let job = pool.take(pool.best(slot, 0).unwrap().0).unwrap();
-        assert_eq!(job.signatures.get(&1).map(|(index, _)| *index), Some(123));
-        assert_eq!(pool.insert(slot, &attestation, &bits), None);
-        assert!(pool.raw.is_empty());
+        let late = attestation(slot, 124, Hash256::ZERO);
+        assert_eq!(
+            pool.insert(slot, Duration::from_secs(6), &late, &bits),
+            Some(2)
+        );
+        assert_eq!(early.signatures.len(), 1);
+        assert_eq!(
+            pool.best_at(slot, 0, Duration::from_secs(5))
+                .unwrap()
+                .1
+                .signatures
+                .len(),
+            1
+        );
+        assert_eq!(
+            pool.best_at(slot, 0, Duration::from_secs(6))
+                .unwrap()
+                .1
+                .signatures
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn late_and_reassigned_duties_use_only_their_cutoff_inputs() {
+        use crate::pq::prover_scheduler::{ProverScheduler, Window};
+        let mut pool = SignaturePool::<Spec>::default();
+        let scheduler = Arc::new(ProverScheduler::<Spec>::default());
+        let slot = Slot::new(3);
+        let mut bits = ProgressiveBitList::with_capacity(2);
+        bits.set(0, true).unwrap();
+        pool.insert(
+            slot,
+            Duration::from_millis(40_000),
+            &attestation(slot, 0, Hash256::ZERO),
+            &bits,
+        );
+        bits.set(0, false).unwrap();
+        bits.set(1, true).unwrap();
+        pool.insert(
+            slot,
+            Duration::from_millis(41_200),
+            &attestation(slot, 1, Hash256::ZERO),
+            &bits,
+        );
+        // Position zero is first learned after its cutoff, but has pre-cutoff inputs.
+        scheduler.replace(
+            Duration::from_millis(41_300),
+            BTreeMap::from([(
+                (slot, 0, 0),
+                Window {
+                    start: Duration::from_millis(40_800),
+                    end: Duration::from_millis(43_200),
+                },
+            )]),
+            BTreeMap::new(),
+            0,
+        );
+        let old = scheduler.next(Duration::from_millis(41_300)).unwrap();
+        assert_eq!(
+            pool.best_at(slot, 0, old.cutoff())
+                .unwrap()
+                .1
+                .signatures
+                .len(),
+            1
+        );
+        // A new head assigns position one. Its later cutoff admits the second signature.
+        scheduler.head_changed();
+        scheduler.replace(
+            Duration::from_millis(41_500),
+            BTreeMap::from([(
+                (slot, 0, 1),
+                Window {
+                    start: Duration::from_millis(41_400),
+                    end: Duration::from_millis(43_800),
+                },
+            )]),
+            BTreeMap::new(),
+            1,
+        );
+        assert!(
+            scheduler
+                .start(Duration::from_millis(41_500), old)
+                .is_none()
+        );
+        let new = scheduler.next(Duration::from_millis(41_500)).unwrap();
+        assert_eq!(
+            pool.best_at(slot, 0, new.cutoff())
+                .unwrap()
+                .1
+                .signatures
+                .len(),
+            2
+        );
+        pool.prune(slot + 1);
+        assert!(pool.best_at(slot, 0, new.cutoff()).is_none());
     }
 
     #[test]
@@ -419,10 +584,15 @@ mod tests {
         let slot = Slot::new(3);
         let mut bits = ProgressiveBitList::with_capacity(1);
         bits.set(0, true).unwrap();
-        let capacity = Spec::max_committees_per_slot_pq() * 4;
+        let capacity = 4;
         for root in 0..=capacity {
             let hash = Hash256::with_last_byte(root as u8);
-            pool.insert(slot, &attestation(slot, root as u64, hash), &bits);
+            pool.insert(
+                slot,
+                Duration::ZERO,
+                &attestation(slot, root as u64, hash),
+                &bits,
+            );
         }
         assert_eq!(pool.raw.len(), capacity);
         pool.prune(slot + 3);

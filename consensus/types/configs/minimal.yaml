@@ -236,3 +236,8 @@ BLOB_SCHEDULE: []
 # Fast Confirmation Rule
 # ---------------------------------------------------------------
 CONFIRMATION_BYZANTINE_THRESHOLD: 25
+
+# PQ staggered attestation aggregation
+AGGREGATION_CUTOFF_BPS: 4000
+AGGREGATE_DUE_BPS_PQ: 6000
+AGGREGATOR_DELAY_BPS: 500

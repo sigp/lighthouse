@@ -1,8 +1,12 @@
-# PQ devnet-0 validator and genesis setup
+# PQ devnet-1 validator and genesis setup
 
-This branch proposes with the full depth-31 Keccak-256 VRF tree from [consensus-specs `2f43bc0`](https://github.com/ethereum/consensus-specs/blob/2f43bc0f989f47af81df390a90bc1f78e2436323/specs/_features/pq/validator.md#vrf-tree). Use a fresh genesis with full-tree roots and matching precomputed data. The older padded genesis and overlay belong to the `pq` branch.
+This branch uses leanVM bindings v0.19.0 (`351f7ae421529ce164ed747eee1f78bdeaec3e80`) in process and the staggered aggregation rules from consensus-specs `4595f0fc`. VRF trees use the secret commitments from [consensus-specs `b5d422b2`](https://github.com/ethereum/consensus-specs/commit/b5d422b255db80c9bbc48f515370655ecc8bf6e5). The final shared devnet consensus pin is still being coordinated.
 
-The BLS keystore still provides the signing secret for `SHA256("vrf-seed" || bls_secret_key_bytes)`. Lighthouse derives the first `2^20` leaves locally and completes their proofs using the upper 11 siblings from the precomputed state. It validates all 31 siblings of the slot-zero record and authenticates the record against the validator’s on-chain root. It uses the same beacon endpoint to verify the VC’s genesis validators root and resolve the derived XMSS validator identity. The precomputed data covers slots 0 through `2^20 - 1`. Proposals at later slots require artifacts and software that cover additional subtrees.
+Use a fresh genesis with matching **devnet-1** VRF roots and `.vrf` data. Devnet-0 VRF state is incompatible. XMSS public keys and BLS-derived key seeds are unchanged.
+
+The BLS keystore provides the secret for `SHA256("vrf-seed" || bls_secret_key_bytes)`. For slot `i`, the revealed secret is `Keccak256("VRF_SECRET" || vrf_seed || uint64_le(i))`; the committed leaf is `Keccak256("VRF_LEAF" || secret || uint64_le(i))`. Merkle branches contain commitments, not neighboring slot secrets.
+
+Lighthouse derives the first `2^20` leaves locally and completes proofs using the upper 11 siblings from precomputed state. It validates all 31 siblings of the slot-zero record and authenticates the record against the validator's on-chain root. The same beacon endpoint verifies the VC's genesis validators root and resolves the derived XMSS validator identity. Supported slots are 0 through `2^20 - 1`; later proposals fail closed until additional subtrees are supported.
 
 ## Validator client
 
@@ -14,29 +18,26 @@ Use `--xmss-cache-url` with an HTTP(S) URL, local path or `file://` URI to skip 
 
 For a pathless keystore, place a companion `.bin` file alongside the cache using the same basename. The companion file uses the genesis generator format of a 32-byte XMSS key and a 32-byte VRF root per derivation index. The VC can also locate a pathless XMSS record by matching the registered VRF root in `--vrf-state-url` when the two artifacts have the same record order. A keystore with an EIP-2334 voting path can fetch its record directly. An incorrect index fails full-key verification and falls back to local generation.
 
-The VC prefers its authenticated local cache under `validators/xmss-cache`. If the record is unavailable, corrupt or for another key, the VC builds the trees locally. The v0.15 update replaces the old disk cache format and leaves the slashing-protection database in use. Cache import, regeneration and rolling preparation do not reserve signing leaves.
+The VC prefers its authenticated local cache under `validators/xmss-cache`. If the record is unavailable, corrupt or for another key, the VC builds the trees locally. The authenticated local disk cache and slashing-protection database remain in use. leanVM v0.19 defaults to eight cached bottom trees. A dedicated background worker prepares the current and next slot-duty and attestation trees, outside the signing semaphore, before each boundary; it logs start, progress and completion. Cache import, regeneration and rolling preparation do not reserve signing leaves.
 
-## Kurtosis
+## Building and running
 
-Use [ethereum-package `ceea2de`](https://github.com/ethpandaops/ethereum-package/tree/ceea2defd746d1c402fa92e91769a2b202d6ad16) or a later compatible release. The package uses `lighthouse-pq-bn` for the beacon node and passes `vrf_state_url` and `xmss_cache_url` to Lighthouse validator clients. Use the devnet-0 image for both the beacon node and validator client. The image includes the [Lighthouse prover supervisor](lighthouse-pq-bn) and the sidecar built from [`leanvm-revision`](../../../leanvm-revision). Check the installed sidecar commit at `/usr/local/share/lighthouse/leanvm-revision` inside the image. The bindings 0.16 update preserves the 0.15 XMSS cache and aggregation proof formats. Devnet-0 continues to use the existing full-tree VRF format.
+The stock repository `Dockerfile` uses Rust 1.99.1 to build the in-process signer/prover/verifier at the revision in [`leanvm-revision`](../../../leanvm-revision). leanVM v0.19 uses library features unavailable in the old Rust 1.91 image. Cargo uses the pinned `scripts/leanvm-tier-rustc` wrapper to compile leanVM CPU tiers; the prover selects its CPU implementation at runtime. There is no sidecar process or prover socket. Run `lighthouse beacon_node` normally. The image also includes the `lighthouse-pq-bn` compatibility entry point expected by ethereum-package; it directly executes Lighthouse.
 
-The `linux/amd64` image contains five prover profiles, ordered from `generic` through `portable`, `avx2`, `avx2-gfni` and `avx512`. The launcher selects the highest profile supported by every CPU in its Linux affinity mask and logs the selected profile on startup. Set `LEANVM_CPU_PROFILE` to request a lower profile for troubleshooting. A profile that requires unavailable CPU features fails before launching the prover. The `linux/arm64` image runs its single portable sidecar directly.
+Use the `pq-devnet-1` image for both BN and VC. The package passes `vrf_state_url` and `xmss_cache_url` to Lighthouse validator clients. The supported local interop configuration is `.github/tests/pq-devnet-1.yaml` on [ethereum-package's `pq` branch](https://github.com/ethpandaops/ethereum-package/tree/pq). Use its devnet-1 genesis artifacts when published, not old devnet-0 roots or the old pinned generator image. As of November 26 the package's public VRF URL still returned the devnet-0 artifact; those records are deliberately rejected by this branch.
 
-The package supplies the following artifact defaults for its publicly known devnet mnemonic. For another mnemonic, configure the URLs for its matching genesis key/root records, VRF state and XMSS caches. `xmss_pubkey_url` supplies the genesis generator with a base directory of `<mnemonic fingerprint>.bin` files.
-
-```yaml
-network_params:
-  pq_fork_epoch: 0
-  xmss_pubkey_url: https://pub-9ca7c570d1d646ab9412620dce6f55d2.r2.dev
-  vrf_state_url: https://pub-9ca7c570d1d646ab9412620dce6f55d2.r2.dev/b9dec4e1daa17dfe.vrf
-  xmss_cache_url: https://pub-9ca7c570d1d646ab9412620dce6f55d2.r2.dev/b9dec4e1daa17dfe.xmss
-
-ethereum_genesis_generator_params:
-  image: ethpandaops/ethereum-genesis-generator:pq@sha256:296c352575e5d6cb2bf22e179165f21c39a8114f27804540c2b84bf806820e33
+```sh
+kurtosis run github.com/ethpandaops/ethereum-package@pq \
+  --args-file https://raw.githubusercontent.com/ethpandaops/ethereum-package/pq/.github/tests/pq-devnet-1.yaml \
+  --image-download always
 ```
 
-The artifact Git blob is `d562bf0b05b14e780b61842d7a04fe82f93ed7f0`. Its SHA-256 is `fee0d20ffdcb409774300f3209fb42058fbd521ce4a3209ece6c8cab62ea784b`. The pinned generator reports `git-ff42fce`. An isolated generator smoke run with the public cache and minimal preset produced eight registry roots that match the first eight VRF records.
+For another mnemonic, configure URLs for its matching genesis key/root records, VRF state and XMSS caches. `xmss_pubkey_url` is a base directory of `<mnemonic fingerprint>.bin` files. An unavailable or refused optional XMSS cache falls back to local generation; a matching registered VRF root and valid proof state are required for block proposals.
 
-The [public key artifact](https://github.com/ethpandaops/ethereum-package/blob/d4c9a8ace9dd80ca4f9938885345f8f40a646fd0/static_files/xmss-keys/b9dec4e1daa17dfe.bin) has Git blob `de3e27e434edfad1e222ed45a2ebfab1057eacab` and SHA-256 `5f311ade16c57284c0b3da0a4df197e7d955b9d112bf27fa8f41bb97289c9d1c`.
+The XMSS artifact format remains a top tree plus the two initial bottom trees. The index-zero compatibility fixture is from the public devnet-0 XMSS artifact (SHA-256 `2250ce36f2047783a1227332f87e396b89df6ed0a19b4421caee77303fcf357c`); the unchanged XMSS key derivation permits importing it. VRF fixtures from devnet-0 are retained only to verify rejection of obsolete commitments.
 
-The example XMSS cache URL serves 10,000 keys. The index-zero regression test uses bytes 0–14,695 of that artifact, with SHA-256 `2250ce36f2047783a1227332f87e396b89df6ed0a19b4421caee77303fcf357c`.
+## Timing and interoperability
+
+The BN and VC use position-aware collection and publication deadlines, separated by `AGGREGATOR_DELAY_BPS`. Later aggregators continue collecting after the first proof. A received, validated aggregate suppresses a redundant publication only if it covers every local attester for the same committee and attestation data.
+
+Existing PQ metrics and structured measurement mode remain available. The cross-client telemetry format and the final Beacon API position field are still being coordinated; local BN/VC duties include `aggregator_position`. Do not claim an agreed OpenTelemetry schema from this implementation.

@@ -159,10 +159,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
                 if duty.slot >= clock_slot
                     && self.spec.fork_name_at_slot::<T::EthSpec>(duty.slot) == ForkName::Pq
-                    && pq::is_aggregator(&state, duty.slot, duty.index, validator) == Ok(true)
-                    && let Some(window) = self.pq_committee_window(duty.slot)
+                    && let Ok(Some(position)) =
+                        pq::aggregator_position(&state, duty.slot, duty.index, validator)
+                    && let Some(window) = self.pq_committee_window_at(duty.slot, position)
                 {
-                    committees.insert((duty.slot, duty.index), window);
+                    committees.insert((duty.slot, duty.index, position), window);
                 }
             }
         }

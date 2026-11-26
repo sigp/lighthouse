@@ -68,12 +68,26 @@ pub fn verify_proposer_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ))
 }
 
-pub fn compute_vrf_leaf(seed: &[u8; 32], index: u64) -> Hash256 {
-    let mut input = [0; 40];
-    let (seed_bytes, index_bytes) = input.split_at_mut(32);
+/// Derive a slot secret without exposing the secrets for adjacent slots in its Merkle branch.
+pub fn compute_vrf_secret(seed: &[u8; 32], index: u64) -> Hash256 {
+    let mut input = [0; 50];
+    let (domain, rest) = input.split_at_mut(10);
+    domain.copy_from_slice(b"VRF_SECRET");
+    let (seed_bytes, index_bytes) = rest.split_at_mut(32);
     seed_bytes.copy_from_slice(seed);
     index_bytes.copy_from_slice(&index.to_le_bytes());
     // VRF seed preimages must stay out of the shared Keccak cache.
+    keccak256_uncached(input)
+}
+
+/// Commit to both the slot secret and its absolute index (PQ spec b5d422b2).
+pub fn compute_vrf_leaf(secret: &[u8; 32], index: u64) -> Hash256 {
+    let mut input = [0; 48];
+    let (domain, rest) = input.split_at_mut(8);
+    domain.copy_from_slice(b"VRF_LEAF");
+    let (secret_bytes, index_bytes) = rest.split_at_mut(32);
+    secret_bytes.copy_from_slice(secret);
+    index_bytes.copy_from_slice(&index.to_le_bytes());
     keccak256_uncached(input)
 }
 
@@ -87,19 +101,17 @@ pub fn hash_vrf_node(left: Hash256, right: Hash256) -> Hash256 {
 
 pub fn is_valid_vrf_proof(proof: &VrfProof, slot: Slot, root: Hash256) -> bool {
     // The fixed-length branch uses the low VRF_TREE_DEPTH bits of the slot.
-    proof.split_first().is_some_and(|(leaf, branch)| {
-        branch
-            .iter()
-            .copied()
-            .enumerate()
-            .fold(*leaf, |value, (height, sibling)| {
+    proof.split_first().is_some_and(|(secret, branch)| {
+        branch.iter().copied().enumerate().fold(
+            compute_vrf_leaf(&secret.0, slot.as_u64()),
+            |value, (height, sibling)| {
                 if (slot.as_u64() >> height) & 1 == 1 {
                     hash_vrf_node(sibling, value)
                 } else {
                     hash_vrf_node(value, sibling)
                 }
-            })
-            == root
+            },
+        ) == root
     })
 }
 
@@ -111,6 +123,15 @@ pub fn is_aggregator<E: EthSpec>(
     committee_index: u64,
     validator_index: u64,
 ) -> Result<bool, BeaconStateError> {
+    Ok(aggregator_position(state, slot, committee_index, validator_index)?.is_some())
+}
+
+pub fn aggregator_position<E: EthSpec>(
+    state: &BeaconState<E>,
+    slot: Slot,
+    committee_index: u64,
+    validator_index: u64,
+) -> Result<Option<u64>, BeaconStateError> {
     let window_start = state
         .current_epoch()
         .saturating_sub(1u64)
@@ -131,7 +152,8 @@ pub fn is_aggregator<E: EthSpec>(
         .get(position as usize)
         .ok_or(BeaconStateError::SlotOutOfBounds)?
         .get(committee_index as usize)
-        .is_some_and(|committee| committee.contains(&validator_index)))
+        .and_then(|committee| committee.iter().position(|index| *index == validator_index))
+        .map(|position| position as u64))
 }
 
 /// Attesters in each selected committee's shuffle order, with committees in increasing order.

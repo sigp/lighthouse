@@ -54,7 +54,7 @@ pub const CACHE_BOTTOM_TREE_SIZE: usize = 5_300;
 
 /// Upper bound for the compact tree payload, excluding any caller-provided framing.
 pub const MAX_CACHE_SIZE: usize =
-    CACHE_TOP_TREE_SIZE + backend::MAX_CACHED_BOTTOM_TREES * CACHE_BOTTOM_TREE_SIZE;
+    CACHE_TOP_TREE_SIZE + backend::DEFAULT_BOTTOM_TREE_CACHE_SIZE * CACHE_BOTTOM_TREE_SIZE;
 
 /// The unique bottom tree indices in a well-framed cache payload, in sorted order.
 pub fn cache_tree_indices(bytes: &[u8]) -> Option<Vec<u32>> {
