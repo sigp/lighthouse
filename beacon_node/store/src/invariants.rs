@@ -169,8 +169,7 @@ pub enum InvariantViolation {
     /// Invariant 9: pubkey cache consistency.
     ///
     /// ```text
-    /// state_summary in hot_db
-    ///   -> all validator pubkeys from state.validators are in the hot_db
+    /// pubkey in pubkey_cache -> pubkey in hot_db(PubkeyCache)
     /// ```
     PubkeyCacheMissing { validator_index: usize },
     /// Invariant 9b: pubkey cache value mismatch.
@@ -832,11 +831,11 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     /// Invariant 9 (Hot DB): Pubkey cache consistency.
     ///
     /// ```text
-    /// all validator pubkeys from states are in hot_db(PubkeyCache)
+    /// all validator pubkeys from the in-memory pubkey cache are in hot_db(PubkeyCache)
     /// ```
     ///
-    /// Checks that the in-memory pubkey cache and the on-disk PubkeyCache column have the same
-    /// number of entries AND that each pubkey matches at every validator index.
+    /// Checks that every pubkey in the in-memory pubkey cache is present in the on-disk PubkeyCache
+    /// column AND that each pubkey matches at every validator index.
     fn check_pubkey_cache_consistency(
         &self,
         ctx: &InvariantContext,
