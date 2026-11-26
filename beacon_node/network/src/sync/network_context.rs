@@ -12,6 +12,7 @@ use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 #[cfg(test)]
 use crate::network_beacon_processor::TestBeaconChainType;
+use crate::network_beacon_processor::sync_methods::WhichPeerToPenalize;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::batch::ByRangeRequestType;
@@ -195,6 +196,44 @@ impl PeerGroup {
     }
 }
 
+/// Who served a range sync batch: one peer for the blocks, plus whoever custodies each column.
+#[derive(Clone, Debug)]
+pub struct BatchPeers {
+    block_peer: PeerId,
+    columns: PeerGroup,
+}
+
+impl BatchPeers {
+    pub fn new(block_peer: PeerId, columns: PeerGroup) -> Self {
+        Self {
+            block_peer,
+            columns,
+        }
+    }
+
+    /// Custody backfill has no block peer, and records the peer that served the columns here.
+    pub fn new_without_columns(block_peer: PeerId) -> Self {
+        Self {
+            block_peer,
+            columns: PeerGroup::from_set(Default::default()),
+        }
+    }
+
+    pub fn block_peer(&self) -> PeerId {
+        self.block_peer
+    }
+
+    /// Empty if no peer is on record for that column.
+    pub fn peers_to_penalize(&self, which: WhichPeerToPenalize) -> Vec<PeerId> {
+        match which {
+            WhichPeerToPenalize::BlockPeer => vec![self.block_peer],
+            WhichPeerToPenalize::CustodyPeerForColumn(index) => {
+                self.columns.of_index(index as usize).copied().collect()
+            }
+        }
+    }
+}
+
 /// Sequential ID that uniquely identifies ReqResp outgoing requests
 pub type ReqId = u32;
 
@@ -276,6 +315,7 @@ pub enum RangeBlockComponent<E: EthSpec> {
     Blob(
         BlobsByRangeRequestId,
         RpcResponseResult<Vec<Arc<BlobSidecar<E>>>>,
+        PeerId,
     ),
     /// Custody-by-root result for a whole range batch. Arrives after blocks and carries the
     /// custody columns of every data-bearing block, fetched via a single ActiveCustodyRequest.
@@ -283,6 +323,7 @@ pub enum RangeBlockComponent<E: EthSpec> {
     PayloadEnvelope(
         PayloadEnvelopesByRangeRequestId,
         RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
+        PeerId,
     ),
 }
 
@@ -637,9 +678,22 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: ComponentsByRangeRequestId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
-    ) -> Option<Result<(PeerId, Vec<RangeSyncBlock<T::EthSpec>>), RpcResponseError>> {
+    ) -> Option<
+        Result<
+            (BatchPeers, Vec<RangeSyncBlock<T::EthSpec>>),
+            (Option<BatchPeers>, RpcResponseError),
+        >,
+    > {
         // Remove from map to allow passing &mut self to continue_requests
         let mut request = self.components_by_range_requests.remove(&id)?;
+
+        // Columns come from many peers at once, so a failed custody result names no single one.
+        let responding_peer = match &range_block_component {
+            RangeBlockComponent::Block(_, _, peer_id)
+            | RangeBlockComponent::Blob(_, _, peer_id)
+            | RangeBlockComponent::PayloadEnvelope(_, _, peer_id) => Some(*peer_id),
+            RangeBlockComponent::CustodyResult(_, _) => None,
+        };
 
         // Add the incoming component
         let add_result = match range_block_component {
@@ -650,7 +704,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 // Record the peer that provided the blocks for batch attribution.
                 Ok(())
             }),
-            RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|blobs| {
+            RangeBlockComponent::Blob(req_id, resp, _) => resp.and_then(|blobs| {
                 request.add_blobs(req_id, blobs).map_err(|e| {
                     RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(e))
                 })
@@ -664,7 +718,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         ))
                     })
             }),
-            RangeBlockComponent::PayloadEnvelope(req_id, resp) => resp.and_then(|envelopes| {
+            RangeBlockComponent::PayloadEnvelope(req_id, resp, _) => resp.and_then(|envelopes| {
                 request
                     .add_payload_envelopes(req_id, envelopes)
                     .map_err(|e| {
@@ -674,26 +728,33 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     })
             }),
         };
+        // A request that failed is attributable to the peer it was sent to.
         if let Err(e) = add_result {
-            return Some(Err(e));
+            return Some(Err((
+                responding_peer.map(BatchPeers::new_without_columns),
+                e,
+            )));
         }
 
         // Let the coupling struct initiate any follow-up requests (custody-by-root)
         if let Err(e) = request.continue_requests(id, self) {
-            return Some(Err(RpcResponseError::BlockComponentCouplingError(
-                CouplingError::InternalError(e),
+            return Some(Err((
+                None,
+                RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(e)),
             )));
         }
 
         // Check if all components have arrived
-        if let Some((blocks_result, block_peer)) =
+        if let Some((blocks_result, batch_peers)) =
             request.responses(&self.chain.custody_context, self.chain.spec.clone())
         {
-            Some(
-                blocks_result
-                    .map(|blocks| (block_peer, blocks))
-                    .map_err(RpcResponseError::BlockComponentCouplingError),
-            )
+            Some(match blocks_result {
+                Ok(blocks) => Ok((batch_peers, blocks)),
+                Err(e) => Err((
+                    Some(batch_peers),
+                    RpcResponseError::BlockComponentCouplingError(e),
+                )),
+            })
         } else {
             // Re-insert — still waiting for more components
             self.components_by_range_requests.insert(id, request);
