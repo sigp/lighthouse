@@ -14,7 +14,7 @@ use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
 use beacon_chain::kzg_utils::min_columns_for_reconstruction;
-use beacon_chain::partial_data_column_assembler::UpdatedPartials;
+use beacon_chain::partial_data_column_assembler::{LocalFetchState, UpdatedPartials};
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
     EnvelopeError, EnvelopeSource, gossip_verified_envelope::GossipVerifiedEnvelope,
@@ -1425,14 +1425,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // While the local getBlobs fetch is still pending, don't request cells we may get
                 // for free from the EL; once local blobs are known, request everything we lack.
                 let request_cells = |present_cells: &CellBitmap<T::EthSpec>| {
-                    if merge_result.local_fetch_settled {
-                        // Request all cells that are not available locally.
-                        let mut all_one = present_cells.clone_zeroed();
-                        all_one.not_inplace();
-                        all_one
-                    } else {
-                        // Do not request cells if we don't know the local blobs yet.
-                        present_cells.clone_zeroed()
+                    match &merge_result.local_fetch_state {
+                        LocalFetchState::Unfetched => {
+                            // Do not request cells if we don't know the local blobs yet.
+                            present_cells.clone_zeroed()
+                        }
+                        LocalFetchState::Fetching(cells) => {
+                            // Only request the cells that are not available locally.
+                            cells.not()
+                        }
+                        LocalFetchState::Fetched => {
+                            // Request all cells that are not available locally.
+                            let mut all_one = present_cells.clone_zeroed();
+                            all_one.not_inplace();
+                            all_one
+                        }
                     }
                 };
 

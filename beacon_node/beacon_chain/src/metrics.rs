@@ -1878,6 +1878,13 @@ pub static BLOBS_FROM_EL_ERROR_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::n
     )
 });
 
+pub static HAS_BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_has_blobs_from_el_miss_total",
+        "Number of empty or unsupported engine_hasBlobs responses from the execution layer",
+    )
+});
+
 pub static BLOBS_FROM_EL_EXPECTED: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "beacon_blobs_from_el_expected",
@@ -1988,6 +1995,25 @@ pub static BEACON_ENGINE_GET_BLOBS_V4_REQUEST_DURATION_SECONDS: LazyLock<Result<
         try_create_histogram(
             "beacon_engine_getBlobsV4_request_duration_seconds",
             "Duration of engine_getBlobsV4 requests to the execution layer in seconds",
+        )
+    });
+
+pub static BEACON_ENGINE_HAS_BLOBS_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_hasBlobs_requests_total",
+            "Total number of engine_hasBlobs requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_HAS_BLOBS_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        // `engine_hasBlobs` typically returns in about a millisecond, so the default buckets
+        // (starting at 5ms) cannot resolve it. Use 100us..~800ms instead.
+        try_create_histogram_with_buckets(
+            "beacon_engine_hasBlobs_request_duration_seconds",
+            "Duration of engine_hasBlobs requests to the execution layer in seconds",
+            exponential_buckets(1e-4, 2.0, 14),
         )
     });
 

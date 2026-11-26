@@ -71,6 +71,7 @@ pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 pub const ENGINE_GET_BLOBS_V2: &str = "engine_getBlobsV2";
 pub const ENGINE_GET_BLOBS_V3: &str = "engine_getBlobsV3";
 pub const ENGINE_GET_BLOBS_V4: &str = "engine_getBlobsV4";
+pub const ENGINE_HAS_BLOBS: &str = "engine_hasBlobs";
 pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_INCLUSION_LIST_V1: &str = "engine_getInclusionListV1";
@@ -107,6 +108,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_BLOBS_V3,
     ENGINE_GET_BLOBS_V4,
     ENGINE_GET_INCLUSION_LIST_V1,
+    ENGINE_HAS_BLOBS,
 ];
 
 /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
@@ -790,6 +792,20 @@ impl HttpJsonRpc {
         .map(|response| response.0)
     }
 
+    pub async fn has_blobs(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<Option<Vec<bool>>, Error> {
+        let params = json!([versioned_hashes]);
+
+        self.rpc_request(
+            ENGINE_HAS_BLOBS,
+            params,
+            ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
+    }
+
     pub async fn get_block_by_number(
         &self,
         query: BlockByNumberQuery<'_>,
@@ -1365,6 +1381,7 @@ impl HttpJsonRpc {
             get_blobs_v3: capabilities.contains(ENGINE_GET_BLOBS_V3),
             get_blobs_v4: capabilities.contains(ENGINE_GET_BLOBS_V4),
             get_inclusion_list_v1: capabilities.contains(ENGINE_GET_INCLUSION_LIST_V1),
+            has_blobs: capabilities.contains(ENGINE_HAS_BLOBS),
         })
     }
 

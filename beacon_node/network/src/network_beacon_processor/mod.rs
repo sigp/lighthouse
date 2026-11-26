@@ -2,10 +2,12 @@ use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::data_column_verification::{
-    GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
+    GossipDataColumnError, KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnGloas,
+    observe_gossip_data_column,
 };
 use beacon_chain::fetch_blobs::{
     FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs,
+    fetch_engine_blob_availability,
 };
 use beacon_chain::partial_data_column_assembler::AssemblyColumn;
 use beacon_chain::payload_envelope_verification::EnvelopeSource;
@@ -1017,15 +1019,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        match fetch_and_process_engine_blobs(
+        // Ask the EL which blobs it holds while the blobs themselves are being fetched. The answer
+        // arrives well before the blobs do, so we can already request the cells the EL lacks from
+        // our peers. Both calls run side by side, so a slow answer never delays the fetch, and the
+        // answer is dropped if the fetch finishes first.
+        let availability =
+            self.request_cells_missing_from_el(&header_or_bid, block_root, custody_columns);
+        let fetch = fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            header_or_bid,
+            header_or_bid.clone(),
             custody_columns,
             publish_fn,
-        )
-        .await
-        {
+        );
+        tokio::pin!(availability, fetch);
+        let fetch_result = tokio::select! {
+            biased;
+            fetch_result = &mut fetch => fetch_result,
+            () = &mut availability => fetch.await,
+        };
+
+        match fetch_result {
             Ok(Some(availability)) => match availability {
                 AvailabilityProcessingStatus::Imported(slot, block_root) => {
                     debug!(
@@ -1067,6 +1081,197 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    /// Asks the EL which blobs it holds and requests the cells it lacks from our peers, without
+    /// waiting for the blobs themselves.
+    async fn request_cells_missing_from_el(
+        self: &Arc<Self>,
+        header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
+        block_root: Hash256,
+        custody_columns: &[ColumnIndex],
+    ) {
+        if !self.chain.config.enable_partial_columns {
+            return;
+        }
+        let bitmap = match fetch_engine_blob_availability(self.chain.clone(), header_or_bid).await {
+            Ok(Some(bitmap)) => bitmap,
+            Ok(None) => {
+                debug!(
+                    %block_root,
+                    "No EL blob availability available"
+                );
+                return;
+            }
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    %block_root,
+                    "Error fetching blob availablility from EL"
+                );
+                return;
+            }
+        };
+        if bitmap.is_zero() {
+            debug!(%block_root, "No EL blobs available");
+        } else {
+            debug!(%block_root, %bitmap, "EL blobs available");
+        }
+        let request_cells = bitmap.not();
+
+        // Recording the answer hands back the columns we already hold, so that the request goes
+        // out alongside them instead of replacing them. Nothing is handed back if the fetch state
+        // is already known or settled, in which case there is nothing left to do here.
+        let stored = match header_or_bid {
+            PartialHeaderOrBid::PartialHeader(header) => self
+                .chain
+                .data_availability_checker
+                .partial_assembler()
+                .and_then(|assembler| assembler.set_fetching_cells(block_root, header, bitmap))
+                .map(|columns| Self::fulu_partial_messages(header, columns, &request_cells)),
+            PartialHeaderOrBid::Bid(bid) => self
+                .chain
+                .pending_payload_cache
+                .set_fetching_cells(block_root, bid, bitmap)
+                .map(|partials| Self::gloas_partial_messages(partials, &request_cells)),
+        };
+        let Some(stored) = stored else {
+            return;
+        };
+
+        if request_cells.is_zero() {
+            debug!(%block_root, "EL has all blobs; not publishing empty partials");
+            return;
+        }
+        let messages = Self::add_placeholders(
+            header_or_bid,
+            block_root,
+            custody_columns,
+            stored,
+            &request_cells,
+        );
+        self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
+    }
+
+    /// Turns the columns held by the Fulu partial assembler (complete *and* incomplete) into
+    /// partial messages that each request `request_cells`.
+    fn fulu_partial_messages(
+        header: &Arc<PartialDataColumnHeader<T::EthSpec>>,
+        columns: Vec<AssemblyColumn<T::EthSpec>>,
+        request_cells: &CellBitmap<T::EthSpec>,
+    ) -> Vec<PubsubPartialMessage<T::EthSpec>> {
+        columns
+            .into_iter()
+            .filter_map(|column| {
+                let column = match column {
+                    AssemblyColumn::Incomplete(partial) => partial.into_inner(),
+                    AssemblyColumn::Complete(full) => match full.as_data_column().to_partial() {
+                        Ok(PartialDataColumn::Fulu(fulu)) => Arc::new(fulu),
+                        // The Fulu assembler never holds Gloas columns.
+                        Ok(PartialDataColumn::Gloas(_)) => {
+                            crit!("Found gloas column in Fulu partial assembler");
+                            return None;
+                        }
+                        // Unreachable: DataColumn and CellBitmap share a bound.
+                        Err(err) => {
+                            crit!(?err, "Failed to convert full column to partial");
+                            return None;
+                        }
+                    },
+                };
+                Some(PubsubPartialMessage::DataColumnFulu {
+                    column,
+                    request_cells: request_cells.clone(),
+                    header: header.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// Turns the partial columns held by the pending payload cache into partial messages that
+    /// each request `request_cells`.
+    fn gloas_partial_messages(
+        partials: Vec<KzgVerifiedCustodyPartialDataColumnGloas<T::EthSpec>>,
+        request_cells: &CellBitmap<T::EthSpec>,
+    ) -> Vec<PubsubPartialMessage<T::EthSpec>> {
+        partials
+            .into_iter()
+            .map(|partial| PubsubPartialMessage::DataColumnGloas {
+                column: partial.into_inner(),
+                request_cells: request_cells.clone(),
+            })
+            .collect()
+    }
+
+    /// For each custody column without a message in `messages`, adds an empty placeholder that
+    /// requests `request_cells`.
+    fn add_placeholders(
+        header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
+        block_root: Hash256,
+        custody_columns: &[ColumnIndex],
+        mut messages: Vec<PubsubPartialMessage<T::EthSpec>>,
+        request_cells: &CellBitmap<T::EthSpec>,
+    ) -> Vec<PubsubPartialMessage<T::EthSpec>> {
+        let present_indices: HashSet<ColumnIndex> = messages
+            .iter()
+            .map(|message| match message {
+                PubsubPartialMessage::DataColumnFulu { column, .. } => column.index,
+                PubsubPartialMessage::DataColumnGloas { column, .. } => column.index,
+            })
+            .collect();
+        for col_idx in custody_columns {
+            if present_indices.contains(col_idx) {
+                continue;
+            }
+            messages.push(Self::empty_partial_message(
+                header_or_bid,
+                block_root,
+                *col_idx,
+                request_cells.clone_zeroed(),
+                request_cells.clone(),
+            ));
+        }
+        messages
+    }
+
+    /// Builds a partial message for `column_index` that carries no cells and only requests
+    /// `request_cells` from our peers.
+    fn empty_partial_message(
+        header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
+        block_root: Hash256,
+        column_index: ColumnIndex,
+        cells_present_bitmap: CellBitmap<T::EthSpec>,
+        request_cells: CellBitmap<T::EthSpec>,
+    ) -> PubsubPartialMessage<T::EthSpec> {
+        match header_or_bid {
+            PartialHeaderOrBid::PartialHeader(header) => PubsubPartialMessage::DataColumnFulu {
+                column: Arc::new(PartialDataColumnFulu {
+                    block_root,
+                    index: column_index,
+                    sidecar: PartialDataColumnSidecarFulu {
+                        cells_present_bitmap,
+                        column: VariableList::empty(),
+                        kzg_proofs: VariableList::empty(),
+                        header: None.into(),
+                    },
+                }),
+                request_cells,
+                header: header.clone(),
+            },
+            PartialHeaderOrBid::Bid(_) => PubsubPartialMessage::DataColumnGloas {
+                column: Arc::new(PartialDataColumnGloas {
+                    block_root,
+                    slot: header_or_bid.slot(),
+                    index: column_index,
+                    sidecar: PartialDataColumnSidecarGloas {
+                        cells_present_bitmap,
+                        column: ProgressiveVariableList::empty(),
+                        kzg_proofs: ProgressiveVariableList::empty(),
+                    },
+                }),
+                request_cells,
+            },
+        }
+    }
+
     pub async fn publish_partial_data_columns(
         self: &Arc<Self>,
         header_or_bid: PartialHeaderOrBid<T::EthSpec>,
@@ -1082,116 +1287,48 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let epoch = header_or_bid.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
 
-        let mut present_indices: HashSet<ColumnIndex> = HashSet::new();
-        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = match &header_or_bid {
+        // `kzg_commitments.len()` is bounded by `MaxBlobCommitmentsPerBlock`, so the
+        // bitmap constructor is infallible.
+        let num_cells = header_or_bid.kzg_commitments().len();
+        let Ok(no_cells) = CellBitmap::<T::EthSpec>::with_capacity(num_cells) else {
+            crit!(
+                %block_root,
+                num_cells,
+                "CellBitmap construction failed despite being bounded by MaxBlobCommitmentsPerBlock"
+            );
+            return;
+        };
+        // The local fetch has settled, so request all cells.
+        let request_cells = no_cells.not();
+
+        let stored = match &header_or_bid {
             PartialHeaderOrBid::PartialHeader(header) => {
-                self.chain
+                let columns = self
+                    .chain
                     .data_availability_checker
                     .partial_assembler()
                     .map(|assembler| {
                         assembler.get_columns_and_mark_as_local_fetched(block_root, header)
                     })
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|column| {
-                        let column = match column {
-                            AssemblyColumn::Incomplete(partial) => partial.into_inner(),
-                            AssemblyColumn::Complete(full) => {
-                                match full.as_data_column().to_partial() {
-                                    Ok(PartialDataColumn::Fulu(fulu)) => Arc::new(fulu),
-                                    // The Fulu assembler never holds Gloas columns.
-                                    Ok(PartialDataColumn::Gloas(_)) => {
-                                        crit!("Found gloas column in Fulu partial assembler");
-                                        return None;
-                                    }
-                                    // Unreachable: DataColumn and CellBitmap share a bound.
-                                    Err(err) => {
-                                        crit!(?err, "Failed to convert full column to partial");
-                                        return None;
-                                    }
-                                }
-                            }
-                        };
-                        present_indices.insert(column.index);
-                        let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
-                        request_cells.not_inplace();
-                        Some(PubsubPartialMessage::DataColumnFulu {
-                            column,
-                            request_cells,
-                            header: header.clone(),
-                        })
-                    })
-                    .collect()
+                    .unwrap_or_default();
+                Self::fulu_partial_messages(header, columns, &request_cells)
             }
-            PartialHeaderOrBid::Bid(bid) => self
-                .chain
-                .pending_payload_cache
-                .get_partials_and_mark_as_local_fetched(block_root, bid)
-                .into_iter()
-                .map(|partial| {
-                    present_indices.insert(partial.index());
-                    let column = partial.into_inner();
-                    let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
-                    request_cells.not_inplace();
-                    PubsubPartialMessage::DataColumnGloas {
-                        column,
-                        request_cells,
-                    }
-                })
-                .collect(),
+            PartialHeaderOrBid::Bid(bid) => Self::gloas_partial_messages(
+                self.chain
+                    .pending_payload_cache
+                    .get_partials_and_mark_as_local_fetched(block_root, bid),
+                &request_cells,
+            ),
         };
 
-        // For each custody column without any local partial, send an empty placeholder
-        // that requests all cells.
-        let num_cells = header_or_bid.kzg_commitments().len();
-        for col_idx in custody_columns {
-            if present_indices.contains(col_idx) {
-                continue;
-            }
-            // `kzg_commitments.len()` is bounded by `MaxBlobCommitmentsPerBlock`, so the
-            // bitmap constructor is infallible.
-            let Ok(cells_present_bitmap) = CellBitmap::<T::EthSpec>::with_capacity(num_cells)
-            else {
-                crit!(
-                    %block_root,
-                    num_cells,
-                    column_index = %col_idx,
-                    "CellBitmap construction failed despite being bounded by MaxBlobCommitmentsPerBlock"
-                );
-                continue;
-            };
-            let request_cells = cells_present_bitmap.not();
-            let message = match &header_or_bid {
-                PartialHeaderOrBid::PartialHeader(header) => PubsubPartialMessage::DataColumnFulu {
-                    column: Arc::new(PartialDataColumnFulu {
-                        block_root,
-                        index: *col_idx,
-                        sidecar: PartialDataColumnSidecarFulu {
-                            cells_present_bitmap,
-                            column: VariableList::empty(),
-                            kzg_proofs: VariableList::empty(),
-                            header: None.into(),
-                        },
-                    }),
-                    request_cells,
-                    header: header.clone(),
-                },
-                PartialHeaderOrBid::Bid(_) => PubsubPartialMessage::DataColumnGloas {
-                    column: Arc::new(PartialDataColumnGloas {
-                        block_root,
-                        slot: header_or_bid.slot(),
-                        index: *col_idx,
-                        sidecar: PartialDataColumnSidecarGloas {
-                            cells_present_bitmap,
-                            column: ProgressiveVariableList::empty(),
-                            kzg_proofs: ProgressiveVariableList::empty(),
-                        },
-                    }),
-                    request_cells,
-                },
-            };
-            messages.push(message);
-        }
+        // Custody columns without any local partial get an empty placeholder.
+        let messages = Self::add_placeholders(
+            &header_or_bid,
+            block_root,
+            custody_columns,
+            stored,
+            &request_cells,
+        );
 
         if !messages.is_empty() {
             debug!(

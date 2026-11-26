@@ -6,8 +6,8 @@ use crate::http::{
     ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
-    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
-    ENGINE_NEW_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V6,
+    ENGINE_HAS_BLOBS, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V6,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -672,6 +672,7 @@ pub struct EngineCapabilities {
     pub get_blobs_v3: bool,
     pub get_blobs_v4: bool,
     pub get_inclusion_list_v1: bool,
+    pub has_blobs: bool,
 }
 
 impl EngineCapabilities {
@@ -748,6 +749,9 @@ impl EngineCapabilities {
         }
         if self.get_inclusion_list_v1 {
             response.push(ENGINE_GET_INCLUSION_LIST_V1);
+        }
+        if self.has_blobs {
+            response.push(ENGINE_HAS_BLOBS);
         }
 
         response

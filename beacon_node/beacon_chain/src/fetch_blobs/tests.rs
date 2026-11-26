@@ -4,6 +4,7 @@ use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
 use crate::fetch_blobs::{
     FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs_inner,
+    fetch_engine_blob_availability_inner,
 };
 use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::pending_payload_cache::PendingPayloadCache;
@@ -795,6 +796,184 @@ fn mock_publish_fn() -> (
         lock.push(args);
     };
     (publish_fn, captured_args)
+}
+
+mod has_blobs {
+    use super::*;
+    use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
+    use types::{CellBitmap, PartialDataColumnHeader};
+
+    fn fulu_header(block: &SignedBeaconBlock<E>) -> PartialHeaderOrBid<E> {
+        PartialHeaderOrBid::PartialHeader(Arc::new(
+            PartialDataColumnHeader::try_from(block).unwrap(),
+        ))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn no_kzg_commitments_returns_none() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        // Should not call EL when there are no commitments to query.
+        mock_adapter.expect_supports_has_blobs().times(0);
+        mock_adapter.expect_has_blobs().times(0);
+
+        let block = SignedBeaconBlock::<E>::Fulu(SignedBeaconBlockFulu {
+            message: BeaconBlockFulu::empty(mock_adapter.spec()),
+            signature: Signature::empty(),
+        });
+        let header = fulu_header(&block);
+
+        let result = fetch_engine_blob_availability_inner(mock_adapter, &header)
+            .await
+            .expect("should succeed");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unsupported_capability_returns_none() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let (block, _) = create_test_block_and_blobs(&mock_adapter, 2);
+        mock_adapter
+            .expect_supports_has_blobs()
+            .return_once(|| Ok(false));
+        // Should not actually call has_blobs when capability is missing.
+        mock_adapter.expect_has_blobs().times(0);
+
+        let header = fulu_header(block.as_ref());
+        let result = fetch_engine_blob_availability_inner(mock_adapter, &header)
+            .await
+            .expect("should succeed");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn null_response_returns_none() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let (block, _) = create_test_block_and_blobs(&mock_adapter, 2);
+        mock_adapter
+            .expect_supports_has_blobs()
+            .return_once(|| Ok(true));
+        mock_adapter.expect_has_blobs().return_once(|_| Ok(None));
+
+        let header = fulu_header(block.as_ref());
+        let result = fetch_engine_blob_availability_inner(mock_adapter, &header)
+            .await
+            .expect("should succeed");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn length_mismatch_returns_none() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let (block, _) = create_test_block_and_blobs(&mock_adapter, 3);
+        mock_adapter
+            .expect_supports_has_blobs()
+            .return_once(|| Ok(true));
+        // Return a Vec with the wrong length.
+        mock_adapter
+            .expect_has_blobs()
+            .return_once(|_| Ok(Some(vec![true, false])));
+
+        let header = fulu_header(block.as_ref());
+        let result = fetch_engine_blob_availability_inner(mock_adapter, &header)
+            .await
+            .expect("should succeed");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn all_false_returns_zero_bitmap() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let (block, _) = create_test_block_and_blobs(&mock_adapter, 3);
+        mock_adapter
+            .expect_supports_has_blobs()
+            .return_once(|| Ok(true));
+        mock_adapter
+            .expect_has_blobs()
+            .return_once(|_| Ok(Some(vec![false, false, false])));
+
+        let header = fulu_header(block.as_ref());
+        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, &header)
+            .await
+            .expect("should succeed")
+            .expect("should return Some bitmap");
+        assert_eq!(bitmap.len(), 3);
+        assert!(bitmap.is_zero());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn mixed_response_matches_bitmap() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let (block, _) = create_test_block_and_blobs(&mock_adapter, 4);
+        mock_adapter
+            .expect_supports_has_blobs()
+            .return_once(|| Ok(true));
+        let response = vec![true, false, true, false];
+        let response_clone = response.clone();
+        mock_adapter
+            .expect_has_blobs()
+            .return_once(move |_| Ok(Some(response_clone)));
+
+        let header = fulu_header(block.as_ref());
+        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, &header)
+            .await
+            .expect("should succeed")
+            .expect("should return Some bitmap");
+        assert_eq!(bitmap.len(), 4);
+        for (idx, present) in response.into_iter().enumerate() {
+            assert_eq!(bitmap.get(idx).unwrap(), present, "bit {idx} mismatch");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn all_true_returns_full_bitmap() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let (block, _) = create_test_block_and_blobs(&mock_adapter, 3);
+        mock_adapter
+            .expect_supports_has_blobs()
+            .return_once(|| Ok(true));
+        mock_adapter
+            .expect_has_blobs()
+            .return_once(|_| Ok(Some(vec![true, true, true])));
+
+        let header = fulu_header(block.as_ref());
+        let bitmap = fetch_engine_blob_availability_inner(mock_adapter, &header)
+            .await
+            .expect("should succeed")
+            .expect("should return Some bitmap");
+        let mut expected = CellBitmap::<E>::with_capacity(3).unwrap();
+        expected.not_inplace();
+        assert_eq!(bitmap, expected);
+    }
+
+    /// Post-Gloas the commitments come from the execution payload bid rather than a header.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn gloas_bid_response_matches_bitmap() {
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Gloas);
+        let (_block_root, bid, _) = create_test_gloas_bid_and_blobs(3);
+        let expected_hashes = bid
+            .message()
+            .blob_kzg_commitments()
+            .iter()
+            .map(kzg_commitment_to_versioned_hash)
+            .collect::<Vec<_>>();
+        mock_adapter
+            .expect_supports_has_blobs()
+            .return_once(|| Ok(true));
+        mock_adapter
+            .expect_has_blobs()
+            .withf(move |hashes| *hashes == expected_hashes)
+            .return_once(|_| Ok(Some(vec![true, false, true])));
+
+        let bitmap =
+            fetch_engine_blob_availability_inner(mock_adapter, &PartialHeaderOrBid::Bid(bid))
+                .await
+                .expect("should succeed")
+                .expect("should return Some bitmap");
+        assert_eq!(bitmap.len(), 3);
+        for (idx, present) in [true, false, true].into_iter().enumerate() {
+            assert_eq!(bitmap.get(idx).unwrap(), present, "bit {idx} mismatch");
+        }
+    }
 }
 
 fn mock_beacon_adapter(fork_name: ForkName) -> MockFetchBlobsBeaconAdapter<T> {
