@@ -7,6 +7,9 @@ pub const FINALIZED_ROOT_PROOF_LEN_ELECTRA: usize = 7;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA: usize = 6;
 pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA: usize = 6;
 
+pub const SYNC_AGGREGATE_PROOF_LEN: usize = 4;
+pub const SYNC_AGGREGATE_INDEX: usize = 24;
+
 pub const FINALIZED_ROOT_INDEX: usize = 105;
 pub const CURRENT_SYNC_COMMITTEE_INDEX: usize = 54;
 pub const NEXT_SYNC_COMMITTEE_INDEX: usize = 55;
