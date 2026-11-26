@@ -3135,6 +3135,29 @@ pub async fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/attestation_weight
+    let get_lighthouse_attestation_weight = warp::path("lighthouse")
+        .and(warp::path("attestation_weight"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                // P0 is served before attestations, so a read during the attestation burst
+                // isn't held up.
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    chain
+                        .attestation_weights()
+                        .map(api_types::GenericResponse::from)
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_server_error(
+                                "attestation weights unavailable".to_string(),
+                            )
+                        })
+                })
+            },
+        );
+
     // GET lighthouse/nat
     let get_lighthouse_nat = warp::path("lighthouse")
         .and(warp::path("nat"))
@@ -3609,6 +3632,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_ui_health)
                 .uor(get_lighthouse_ui_validator_count)
                 .uor(get_lighthouse_syncing)
+                .uor(get_lighthouse_attestation_weight)
                 .uor(get_lighthouse_nat)
                 .uor(get_lighthouse_peers)
                 .uor(get_lighthouse_peers_connected)

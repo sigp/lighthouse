@@ -196,6 +196,39 @@ There are two possible outcomes, depending on whether the beacon node is syncing
    }
    ```
 
+## `/lighthouse/attestation_weight`
+
+Returns the attestation weight per block for the previous, current and next slot: the justified effective balance of the validators whose votes the beacon node has verified. Each validator counts once per slot, whether its vote came on its own or in an aggregate.
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/attestation_weight" -H  "accept: application/json" | jq
+```
+
+```json
+{
+  "data": {
+    "committee_weight_gwei": "1100000000000000",
+    "slots": [
+      {
+        "slot": "11495845",
+        "voters": "30712",
+        "weights": [
+          {
+            "block_root": "0x26f8999d270dd4677c2a1c815361707157a531f6c599f78fa942c98b545e1799",
+            "payload_present": null,
+            "weight_gwei": "982784000000000"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`committee_weight_gwei` is the justified total effective balance divided by slots per epoch. Spec thresholds are percentages of it, e.g. the `REORG_HEAD_WEIGHT_THRESHOLD` cut-off is 20% of it. From Gloas, `payload_present` splits the votes by whether they say the block's payload is present (`data.index == 1`). Votes for the block of their own slot always have index 0, so for those it says nothing about the payload.
+
+The weight is the beacon node's local view: it counts the votes this node verified. To see unaggregated attestations from every subnet early in the slot, run the beacon node with `--subscribe-all-subnets`; without it, most of the weight arrives with the aggregates. Votes for a block the node has not imported yet are only counted if the node imports the block and verifies them again while their slot is still the previous, current or next slot. Equivocating validators are not discounted.
+
 ## `/lighthouse/peers`
 
 ```bash

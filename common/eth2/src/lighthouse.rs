@@ -6,7 +6,7 @@ pub mod sync_state;
 use crate::{
     BeaconNodeHttpClient, DepositData, Error, Hash256,
     lighthouse::sync_state::SyncState,
-    types::{AdminPeer, Epoch, GenericResponse, ValidatorId},
+    types::{AdminPeer, Epoch, GenericResponse, Slot, ValidatorId},
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
@@ -148,6 +148,38 @@ pub struct ProcessHealth {
     pub pid_process_seconds_total: u64,
 }
 
+/// The justified effective balance of verified votes per block for the previous, current and next
+/// slot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttestationWeights {
+    /// The justified total effective balance divided by slots per epoch, which spec thresholds such
+    /// as `REORG_HEAD_WEIGHT_THRESHOLD` are percentages of.
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub committee_weight_gwei: u64,
+    /// Slots with votes, oldest first.
+    pub slots: Vec<SlotAttestationWeight>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlotAttestationWeight {
+    pub slot: Slot,
+    /// Distinct validators counted for this slot.
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub voters: u64,
+    pub weights: Vec<BlockAttestationWeight>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockAttestationWeight {
+    pub block_root: Hash256,
+    /// From Gloas, `data.index == 1`: whether the votes say the block's payload is present. Votes
+    /// for the block of their own slot always have index 0 and say nothing about the payload.
+    /// `None` before Gloas.
+    pub payload_present: Option<bool>,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub weight_gwei: u64,
+}
+
 /// A fully parsed eth1 deposit contract log.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct DepositLog {
@@ -181,6 +213,20 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("lighthouse")
             .push("syncing");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/attestation_weight`
+    pub async fn get_lighthouse_attestation_weight(
+        &self,
+    ) -> Result<GenericResponse<AttestationWeights>, Error> {
+        let mut path = self.server.expose_full().clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("attestation_weight");
 
         self.get(path).await
     }
