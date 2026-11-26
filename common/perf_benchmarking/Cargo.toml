@@ -1,0 +1,11 @@
+[package]
+name = "perf_benchmarking"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = { workspace = true }
+
+[dependencies]
+criterion = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+perf-event = { workspace = true }
