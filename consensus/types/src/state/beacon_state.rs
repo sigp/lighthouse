@@ -237,10 +237,6 @@ pub enum BeaconStateError {
     ProposerLookaheadOutOfBounds {
         i: usize,
     },
-    SignedEnvelopeIncorrectEpoch {
-        state_epoch: Epoch,
-        envelope_epoch: Epoch,
-    },
     InvalidIndicesCount,
     InvalidBuilderPendingPaymentsIndex(usize),
     InvalidExecutionPayloadAvailabilityIndex(usize),
