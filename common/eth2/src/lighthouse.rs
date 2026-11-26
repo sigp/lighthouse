@@ -1,6 +1,7 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
 mod custody;
+pub mod ssz_proof;
 pub mod sync_state;
 
 use crate::{
