@@ -158,7 +158,7 @@ You can customise the features that Lighthouse is built with using the `FEATURES
 variable. E.g.
 
 ```
-FEATURES=slasher-redb,beacon-node-leveldb make
+FEATURES=slasher-lmdb,beacon-node-leveldb make
 ```
 
 Commonly used features include:
