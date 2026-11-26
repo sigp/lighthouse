@@ -44,7 +44,7 @@ pub struct GossipBidCacheInner<E: EthSpec> {
     ///
     /// Used to enforce the builder bid limit: a builder may submit up to its limit of bids for
     /// each slot and parent view compatible with the head.
-    seen_builder_bids: BTreeMap<Slot, HashMap<(BidParent, BuilderIndex), u64>>,
+    builder_bid_counts: BTreeMap<Slot, HashMap<(BidParent, BuilderIndex), u64>>,
 }
 
 /// A cache of gossip-verified payload bids.
@@ -94,7 +94,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
         let key = BidParent::from_bid(bid.signed_bid.message());
         let mut inner = self.inner.write();
         let bid_count = inner
-            .seen_builder_bids
+            .builder_bid_counts
             .entry(slot)
             .or_default()
             .entry((key, bid.signed_bid.message().builder_index()))
@@ -126,7 +126,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
     ) -> u64 {
         self.inner
             .read()
-            .seen_builder_bids
+            .builder_bid_counts
             .get(slot)
             .and_then(|bid_counts| bid_counts.get(&(bid_parent, builder_index)).copied())
             .unwrap_or_default()
@@ -138,7 +138,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
     pub fn prune(&self, current_slot: Slot) {
         let mut inner = self.inner.write();
         inner.highest_bid = inner.highest_bid.split_off(&current_slot);
-        inner.seen_builder_bids = inner.seen_builder_bids.split_off(&current_slot);
+        inner.builder_bid_counts = inner.builder_bid_counts.split_off(&current_slot);
     }
 }
 
