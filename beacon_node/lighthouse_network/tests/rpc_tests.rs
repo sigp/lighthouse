@@ -1908,6 +1908,175 @@ fn test_active_requests() {
     })
 }
 
+/// How the receiver answers the requests in `sequential_requests_test`.
+#[derive(Clone, Copy)]
+enum InboundAnswer {
+    /// Fewer blocks than requested, followed by a stream termination.
+    TerminatedEarly,
+    /// As many blocks as requested, after which the handler closes the substream on its own.
+    AllChunks,
+    /// An error response.
+    Error,
+}
+
+// Sends more BlocksByRange requests than may be active concurrently, one after another, and checks
+// that none of them is rate limited.
+//
+// The receiver counts a request towards the concurrent request limit until its handler reports
+// that the request's substream closed. If the handler misses that report on any of the paths that
+// end a substream, the request stays active forever and later requests are rejected.
+fn sequential_requests_test(answer: InboundAnswer) {
+    // Set up the logging.
+    let _subscriber = build_tracing_subscriber("debug", false);
+    let rt = Arc::new(Runtime::new().unwrap());
+    let spec = Arc::new(spec_with_all_forks_enabled());
+
+    const REQUESTED_BLOCKS: u64 = 2;
+    const REQUESTS: usize = lighthouse_network::rpc::MAX_CONCURRENT_REQUESTS + 2;
+
+    rt.block_on(async {
+        // Get sender/receiver.
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            ForkName::Base,
+            spec.clone(),
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        // BlocksByRange Request
+        let rpc_request =
+            RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                start_slot: 0,
+                count: REQUESTED_BLOCKS,
+                step: 1,
+            }));
+
+        // BlocksByRange Response
+        let empty_block = BeaconBlock::empty(&spec);
+        let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
+        let rpc_response = Response::BlocksByRange(Some(Arc::new(empty_signed)));
+
+        // Build the sender future. The next request is sent once the previous one completed.
+        let sender_future = async {
+            let mut completed_requests = 0;
+            loop {
+                let peer_id = match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => peer_id,
+                    // The stream termination completes the request, unless the receiver answers
+                    // with errors, in which case the error completes it.
+                    NetworkEvent::ResponseReceived {
+                        peer_id,
+                        sync_request_id: _,
+                        response: Response::BlocksByRange(None),
+                    } if !matches!(answer, InboundAnswer::Error) => {
+                        completed_requests += 1;
+                        peer_id
+                    }
+                    NetworkEvent::RPCFailed {
+                        sync_request_id: _,
+                        peer_id,
+                        error,
+                    } => {
+                        let expected_error = matches!(answer, InboundAnswer::Error)
+                            && matches!(
+                                error,
+                                RPCError::ErrorResponse(RpcErrorResponse::Unknown, _)
+                            );
+                        assert!(expected_error, "RPC failed: {error:?}");
+                        completed_requests += 1;
+                        peer_id
+                    }
+                    _ => continue,
+                };
+
+                if completed_requests == REQUESTS {
+                    return;
+                }
+                debug!(completed_requests, "Sending RPC request");
+                sender
+                    .send_request(peer_id, None, rpc_request.clone())
+                    .unwrap();
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // Build the receiver future.
+        let receiver_future = async {
+            loop {
+                let NetworkEvent::RequestReceived {
+                    peer_id,
+                    inbound_request_id,
+                    request_type,
+                } = receiver.next_event().await
+                else {
+                    continue;
+                };
+                if request_type != rpc_request {
+                    continue;
+                }
+
+                debug!("Receiver got request");
+                match answer {
+                    InboundAnswer::TerminatedEarly => {
+                        receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::BlocksByRange(None),
+                        );
+                    }
+                    InboundAnswer::AllChunks => {
+                        for _ in 0..REQUESTED_BLOCKS {
+                            receiver.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                rpc_response.clone(),
+                            );
+                        }
+                    }
+                    InboundAnswer::Error => {
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            RpcResponse::<E>::Error(
+                                RpcErrorResponse::Unknown,
+                                "Test error".to_string().into(),
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
+#[test]
+fn test_sequential_requests_terminated_early() {
+    sequential_requests_test(InboundAnswer::TerminatedEarly);
+}
+
+#[test]
+fn test_sequential_requests_all_chunks() {
+    sequential_requests_test(InboundAnswer::AllChunks);
+}
+
+#[test]
+fn test_sequential_requests_error_response() {
+    sequential_requests_test(InboundAnswer::Error);
+}
+
 // Test that when a node receives an invalid BlocksByRange request exceeding the maximum count,
 // it bans the sender.
 #[test]

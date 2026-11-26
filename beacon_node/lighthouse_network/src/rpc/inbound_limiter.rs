@@ -208,8 +208,8 @@ impl<E: EthSpec> InboundRateLimiter<E> {
     /// it, as the request is answered with an error and must not be executed anymore. The request
     /// remains active until its substream is closed.
     pub fn request_failed(&mut self, request_id: InboundRequestId) {
-        if self.active_requests.contains_key(&request_id) {
-            self.remove_delayed_request(request_id);
+        if let Some(request) = self.active_requests.get(&request_id) {
+            self.remove_delayed_request((request.peer_id, request.protocol), request_id);
         }
     }
 
@@ -217,16 +217,22 @@ impl<E: EthSpec> InboundRateLimiter<E> {
     /// may still be in the delayed queue if its substream closed before it was released for
     /// execution.
     pub fn request_ended(&mut self, request_id: InboundRequestId) {
-        if self.active_requests.remove(&request_id).is_some() {
-            self.remove_delayed_request(request_id);
+        if let Some(request) = self.active_requests.remove(&request_id) {
+            self.remove_delayed_request((request.peer_id, request.protocol), request_id);
         }
     }
 
-    fn remove_delayed_request(&mut self, request_id: InboundRequestId) {
-        self.delayed_requests.retain(|_key, queue| {
-            queue.retain(|request| request.request_id != request_id);
-            !queue.is_empty()
-        });
+    /// Removes a request from the delayed queue of its peer and protocol, if it is queued.
+    fn remove_delayed_request(&mut self, key: (PeerId, Protocol), request_id: InboundRequestId) {
+        let Entry::Occupied(mut entry) = self.delayed_requests.entry(key) else {
+            return;
+        };
+        entry
+            .get_mut()
+            .retain(|request| request.request_id != request_id);
+        if entry.get().is_empty() {
+            entry.remove();
+        }
         self.update_delayed_requests_metric();
     }
 

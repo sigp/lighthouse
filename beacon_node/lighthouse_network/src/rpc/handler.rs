@@ -864,6 +864,14 @@ where
             ));
         }
 
+        // Events may have been queued while driving the substreams above. Report them now, to not
+        // wait for us to be reawakened.
+        if !self.events_out.is_empty() {
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                self.events_out.remove(0),
+            ));
+        }
+
         Poll::Pending
     }
 
@@ -991,30 +999,17 @@ where
             &self.fork_context.spec,
         );
 
-        // If we received a goodbye, shutdown the connection.
-        if let RequestType::Goodbye(_) = req {
+        // If we received a goodbye, shutdown the connection. A goodbye is never answered, so its
+        // substream is not kept.
+        //
+        // Requests that expect no responses (e.g. zero-count range requests) keep their substream
+        // like any other request, so that they count towards the concurrent request limit until
+        // the application terminates their response stream.
+        let is_goodbye = matches!(req, RequestType::Goodbye(_));
+        if is_goodbye {
             self.shutdown(None);
-        }
-
-        // Requests that expect no responses (goodbye and degenerate zero-count requests) do not
-        // keep their substream: report the request, then immediately report the stream as closed.
-        if max_responses == 0 {
-            self.events_out.push(HandlerEvent::Ok(RPCReceived::Request(
-                super::InboundRequestId {
-                    connection_id: self.connection_id,
-                    substream_id: self.current_inbound_substream_id,
-                },
-                req,
-            )));
-            self.events_out.push(HandlerEvent::InboundStreamClosed(
-                self.current_inbound_substream_id,
-            ));
-            self.current_inbound_substream_id.0 += 1;
-            return;
-        }
-
-        // Store the stream and tag the output.
-        if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+        } else if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+            // Store the stream and tag the output.
             let delay_key = self
                 .inbound_substreams_delay
                 .insert(self.current_inbound_substream_id, RESP_TIMEOUT);
@@ -1048,6 +1043,13 @@ where
             },
             req,
         )));
+        // Every reported request is followed by a report of its substream closing. As no substream
+        // is kept for a goodbye, report it as closed right away.
+        if is_goodbye {
+            self.events_out.push(HandlerEvent::InboundStreamClosed(
+                self.current_inbound_substream_id,
+            ));
+        }
         self.current_inbound_substream_id.0 += 1;
     }
 
