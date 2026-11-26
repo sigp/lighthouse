@@ -532,8 +532,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }
 
-        let configured_builders = BuilderStore::open_or_create(&config.validator_dir)
-            .map_err(|e| format!("Unable to open or create builder definitions: {:?}", e))?;
+        let configured_builders = BuilderStore::open_or_create_with_config(
+            &config.validator_dir,
+            config.builder_config.clone(),
+        )
+        .map_err(|e| format!("Unable to open or create builder definitions: {:?}", e))?;
         let request_auth_cache = RequestAuthCache::default();
 
         let mut block_service_builder = BlockServiceBuilder::new()
