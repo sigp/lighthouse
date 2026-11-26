@@ -3,7 +3,7 @@ use educe::Educe;
 use parking_lot::RwLock;
 use std::{
     collections::hash_map,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     sync::Arc,
 };
 use types::{
@@ -39,18 +39,18 @@ type HighestBidMap<E> = BTreeMap<Slot, HashMap<BidParent, GossipVerifiedPayloadB
 pub struct GossipBidCacheInner<E: EthSpec> {
     /// The current best bid for each `(slot, BidParent)`.
     highest_bid: HighestBidMap<E>,
-    /// The `(BidParent, BuilderIndex)` pairs for which we have already accepted a gossip-verified
-    /// bid, per slot.
+    /// The number of gossip-verified bids accepted for each `(BidParent, BuilderIndex)` pair, per
+    /// slot.
     ///
-    /// Used to enforce one bid per builder per parent per slot: a builder may bid once for each
-    /// parent view compatible with the head.
-    seen_builder_bids: BTreeMap<Slot, HashSet<(BidParent, BuilderIndex)>>,
+    /// Used to enforce the builder bid limit: a builder may submit up to its limit of bids for
+    /// each slot and parent view compatible with the head.
+    seen_builder_bids: BTreeMap<Slot, HashMap<(BidParent, BuilderIndex), u64>>,
 }
 
 /// A cache of gossip-verified payload bids.
 ///
 /// Tracks, per slot, the highest-value bid observed for each parent a bid may build on and the
-/// set of `(parent, builder)` pairs that have already bid, so that duplicate and lower-value
+/// number of bids each `(parent, builder)` pair has made, so that over-limit and lower-value
 /// gossip bids can be rejected. Stale entries are removed via [`prune`](Self::prune) as the chain
 /// advances.
 #[derive(Educe)]
@@ -82,8 +82,8 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
 
     /// Record a gossip-verified `bid` in the cache.
     ///
-    /// This always marks the bid's `(parent, builder)` pair as seen for the bid's slot (see
-    /// [`seen_builder_bid_for_parent`](Self::seen_builder_bid_for_parent)). Additionally, if the
+    /// This always increments the bid count of the bid's `(parent, builder)` pair for the bid's
+    /// slot (see [`builder_bid_count`](Self::builder_bid_count)). Additionally, if the
     /// bid has a strictly higher value than the currently cached bid for its `(slot, BidParent)`
     /// (or no bid is cached yet), it replaces the cached bid.
     ///
@@ -93,11 +93,13 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
         let slot = bid.signed_bid.message().slot();
         let key = BidParent::from_bid(bid.signed_bid.message());
         let mut inner = self.inner.write();
-        inner
+        let bid_count = inner
             .seen_builder_bids
             .entry(slot)
             .or_default()
-            .insert((key, bid.signed_bid.message().builder_index()));
+            .entry((key, bid.signed_bid.message().builder_index()))
+            .or_default();
+        *bid_count = bid_count.saturating_add(1u64);
 
         match inner.highest_bid.entry(slot).or_default().entry(key) {
             hash_map::Entry::Vacant(entry) => {
@@ -114,19 +116,20 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
         }
     }
 
-    /// Returns `true` if a gossip-verified bid from `builder_index` has already been seen for
+    /// Returns the number of gossip-verified bids seen from `builder_index` for
     /// `(slot, bid_parent)`.
-    pub fn seen_builder_bid_for_parent(
+    pub fn builder_bid_count(
         &self,
         slot: &Slot,
         bid_parent: BidParent,
         builder_index: BuilderIndex,
-    ) -> bool {
+    ) -> u64 {
         self.inner
             .read()
             .seen_builder_bids
             .get(slot)
-            .is_some_and(|seen_builders| seen_builders.contains(&(bid_parent, builder_index)))
+            .and_then(|bid_counts| bid_counts.get(&(bid_parent, builder_index)).copied())
+            .unwrap_or_default()
     }
 
     /// Removes all cached bids and seen-builder records for slots older than `current_slot`.
@@ -179,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn seen_builder_for_parent() {
+    fn builder_bid_count_for_parent() {
         let cache = GossipVerifiedPayloadBidCache::<E>::default();
         let slot = Slot::new(1);
         let parent_a = BidParent {
@@ -200,11 +203,21 @@ mod tests {
         );
         cache.observe_bid(verified);
 
-        // Seen only for the exact (slot, parent tuple, builder) combination.
-        assert!(cache.seen_builder_bid_for_parent(&slot, parent_a, 0));
-        assert!(!cache.seen_builder_bid_for_parent(&slot, parent_b, 0));
-        assert!(!cache.seen_builder_bid_for_parent(&slot, parent_a, 1));
-        assert!(!cache.seen_builder_bid_for_parent(&Slot::new(2), parent_a, 0));
+        // Counted only for the exact (slot, parent tuple, builder) combination.
+        assert_eq!(cache.builder_bid_count(&slot, parent_a, 0), 1);
+        assert_eq!(cache.builder_bid_count(&slot, parent_b, 0), 0);
+        assert_eq!(cache.builder_bid_count(&slot, parent_a, 1), 0);
+        assert_eq!(cache.builder_bid_count(&Slot::new(2), parent_a, 0), 0);
+
+        // A repeat bid for the same combination increments its count.
+        cache.observe_bid(make_gossip_verified(
+            slot,
+            0,
+            parent_a.parent_block_hash,
+            parent_a.parent_block_root,
+            200,
+        ));
+        assert_eq!(cache.builder_bid_count(&slot, parent_a, 0), 2);
     }
 
     #[test]
@@ -292,12 +305,18 @@ mod tests {
         // Slots 1-7 pruned from both maps.
         for slot in [1, 2, 3, 7] {
             assert!(cache.get_highest_bid(Slot::new(slot), bid_parent).is_none());
-            assert!(!cache.seen_builder_bid_for_parent(&Slot::new(slot), bid_parent, slot));
+            assert_eq!(
+                cache.builder_bid_count(&Slot::new(slot), bid_parent, slot),
+                0
+            );
         }
         // Slots 8-10 retained in both maps.
         for slot in [8, 9, 10] {
             assert!(cache.get_highest_bid(Slot::new(slot), bid_parent).is_some());
-            assert!(cache.seen_builder_bid_for_parent(&Slot::new(slot), bid_parent, slot));
+            assert_eq!(
+                cache.builder_bid_count(&Slot::new(slot), bid_parent, slot),
+                1
+            );
         }
     }
 }

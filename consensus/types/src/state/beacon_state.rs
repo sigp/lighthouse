@@ -3783,6 +3783,16 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
     }
 
+    /// Return the number of bids the builder may submit for each slot and parent.
+    pub fn get_builder_bid_limit(
+        &self,
+        builder_index: BuilderIndex,
+    ) -> Result<u64, BeaconStateError> {
+        let builder = self.get_builder(builder_index)?;
+        // bid_limit = builder_balance // ETH_TO_GWEI
+        Ok(builder.balance.safe_div(1_000_000_000)?)
+    }
+
     pub fn is_active_builder(
         &self,
         builder_index: BuilderIndex,

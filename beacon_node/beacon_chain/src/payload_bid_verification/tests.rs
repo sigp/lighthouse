@@ -418,7 +418,7 @@ fn no_proposer_preferences_for_slot() {
 }
 
 #[test]
-fn builder_already_seen_for_slot() {
+fn builder_bid_limit_reached() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -427,16 +427,35 @@ fn builder_already_seen_for_slot() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
-    let verified = GossipVerifiedPayloadBid {
-        signed_bid: bid.clone(),
+    let make_bid = |value| {
+        ctx.sign_bid(ExecutionPayloadBidGloas {
+            slot,
+            builder_index: 0,
+            fee_recipient: Address::ZERO,
+            gas_limit: 30_000_000,
+            value,
+            parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
+            prev_randao: ctx.expected_prev_randao(),
+            ..ExecutionPayloadBidGloas::default()
+        })
     };
-    ctx.bid_cache.observe_bid(verified);
 
-    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    // `BUILDER_BALANCE` is 2 ETH, so the builder may bid twice for this slot and parent. Each bid
+    // must beat the cached highest value to reach the limit check.
+    for value in [0, 1] {
+        let result = GossipVerifiedPayloadBid::new(make_bid(value), &gossip);
+        assert!(
+            result.is_ok(),
+            "bid with value {value} should pass: {:?}",
+            result.unwrap_err()
+        );
+    }
+
+    let result = GossipVerifiedPayloadBid::new(make_bid(2), &gossip);
     assert!(matches!(
         result,
-        Err(PayloadBidError::BuilderAlreadySeen {
+        Err(PayloadBidError::BuilderBidLimitReached {
             builder_index: 0,
             ..
         })
@@ -471,16 +490,17 @@ fn same_builder_new_parent_tuple_not_blocked() {
         result.unwrap_err()
     );
 
-    // The same builder bids again at the same slot with a different parent tuple.
-    // The seen-builder rule is per (slot, parent_block_hash, parent_block_root),
-    // so this bid gets past that check and fails later on the unknown parent root.
+    // The same builder bids again at the same slot with a different parent tuple. Nothing
+    // rejects the builder for having already bid at this slot, so this bid fails on the unknown
+    // parent root. Per-parent keying of the bid limit is covered by the cache's
+    // `builder_bid_count_for_parent` test.
     let unknown_root = Hash256::repeat_byte(0xff);
     let bid_2 = ctx.make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, unknown_root);
     let result_2 = GossipVerifiedPayloadBid::new(bid_2, &gossip);
     let err = result_2.expect_err("second bid should fail on the unknown parent root");
     assert!(
         matches!(err, PayloadBidError::ParentBlockRootUnknown { .. }),
-        "expected ParentBlockRootUnknown (not BuilderAlreadySeen), got: {err:?}"
+        "expected ParentBlockRootUnknown, got: {err:?}"
     );
 }
 
@@ -1191,10 +1211,7 @@ fn bad_signature() {
     let bid_parent = BidParent::from_bid(bid.message());
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::BadSignature)));
-    assert!(
-        !ctx.bid_cache
-            .seen_builder_bid_for_parent(&slot, bid_parent, 0)
-    );
+    assert_eq!(ctx.bid_cache.builder_bid_count(&slot, bid_parent, 0), 0);
     assert!(ctx.bid_cache.get_highest_bid(slot, bid_parent).is_none());
 }
 
@@ -1310,19 +1327,13 @@ fn two_builders_coexist_in_cache() {
         result_1.unwrap_err()
     );
 
-    // Both builders should be seen.
+    // Each builder's bid should be counted once.
     let bid_parent = BidParent {
         parent_block_hash: ctx.execution_parent_hash(),
         parent_block_root: ctx.genesis_block_root,
     };
-    assert!(
-        ctx.bid_cache
-            .seen_builder_bid_for_parent(&slot, bid_parent, 0)
-    );
-    assert!(
-        ctx.bid_cache
-            .seen_builder_bid_for_parent(&slot, bid_parent, 1)
-    );
+    assert_eq!(ctx.bid_cache.builder_bid_count(&slot, bid_parent, 0), 1);
+    assert_eq!(ctx.bid_cache.builder_bid_count(&slot, bid_parent, 1), 1);
 
     let highest = ctx
         .bid_cache
