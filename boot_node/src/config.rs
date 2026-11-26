@@ -18,6 +18,30 @@ use std::{marker::PhantomData, path::PathBuf};
 use tracing::{info, warn};
 use types::EthSpec;
 
+/// Unsolicited discovery packets per second that a boot node accepts from all sources together.
+const BOOT_NODE_UNSOLICITED_PACKETS_PER_SECOND: u64 = 100;
+
+/// Replaces the beacon node's discovery packet filter limits, which are too low for a boot node.
+///
+/// A boot node exists to answer unsolicited packets, but the beacon node limit of 10 per second
+/// in total drops the excess before any reply. The per-IP and per-node limits do not change.
+/// The node-ID-per-IP limit is removed: node IDs do not expire by time, so it bans an IP that
+/// many nodes share behind NAT. The per-IP rate limit still bans an IP that sends too much.
+fn apply_boot_node_packet_filter(config: &mut discv5::Config) {
+    config.filter_rate_limiter = Some(
+        discv5::RateLimiterBuilder::new()
+            .total_n_every(
+                BOOT_NODE_UNSOLICITED_PACKETS_PER_SECOND,
+                Duration::from_secs(1),
+            )
+            .ip_n_every(9, Duration::from_secs(1))
+            .node_n_every(8, Duration::from_secs(1))
+            .build()
+            .expect("The total rate limit has been specified"),
+    );
+    config.filter_max_nodes_per_ip = None;
+}
+
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
 pub struct BootNodeConfig<E: EthSpec> {
     // TODO: Generalise to multiaddr
@@ -58,6 +82,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
         let mut network_config = NetworkConfig::default();
 
         set_network_config(&mut network_config, matches, &data_dir)?;
+        apply_boot_node_packet_filter(&mut network_config.discv5_config);
 
         // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4()
@@ -243,5 +268,31 @@ impl BootNodeConfigSerialization {
             disable_packet_filter: !discv5_config.enable_packet_filter,
             enable_enr_auto_update: discv5_config.enr_update,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boot_node_packet_filter_raises_total_limit_and_allows_shared_ips() {
+        let default = NetworkConfig::default().discv5_config;
+        let mut config = NetworkConfig::default().discv5_config;
+        apply_boot_node_packet_filter(&mut config);
+
+        let total_per_second = |config: &discv5::Config| {
+            config
+                .filter_rate_limiter
+                .as_ref()
+                .unwrap()
+                .total_requests_per_second()
+        };
+        assert!(total_per_second(&config) > total_per_second(&default));
+        assert_eq!(config.filter_max_nodes_per_ip, None);
+        assert_eq!(
+            config.filter_max_bans_per_ip,
+            default.filter_max_bans_per_ip
+        );
     }
 }
