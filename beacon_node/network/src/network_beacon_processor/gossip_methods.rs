@@ -4363,7 +4363,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(
                 PayloadBidError::NoProposerPreferences { .. }
                 | PayloadBidError::InvalidFeeRecipient
-                | PayloadBidError::BuilderAlreadySeen { .. }
+                | PayloadBidError::BuilderBidLimitReached { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
                 | PayloadBidError::ParentExecutionPayloadUnknown { .. }

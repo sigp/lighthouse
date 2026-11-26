@@ -153,6 +153,18 @@ pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
     let builder_index = bid.builder_index();
+    verify_builder_eligibility(builder_index, head_state, spec)?;
+    verify_builder_can_cover_bid(builder_index, bid, head_state, spec)
+}
+
+/// Verify that the bid's builder is a payload builder and is active in `head_state`.
+///
+/// Split out so gossip can run its bid-limit check before [`verify_builder_can_cover_bid`].
+pub(crate) fn verify_builder_eligibility<E: EthSpec>(
+    builder_index: u64,
+    head_state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
     let builder_version = head_state
         .get_builder(builder_index)
         .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?
@@ -172,6 +184,16 @@ pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
         return Err(PayloadBidError::InvalidBuilder { builder_index });
     }
 
+    Ok(())
+}
+
+/// Verify that the bid's builder can cover the bid value in `head_state`.
+pub(crate) fn verify_builder_can_cover_bid<E: EthSpec>(
+    builder_index: u64,
+    bid: ExecutionPayloadBidRef<E>,
+    head_state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
     if !head_state.can_builder_cover_bid(builder_index, bid.value(), spec)? {
         return Err(PayloadBidError::BuilderCantCoverBid {
             builder_index,
@@ -321,20 +343,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let bid_value = signed_bid.message().value();
         verify_bid_slot_range(ctx.slot_clock, bid_slot, ctx.spec)?;
 
-        if ctx
-            .gossip_verified_payload_bid_cache
-            .seen_builder_bid_for_parent(
-                &bid_slot,
-                bid_parent,
-                signed_bid.message().builder_index(),
-            )
-        {
-            return Err(PayloadBidError::BuilderAlreadySeen {
-                builder_index: signed_bid.message().builder_index(),
-                slot: bid_slot,
-            });
-        }
-
         // TODO(gloas): Extract into `bid_value_over_threshold` on the bid cache and potentially
         // make this more sophisticated than just a <= check.
         if let Some(cached_bid) = ctx
@@ -466,7 +474,24 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
-        verify_bid_state_conditions(signed_bid.message(), head_state, ctx.spec)?;
+        let builder_index = signed_bid.message().builder_index();
+        verify_builder_eligibility(builder_index, head_state, ctx.spec)?;
+
+        // [IGNORE] The builder has not reached its bid limit for this slot and parent
+        let bid_limit = head_state.get_builder_bid_limit(builder_index)?;
+        if ctx.gossip_verified_payload_bid_cache.builder_bid_count(
+            &bid_slot,
+            bid_parent,
+            builder_index,
+        ) >= bid_limit
+        {
+            return Err(PayloadBidError::BuilderBidLimitReached {
+                builder_index,
+                slot: bid_slot,
+            });
+        }
+
+        verify_builder_can_cover_bid(builder_index, signed_bid.message(), head_state, ctx.spec)?;
 
         if parent_payload_exits_builder::<T>(
             signed_bid.message(),
