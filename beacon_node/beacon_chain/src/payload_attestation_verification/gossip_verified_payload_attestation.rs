@@ -3,7 +3,7 @@ use crate::beacon_chain::BeaconStore;
 use crate::canonical_head::CanonicalHead;
 use crate::observed_attesters::ObservedPayloadAttesters;
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::AggregateSignature;
 use educe::Educe;
@@ -12,7 +12,6 @@ use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set_from_pubkeys;
-use std::borrow::Cow;
 use types::{
     ChainSpec, EthSpec, Hash256, IndexedPayloadAttestation, PTC, PayloadAttestationMessage, Slot,
 };
@@ -129,9 +128,9 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
 
         {
             // [REJECT] The signature is valid with respect to the `validator_index`.
-            let pubkey_cache = ctx.validator_pubkey_cache.read();
+            let pubkeys = HeadPubkeys::new(ctx.canonical_head, ctx.validator_pubkey_cache);
             let signature_set = indexed_payload_attestation_signature_set_from_pubkeys(
-                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                |validator_index| pubkeys.get(validator_index),
                 &indexed_payload_attestation.signature,
                 &indexed_payload_attestation,
                 ctx.genesis_validators_root,
