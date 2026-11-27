@@ -340,7 +340,7 @@ async fn grpc_export_survives_outage_preserves_identity_and_structured_data() {
     assert_eq!(receipt["timestamp_unix_ns"], json!(received.unix_ns));
     assert_eq!(receipt["process_id"], json!(recorder.process_id()));
     assert_eq!(family(&recorder, "pq.aggregate_received").dropped, 0);
-    // Opt-in capture permits external validation of actual exporter output against draft3.
+    // Opt-in capture permits external validation of actual exporter output against the common specification.
     if let Ok(path) = std::env::var("PQ_MEASUREMENT_TEST_CAPTURE") {
         std::fs::write(path, serde_json::to_vec_pretty(&records).unwrap()).unwrap();
     }
@@ -640,4 +640,119 @@ fn traffic_buckets_are_half_open_and_distinguish_zero_missing_and_duplicates() {
     assert_eq!(data["buckets"][2]["rx"]["message_copies"], json!(0));
     assert_eq!(data["buckets"][3]["rx"], json!({"missing":"not_observed"}));
     assert_eq!(data["buckets"][0]["tx"], json!({"missing":"not_exposed"}));
+}
+
+#[tokio::test]
+async fn complete_traffic_windows_round_trip_through_real_collector() {
+    use traffic::{CopyBasis, Direction, Encoding, Limits, Scope, Topic};
+    let (endpoint, collector, stop) = collector().await;
+    let recorder = Recorder::start(config(&endpoint)).unwrap();
+    let topic = "/eth2/01234567/beacon_aggregate_and_proof/ssz_snappy";
+    let counters = traffic::Collector::new(
+        recorder.clone(),
+        vec![Topic {
+            name: topic.into(),
+            rx_scope: Scope {
+                code_location: "test decoder delivery before filtering".into(),
+                payload_encoding: Encoding::Compressed,
+                copy_basis: CopyBasis::AllReceivedCopies,
+            },
+            tx_scope: Scope {
+                code_location: "test successful peer queue insertion".into(),
+                payload_encoding: Encoding::Compressed,
+                copy_basis: CopyBasis::PerRecipient,
+            },
+        }],
+        Limits::default(),
+    )
+    .unwrap();
+    counters.observe(Direction::Rx, topic, 300);
+    counters.observe(Direction::Rx, topic, 300);
+    counters.observe(Direction::Rx, topic, 0);
+    counters.observe(Direction::Tx, topic, 300);
+    counters.observe(Direction::Rx, "untrusted-topic", 999);
+    assert_eq!(family(&recorder, "pq.aggregate_traffic").generated, 0);
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    counters.tick();
+    counters.shutdown();
+    assert!(recorder.shutdown(Duration::from_secs(2)).await);
+    let records: Vec<_> = collector
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(reconstruct)
+        .collect();
+    let traffic: Vec<_> = records
+        .iter()
+        .filter(|record| record["event_name"] == "pq.aggregate_traffic")
+        .collect();
+    assert!(!traffic.is_empty());
+    let mut rx_bytes = 0;
+    let mut rx_copies = 0;
+    let mut tx_bytes = 0;
+    let mut tx_copies = 0;
+    for record in traffic {
+        assert_eq!(record["data"]["topic"], topic);
+        let start = record["data"]["window_start"]["unix_ns"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let close = record["timestamp_unix_ns"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert_eq!(close - start, traffic::WINDOW_NS);
+        let buckets = record["data"]["buckets"].as_array().unwrap();
+        assert_eq!(buckets.len(), 10);
+        for bucket in buckets {
+            rx_bytes += bucket["rx"]["payload_bytes"].as_u64().unwrap();
+            rx_copies += bucket["rx"]["message_copies"].as_u64().unwrap();
+            tx_bytes += bucket["tx"]["payload_bytes"].as_u64().unwrap();
+            tx_copies += bucket["tx"]["message_copies"].as_u64().unwrap();
+        }
+    }
+    assert_eq!((rx_bytes, rx_copies, tx_bytes, tx_copies), (600, 3, 300, 1));
+    assert_eq!(family(&recorder, "pq.aggregate_traffic").dropped, 0);
+    if let Ok(path) = std::env::var("PQ_MEASUREMENT_TRAFFIC_CAPTURE") {
+        std::fs::write(path, serde_json::to_vec_pretty(&records).unwrap()).unwrap();
+    }
+    let _ = stop.send(());
+}
+
+#[tokio::test]
+#[ignore = "manual traffic callback microbenchmark; excludes export and full-node concurrency"]
+async fn measure_complete_copy_callback_overhead() {
+    use traffic::{CopyBasis, Direction, Encoding, Limits, Scope, Topic};
+    let recorder = Recorder::start(config("http://127.0.0.1:1")).unwrap();
+    let name = "/eth2/01234567/beacon_aggregate_and_proof/ssz_snappy";
+    let counters = traffic::Collector::new(
+        recorder,
+        vec![Topic {
+            name: name.into(),
+            rx_scope: Scope {
+                code_location: "benchmark".into(),
+                payload_encoding: Encoding::Compressed,
+                copy_basis: CopyBasis::AllReceivedCopies,
+            },
+            tx_scope: Scope {
+                code_location: "benchmark".into(),
+                payload_encoding: Encoding::Compressed,
+                copy_basis: CopyBasis::PerRecipient,
+            },
+        }],
+        Limits::default(),
+    )
+    .unwrap();
+    let samples = 1_000_000;
+    let start = Instant::now();
+    for _ in 0..samples {
+        counters.observe(Direction::Rx, std::hint::black_box(name), 100_000);
+    }
+    eprintln!(
+        "Complete-copy callback: {:.1} ns/copy (one topic, synthetic single task; excludes dependency TX topic clone, export and full-node contention)",
+        start.elapsed().as_nanos() as f64 / f64::from(samples)
+    );
 }

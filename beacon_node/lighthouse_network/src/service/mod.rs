@@ -57,6 +57,7 @@ pub mod api_types;
 mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 mod partial_column_header_tracker;
+mod pq_traffic;
 pub mod utils;
 
 /// The number of peers we target per subnet for discovery queries.
@@ -183,6 +184,8 @@ pub struct Network<E: EthSpec> {
     score_settings: PeerScoreSettings<E>,
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
+    /// Optional complete-copy counters, drained on the same task as the gossip callbacks.
+    pq_traffic: Option<pq_traffic::PqTraffic>,
     gossip_cache: GossipCache,
     partial_column_header_tracker: PartialColumnHeaderTracker,
     /// This node's PeerId.
@@ -279,6 +282,8 @@ impl<E: EthSpec> Network<E> {
 
         let local_peer_id = network_globals.local_peer_id();
 
+        let pq_traffic = pq_traffic::PqTraffic::new(&ctx.chain_spec, &ctx.fork_context)?;
+
         let (gossipsub, update_gossipsub_scores) = {
             let thresholds = lighthouse_gossip_thresholds();
 
@@ -353,6 +358,10 @@ impl<E: EthSpec> Network<E> {
                 snappy_transform,
             )
             .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
+
+            if let Some(traffic) = &pq_traffic {
+                gossipsub = gossipsub.with_payload_observer(traffic.observer());
+            }
 
             // If metrics are enabled for libp2p build the configuration
             if let Some(ref mut registry) = ctx.libp2p_registry {
@@ -533,6 +542,7 @@ impl<E: EthSpec> Network<E> {
             fork_context: ctx.fork_context,
             score_settings,
             update_gossipsub_scores,
+            pq_traffic,
             gossip_cache,
             partial_column_header_tracker: PartialColumnHeaderTracker::new(),
             local_peer_id,
@@ -2285,6 +2295,11 @@ impl<E: EthSpec> Network<E> {
                 _ = self.update_gossipsub_scores.tick() => {
                     let this = self.swarm.behaviour_mut();
                     this.peer_manager.update_gossipsub_scores(&this.gossipsub);
+                }
+                _ = pq_traffic::wait_tick(&mut self.pq_traffic) => {
+                    if let Some(traffic) = &self.pq_traffic {
+                        traffic.flush();
+                    }
                 }
                 // poll the gossipsub cache to clear expired messages
                 Some(result) = self.gossip_cache.next() => {

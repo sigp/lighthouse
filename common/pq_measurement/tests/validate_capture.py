@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate captured real OTLP round trips against the published draft3 schema.
+"""Validate captured real OTLP round trips against the published common measurement schema.
 
 Requires jsonschema (test tooling only). Run the Rust tests with
 PQ_MEASUREMENT_HOOK_CAPTURE=/tmp/pq-hooks.json, then pass that file here.

@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "PQ measurement event contract draft 3",
+  "title": "PQ measurement event contract 0.1",
   "type": "object",
   "properties": {
     "schema_version": {
-      "const": "pq.measurement/0.1-draft3"
+      "const": "pq.measurement/0.1"
     },
     "event_name": {
       "type": "string",

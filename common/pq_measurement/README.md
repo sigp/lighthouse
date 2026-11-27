@@ -1,6 +1,6 @@
 # Common PQ measurements
 
-This crate exports `pq.measurement/0.1-draft3` as dedicated OTLP/gRPC structured logs. It instruments existing work; enabling it does not add subnet subscriptions or synthetic validator duties. Ordinary logs, tracing and the local observation-node experiments are independent.
+This crate exports `pq.measurement/0.1` as dedicated OTLP/gRPC structured logs. It instruments existing work; enabling it does not add subnet subscriptions or synthetic validator duties. Ordinary logs, tracing and the local observation-node experiments are independent.
 
 ## Enable collection
 
@@ -42,7 +42,11 @@ Enable the existing metrics HTTP endpoint separately if Prometheus will scrape t
 
 Hooks take paired UTC/monotonic timestamps before enriching their record. Monotonic differences are valid only within the same process UUID. The context describes the actual receipt, validation, pool, publication and backend boundaries. Native execution duration includes internal backend locking; it is not CPU utilization. The canonical body remains a nested OTLP map, including exact decimal-string nanoseconds, with no TraceId/SpanId requirement.
 
-`traffic::Window` supplies fixed ten-by-100-ms counters and distinguishes observed zero, unsupported scopes and interrupted observation. Production integration must only use actual complete-copy decoder/peer-queue hooks. Lighthouse's current application hooks do not expose the required pre-dedup RX copies and per-recipient TX handoffs, so those traffic scopes are declared unavailable in the deployment/context mapping. Unique receipts and successful publish calls are not substituted for all-copy bandwidth. No synthetic traffic records are emitted to claim coverage.
+The beacon node counts complete compressed aggregate payload copies using the optional observer in `ethDreamer/rust-libp2p@5f32482bf2ac5519f3def8f92af1c567c26fefdc`, pinned consistently for libp2p and mplex. RX runs before graylisting, decompression and deduplication over both decoded-valid and decoded-invalid publish entries. TX runs only after each peer queue accepts a complete payload, including forwarding and IWANT repeats. Empty payloads are zero-byte copies. Whole frames rejected before topic/payload decoding are outside the attributed scope. Later expiry, IDONTWANT removal or transport failure does not subtract a successful TX handoff. These are payload-copy counters, **not NIC bytes or delivery acknowledgements**; protobuf/control framing, encryption and retransmissions are excluded.
+
+Only configured PQ aggregate topics are allowlisted. Ten half-open 100 ms buckets form each one-second record. Callbacks advance bucket assignment even if the timer is delayed; the one-second timer exports completed windows, including observed zeros. The observer captures one paired UTC/monotonic anchor at startup. Nominal boundary UTC labels use that fixed offset throughout its lifetime, without claiming an actual clock read at each boundary or silently re-anchoring after wall-clock steps. Other event timestamps remain actual clock readings. Host clock metadata is required to assess cross-node uncertainty.
+
+Storage and catch-up work are bounded. Overflow or lost observation is marked `not_observed`; evicted windows increment measurement-health counters. Collector/exporter loss must never be interpreted as zero traffic. Shutdown submits only completed windows; the unfinished window stays unknown. Copy hooks do not serialize events, recompress/hash payloads, or wait for export. The timer and gossip callbacks share the network polling task. The VC has no gossip traffic scope. Omitting the common endpoint flag installs no traffic observer or timer.
 
 ## Tests
 
@@ -61,12 +65,13 @@ To validate reconstructed captures independently, install `jsonschema` in a test
 python tests/validate_capture.py /tmp/pq-export.json /tmp/pq-hooks.json
 ```
 
-The schema and examples in `tests/fixtures` are copied from `ethDreamer/pq-measurement-spec` commit `d458c9c`, draft3. All published examples are also round-tripped losslessly through the OTLP mapping in the Rust tests. Hook tests check successful, rejected, deferred, cancelled, committee, multi-call, backend-failure and reusable/hybrid paths. Source-hook coverage still needs a live pilot with normal host metrics and exporter-off/on comparisons.
+The schema and examples in `tests/fixtures` are copied from `ethDreamer/pq-measurement-spec` commit `1effe59`. All published examples are also round-tripped losslessly through the OTLP mapping in the Rust tests. Hook tests check successful, rejected, deferred, cancelled, committee, multi-call, backend-failure and reusable/hybrid paths. Source-hook coverage still needs a live pilot with normal host metrics and exporter-off/on comparisons.
 
 A separately invoked release microbenchmark measures the disabled lookup and enabled timestamp/JSON/reference/enqueue path:
 
 ```sh
 cargo test -p pq_measurement --release measure_hook_path_overhead -- --ignored --nocapture
+cargo test -p pq_measurement --release measure_complete_copy_callback_overhead -- --ignored --nocapture
 ```
 
 It deliberately excludes background serialization/export, real proving, and full-node concurrency. It is a hook-cost check, not a production throughput or overhead guarantee.

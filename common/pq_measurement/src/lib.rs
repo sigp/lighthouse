@@ -20,7 +20,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Notify, mpsc};
 use url::Url;
 
-pub const SCHEMA_VERSION: &str = "pq.measurement/0.1-draft3";
+pub const SCHEMA_VERSION: &str = "pq.measurement/0.1";
 pub const MAX_COUNT: u64 = (1_u64 << 53) - 1;
 pub const EVENT_NAMES: [&str; 10] = [
     "pq.context",
@@ -82,7 +82,8 @@ impl Mode {
     }
 }
 
-/// Paired wall/monotonic readings. Strings preserve nanoseconds through JSON and OTLP.
+/// Paired wall/monotonic times. Ordinary events use actual readings; nominal traffic-window
+/// boundaries use the observer's fixed paired anchor. Strings preserve nanoseconds in export.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Point {
@@ -339,6 +340,12 @@ impl Recorder {
         }
     }
 
+    /// Process-relative monotonic timestamp without a wall-clock read or string allocation.
+    /// Traffic callbacks use this to select buckets anchored by one paired `point()` reading.
+    pub fn monotonic_ns(&self) -> u64 {
+        duration_ns(self.origin.elapsed())
+    }
+
     pub fn new_id(&self) -> String {
         match self
             .next_ref
@@ -414,11 +421,19 @@ impl Recorder {
     }
 
     pub fn record_summary_eviction(&self, family: &'static str) {
+        self.record_summary_evictions(family, 1);
+    }
+
+    /// Account bounded-window catch-up losses without looping once per discarded window.
+    pub fn record_summary_evictions(&self, family: &'static str, count: u64) {
+        if count == 0 {
+            return;
+        }
         if let Some(index) = EVENT_NAMES.iter().position(|n| *n == family)
             && let Some(f) = self.health.families.get(index)
         {
-            f.evicted.fetch_add(1, Ordering::Relaxed);
-            metrics::inc_counter_vec(&EVICTED, &[family]);
+            f.evicted.fetch_add(count, Ordering::Relaxed);
+            metrics::inc_counter_vec_by(&EVICTED, &[family], count);
         }
     }
 

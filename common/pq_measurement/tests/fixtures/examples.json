@@ -1,6 +1,6 @@
 [
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.context",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -44,7 +44,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.context",
     "node_id": "node-b",
     "process_id": "22222222-2222-4222-8222-222222222222",
@@ -88,7 +88,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.duty_scheduled",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -118,7 +118,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.operation_admitted",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -163,7 +163,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.operation_completed",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -236,7 +236,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.aggregate_published",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -287,7 +287,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.aggregate_received",
     "node_id": "node-b",
     "process_id": "22222222-2222-4222-8222-222222222222",
@@ -312,7 +312,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.aggregate_processed",
     "node_id": "node-b",
     "process_id": "22222222-2222-4222-8222-222222222222",
@@ -362,7 +362,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.duty_completed",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -405,7 +405,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.aggregate_received",
     "node_id": "node-b",
     "process_id": "22222222-2222-4222-8222-222222222222",
@@ -430,7 +430,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.aggregate_processed",
     "node_id": "node-b",
     "process_id": "22222222-2222-4222-8222-222222222222",
@@ -476,7 +476,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.duty_scheduled",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -501,7 +501,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.operation_admitted",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -558,7 +558,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.operation_completed",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -652,7 +652,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.operation_admitted",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -713,7 +713,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.operation_completed",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -811,7 +811,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.duty_completed",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
@@ -863,7 +863,7 @@
     }
   },
   {
-    "schema_version": "pq.measurement/0.1-draft3",
+    "schema_version": "pq.measurement/0.1",
     "event_name": "pq.aggregate_traffic",
     "node_id": "node-a",
     "process_id": "11111111-1111-4111-8111-111111111111",
