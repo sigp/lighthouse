@@ -6,8 +6,8 @@ mod deposit_tree_snapshot;
 mod pending_deposit;
 
 use crate::{Hash256, XmssPublicKey};
+use alloy_primitives::keccak256;
 use bls::{PUBLIC_KEY_BYTES_LEN, PublicKeyBytes, SignatureBytes};
-use ethereum_hashing::hash32_concat;
 
 pub use deposit::{DEPOSIT_TREE_DEPTH, Deposit};
 pub use deposit_data::DepositData;
@@ -33,7 +33,9 @@ pub fn compute_deposit_pubkey(pubkey: &PublicKeyBytes) -> XmssPublicKey {
         return (*key).into();
     }
 
-    hash32_concat(pubkey.as_serialized(), &LEGACY_XMSS_PUBKEY_DOMAIN).into()
+    keccak256([pubkey.as_serialized(), &LEGACY_XMSS_PUBKEY_DOMAIN].concat())
+        .0
+        .into()
 }
 
 /// Read the VRF commitment of a PQ deposit or compute the legacy deposit commitment.
@@ -44,7 +46,9 @@ pub fn compute_deposit_vrf_root(pubkey: &PublicKeyBytes, signature: &SignatureBy
         return (*root).into();
     }
 
-    hash32_concat(pubkey.as_serialized(), &LEGACY_VRF_ROOT_DOMAIN).into()
+    keccak256([pubkey.as_serialized(), &LEGACY_VRF_ROOT_DOMAIN].concat())
+        .0
+        .into()
 }
 
 /// Represent a registry key in the 48-byte deposit key format.
@@ -82,13 +86,13 @@ mod tests {
         let legacy_pubkey = PublicKeyBytes::deserialize(&[9; 48]).unwrap();
         assert_eq!(
             compute_deposit_pubkey(&legacy_pubkey),
-            "0xb183aae98981b73480bc16d90e5d3f03885c9390a7dbcbc47befab3f25487539"
+            "0xa1fc67d0715e7a9d5ef9500cb48db0a97e6ea75ae0f415534ac6278103275930"
                 .parse::<XmssPublicKey>()
                 .unwrap()
         );
         assert_eq!(
             compute_deposit_vrf_root(&legacy_pubkey, &deposit_signature),
-            "0x1090c9255d96bb74737a6ffbda3e8647f9c98fd023110692ca32cb1230c8ac76"
+            "0x90ed2a255339d9034607dd7db88e076707bd8e4f1362f17d2f8a931a012b9e1e"
                 .parse::<Hash256>()
                 .unwrap()
         );

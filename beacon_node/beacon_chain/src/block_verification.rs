@@ -1101,6 +1101,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 chain.builder_onboarding_cache.as_deref(),
                 &chain.spec,
             )?;
+            // Report malformed proposer indices as a peer-invalid block, not an internal state
+            // lookup error (which gossip treats as Ignore).
+            if pq_block.message.proposer_index >= state.validators().len() as u64 {
+                return Err(BlockError::UnknownValidator(
+                    pq_block.message.proposer_index,
+                ));
+            }
             state_processing::pq::verify_proposer_signature(
                 &state,
                 pq_block,

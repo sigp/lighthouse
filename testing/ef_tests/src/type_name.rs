@@ -211,3 +211,34 @@ type_name!(Withdrawal);
 type_name!(BlsToExecutionChange, "BLSToExecutionChange");
 type_name!(SignedBlsToExecutionChange, "SignedBLSToExecutionChange");
 type_name!(HistoricalSummary);
+
+// PQ-only reference artifact containers.
+type_name_generic!(AggregateAndProofPq, "AggregateAndProof");
+type_name_generic!(AttestationPq, "Attestation");
+type_name_generic!(AttesterSlashingPq, "AttesterSlashing");
+type_name!(BuilderPreregistration, "BuilderPreregistration");
+type_name!(
+    BuilderPreregistrationRequest,
+    "BuilderPreregistrationRequest"
+);
+type_name_generic!(ExecutionPayloadEnvelopePq, "ExecutionPayloadEnvelope");
+type_name_generic!(ExecutionRequestsPq, "ExecutionRequests");
+type_name_generic!(IndexedAttestationPq, "IndexedAttestation");
+type_name_generic!(NewPayloadRequest, "NewPayloadRequest");
+type_name_generic!(NewPayloadRequestPq, "NewPayloadRequest");
+type_name!(PayloadAttestationMessagePq, "PayloadAttestationMessage");
+type_name!(ProposerSlashingPq, "ProposerSlashing");
+type_name_generic!(SignedAggregateAndProofPq, "SignedAggregateAndProof");
+type_name!(SignedBeaconBlockHeaderPq, "SignedBeaconBlockHeader");
+type_name_generic!(
+    SignedExecutionPayloadEnvelopePq,
+    "SignedExecutionPayloadEnvelope"
+);
+type_name!(SignedProposerPreferencesPq, "SignedProposerPreferences");
+type_name!(SingleAttestationPq, "SingleAttestation");
+type_name!(ValidatorPreregistration, "ValidatorPreregistration");
+type_name!(
+    ValidatorPreregistrationRequest,
+    "ValidatorPreregistrationRequest"
+);
+type_name!(VoluntaryExitRequest, "VoluntaryExitRequest");

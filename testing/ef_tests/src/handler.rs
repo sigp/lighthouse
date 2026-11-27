@@ -46,7 +46,8 @@ pub trait Handler {
     fn run(&self) {
         for fork_name in ForkName::list_all() {
             // TODO(heze): remove this skip once Heze spec test vectors are published in
-            // consensus-spec-tests. Pq (consensus-specs `_features/pq`) has no vectors either.
+            // consensus-spec-tests. PQ uses dedicated pq_* targets with an explicitly selected
+            // artifact; the installed release fixtures do not contain PQ.
             if fork_name == ForkName::Pq || fork_name == ForkName::Heze {
                 continue;
             }

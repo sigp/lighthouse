@@ -41,6 +41,7 @@ use types::{
 struct Metadata {
     description: Option<String>,
     bls_setting: Option<BlsSetting>,
+    parent_slot: Option<types::Slot>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -116,10 +117,14 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        if fork_name < ForkName::Electra {
-            Ok(Self::Base(ssz_decode_file(path)?))
-        } else {
+        if fork_name == ForkName::Pq {
+            Ok(Self::Pq(ssz_decode_file(path)?))
+        } else if fork_name.gloas_enabled() {
+            Ok(Self::Gloas(ssz_decode_file(path)?))
+        } else if fork_name.electra_enabled() {
             Ok(Self::Electra(ssz_decode_file(path)?))
+        } else {
+            Ok(Self::Base(ssz_decode_file(path)?))
         }
     }
 
@@ -127,13 +132,17 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
-        _: &Operations<E, Self>,
+        case: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         initialize_epoch_cache(state, spec)?;
         initialize_progressive_balances_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         if state.fork_name_unchecked().gloas_enabled() {
-            let parent_slot = Some(state.latest_execution_payload_bid()?.slot());
+            let parent_slot = Some(
+                case.metadata
+                    .parent_slot
+                    .unwrap_or(state.latest_block_header().slot),
+            );
             gloas::process_attestation(
                 state,
                 self.to_ref(),
@@ -172,7 +181,9 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        if fork_name.gloas_enabled() {
+        if fork_name == ForkName::Pq {
+            Ok(Self::Pq(ssz_decode_file(path)?))
+        } else if fork_name.gloas_enabled() {
             Ok(Self::Gloas(ssz_decode_file(path)?))
         } else if fork_name.electra_enabled() {
             Ok(Self::Electra(ssz_decode_file(path)?))
@@ -923,5 +934,69 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut result = operation.apply_to(&mut state, spec, self).map(|()| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for types::ProposerSlashingPq {
+    type Error = BlockProcessingError;
+    fn handler_name() -> String {
+        "proposer_slashing".into()
+    }
+    fn decode(path: &Path, _: ForkName, _: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), Self::Error> {
+        use state_processing::per_block_processing::errors::IntoWithIndex;
+        state.build_slashings_cache()?;
+        initialize_progressive_balances_cache(state, spec)?;
+        state_processing::per_block_processing::verify_proposer_slashing_pq(self, state, spec)
+            .map_err(|error| error.into_with_index(0))?;
+        let mut ctxt = ConsensusContext::new(state.slot());
+        state_processing::common::slash_validator(
+            state,
+            self.signed_header_1.message.proposer_index as usize,
+            None,
+            &mut ctxt,
+            spec,
+        )?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RandaoBody<E: EthSpec>(types::BeaconBlockBodyPq<E>);
+impl<E: EthSpec> Operation<E> for RandaoBody<E> {
+    type Error = BlockProcessingError;
+    fn handler_name() -> String {
+        "randao".into()
+    }
+    fn filename() -> String {
+        "body.ssz_snappy".into()
+    }
+    fn decode(path: &Path, _: ForkName, _: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path).map(Self)
+    }
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), Self::Error> {
+        let mut block = BeaconBlock::<E>::empty(spec);
+        *block.slot_mut() = state.slot();
+        block.as_pq_mut().expect("PQ fixture has a PQ block").body = self.0.clone();
+        let mut ctxt = ConsensusContext::new(state.slot());
+        state_processing::per_block_processing::process_randao(
+            state,
+            block.to_ref(),
+            VerifySignatures::True,
+            &mut ctxt,
+            spec,
+        )
     }
 }

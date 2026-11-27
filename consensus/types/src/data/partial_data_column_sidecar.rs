@@ -330,7 +330,7 @@ impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Encode, Decode, TreeHash, PartialEq, Eq)]
 pub struct PartialDataColumnPartsMetadata<E: EthSpec> {
     pub available: CellBitmap<E>,
     pub requests: CellBitmap<E>,
@@ -346,7 +346,7 @@ impl<E: EthSpec> Display for PartialDataColumnPartsMetadata<E> {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Encode, Decode, TreeHash, PartialEq, Eq)]
 pub struct PartialDataColumnGroupId {
     pub beacon_block_root: Hash256,
     pub slot: Slot,

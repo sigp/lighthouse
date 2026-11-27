@@ -54,7 +54,7 @@ pub use payload::{
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadRef,
     BlockProductionVersion, BlockType, ExecPayload, FullPayload, FullPayloadBellatrix,
     FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, FullPayloadRef,
-    NewPayloadRequest, OwnedExecPayload, VersionedHashes,
+    NewPayloadRequest, NewPayloadRequestPq, OwnedExecPayload, VersionedHashes,
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::{

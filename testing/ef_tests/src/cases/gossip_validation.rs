@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
-    Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashingBase,
+    Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashingBase, ProposerSlashingPq,
     SignedAggregateAndProof, SignedAggregateAndProofElectra, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
     Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
@@ -343,7 +343,20 @@ impl<E: EthSpec> GossipTester<E> {
                 peer_id,
             )?,
             Topic::BeaconBlock => {
-                self.process_beacon_block(path, message_meta, message_id.clone(), peer_id)?
+                if let Err(error) =
+                    self.process_beacon_block(path, message_meta, message_id.clone(), peer_id)
+                {
+                    return match error {
+                        // Wire decoding precedes gossip validation, so an oversized SSZ list is
+                        // rejected before a BeaconBlock can reach the processor.
+                        Error::FailedToParseTest(detail)
+                            if detail.starts_with("Unable to parse SSZ at ") =>
+                        {
+                            Ok(MessageAcceptance::Reject)
+                        }
+                        error => Err(error),
+                    };
+                }
             }
             Topic::VoluntaryExit => {
                 self.process_voluntary_exit(path, message_meta, message_id.clone(), peer_id)?
@@ -396,6 +409,22 @@ impl<E: EthSpec> GossipTester<E> {
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<(), Error> {
+        if self
+            .spec
+            .fork_name_at_slot::<E>(
+                self.harness
+                    .chain
+                    .slot()
+                    .map_err(|e| Error::InternalError(format!("slot: {e:?}")))?,
+            )
+            .pq_enabled()
+        {
+            let slashing: ProposerSlashingPq =
+                ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+            self.network_beacon_processor
+                .process_gossip_pq_proposer_slashing(message_id, peer_id, slashing);
+            return Ok(());
+        }
         let slashing: ProposerSlashingBase =
             ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
 
@@ -413,7 +442,9 @@ impl<E: EthSpec> GossipTester<E> {
         peer_id: PeerId,
     ) -> Result<(), Error> {
         let ssz_path = path.join(format!("{}.ssz_snappy", message_meta.message));
-        let slashing: AttesterSlashing<E> = if fork_name.gloas_enabled() {
+        let slashing: AttesterSlashing<E> = if fork_name.pq_enabled() {
+            ssz_decode_file(&ssz_path).map(AttesterSlashing::Pq)?
+        } else if fork_name.gloas_enabled() {
             ssz_decode_file(&ssz_path).map(AttesterSlashing::Gloas)?
         } else if fork_name.electra_enabled() {
             ssz_decode_file(&ssz_path).map(AttesterSlashing::Electra)?
@@ -477,10 +508,12 @@ impl<E: EthSpec> GossipTester<E> {
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        // Pq is not covered by the EF tests, so the BLS variant is always the right one.
-        let attestation = SingleAttestation::Electra(ssz_decode_file(
-            &path.join(format!("{}.ssz_snappy", message_meta.message)),
-        )?);
+        let ssz_path = path.join(format!("{}.ssz_snappy", message_meta.message));
+        let attestation = if self.spec.pq_fork_epoch == Some(types::Epoch::new(0)) {
+            SingleAttestation::Pq(ssz_decode_file(&ssz_path)?)
+        } else {
+            SingleAttestation::Electra(ssz_decode_file(&ssz_path)?)
+        };
         let subnet_id = SubnetId::new(message_meta.subnet_id.ok_or_else(|| {
             Error::FailedToParseTest("missing beacon_attestation subnet_id".into())
         })?);
@@ -508,10 +541,13 @@ impl<E: EthSpec> GossipTester<E> {
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        let aggregate = ssz_decode_file::<SignedAggregateAndProofElectra<E>>(
-            &path.join(format!("{}.ssz_snappy", message_meta.message)),
-        )
-        .map(SignedAggregateAndProof::Electra)?;
+        let ssz_path = path.join(format!("{}.ssz_snappy", message_meta.message));
+        let aggregate = if self.spec.pq_fork_epoch == Some(types::Epoch::new(0)) {
+            ssz_decode_file(&ssz_path).map(SignedAggregateAndProof::Pq)?
+        } else {
+            ssz_decode_file::<SignedAggregateAndProofElectra<E>>(&ssz_path)
+                .map(SignedAggregateAndProof::Electra)?
+        };
         let seen_timestamp = self.set_message_time(message_meta)?;
 
         self.network_beacon_processor
@@ -892,13 +928,8 @@ impl<E: EthSpec> GossipValidation<E> {
     ) -> Result<HashMap<String, SignedBeaconBlock<E>>, Error> {
         let mut block_names = HashSet::new();
         block_names.extend(self.meta.blocks.iter().map(|block| block.block.clone()));
-        block_names.extend(
-            self.meta
-                .messages
-                .iter()
-                .filter(|_| self.meta.topic == Topic::BeaconBlock)
-                .map(|message| message.message.clone()),
-        );
+        // Gossip messages are decoded when delivered, so malformed wire inputs are classified
+        // as Reject instead of aborting construction of the setup chain.
         if let Some(FinalizedCheckpoint::Block { block, .. }) = &self.meta.finalized_checkpoint {
             block_names.insert(block.clone());
         }

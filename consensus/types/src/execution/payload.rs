@@ -17,7 +17,8 @@ use crate::{
         ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
         ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix,
         ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
-        ExecutionPayloadHeaderFulu, ExecutionPayloadRef, ExecutionRequestsGloas, Transactions,
+        ExecutionPayloadHeaderFulu, ExecutionPayloadRef, ExecutionRequestsGloas,
+        ExecutionRequestsPq, Transactions,
     },
     fork::ForkName,
     map_execution_payload_into_blinded_payload, map_execution_payload_into_full_payload,
@@ -1127,4 +1128,17 @@ pub struct NewPayloadRequest<E: EthSpec> {
     pub versioned_hashes: VersionedHashes<E>,
     pub parent_beacon_block_root: Hash256,
     pub execution_requests: ExecutionRequestsGloas<E>,
+}
+
+/// PQ spec `NewPayloadRequest`, including the PQ execution request lists.
+/// This SSZ container is separate from the runtime Engine API request representation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[serde(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
+#[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1))]
+pub struct NewPayloadRequestPq<E: EthSpec> {
+    pub execution_payload: ExecutionPayloadGloas<E>,
+    pub versioned_hashes: VersionedHashes<E>,
+    pub parent_beacon_block_root: Hash256,
+    pub execution_requests: ExecutionRequestsPq<E>,
 }

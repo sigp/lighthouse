@@ -125,19 +125,25 @@ fn progressive_bits_to_bitlist<E: EthSpec>(
 impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
     type Item = BitList<E::MaxValidatorsPerSlot>;
     fn is_subset(&self, other: &Self::Item) -> bool {
+        // Gossip suppression requires equal bit lengths. A malformed shorter bitfield must reach
+        // committee-size validation rather than being ignored as an already-seen subset.
         match self {
             Self::Base(att) => {
                 if let Ok(extended_aggregation_bits) = att.extend_aggregation_bits() {
-                    return extended_aggregation_bits.is_subset(other);
+                    return extended_aggregation_bits.len() == other.len()
+                        && extended_aggregation_bits.is_subset(other);
                 }
                 false
             }
-            Self::Electra(att) => att.aggregation_bits.is_subset(other),
+            Self::Electra(att) => {
+                att.aggregation_bits.len() == other.len() && att.aggregation_bits.is_subset(other)
+            }
             Self::Gloas(att) => {
                 if let Ok(aggregation_bits) =
                     progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
                 {
-                    return aggregation_bits.is_subset(other);
+                    return aggregation_bits.len() == other.len()
+                        && aggregation_bits.is_subset(other);
                 }
                 false
             }
@@ -145,7 +151,8 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 if let Ok(aggregation_bits) =
                     progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
                 {
-                    return aggregation_bits.is_subset(other);
+                    return aggregation_bits.len() == other.len()
+                        && aggregation_bits.is_subset(other);
                 }
                 false
             }
@@ -156,16 +163,20 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
         match self {
             Self::Base(att) => {
                 if let Ok(extended_aggregation_bits) = att.extend_aggregation_bits() {
-                    return other.is_subset(&extended_aggregation_bits);
+                    return extended_aggregation_bits.len() == other.len()
+                        && other.is_subset(&extended_aggregation_bits);
                 }
                 false
             }
-            Self::Electra(att) => other.is_subset(&att.aggregation_bits),
+            Self::Electra(att) => {
+                att.aggregation_bits.len() == other.len() && other.is_subset(&att.aggregation_bits)
+            }
             Self::Gloas(att) => {
                 if let Ok(aggregation_bits) =
                     progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
                 {
-                    return other.is_subset(&aggregation_bits);
+                    return aggregation_bits.len() == other.len()
+                        && other.is_subset(&aggregation_bits);
                 }
                 false
             }
@@ -173,7 +184,8 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 if let Ok(aggregation_bits) =
                     progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
                 {
-                    return other.is_subset(&aggregation_bits);
+                    return aggregation_bits.len() == other.len()
+                        && other.is_subset(&aggregation_bits);
                 }
                 false
             }
@@ -766,6 +778,21 @@ mod pq_stagger_tests {
                 target: Checkpoint::default(),
             },
         })
+    }
+
+    #[test]
+    fn different_bit_lengths_are_neither_subsets_nor_supersets() {
+        let known = aggregate(&[0], 0, Hash256::ZERO);
+        let known_bits = known.as_reference().get_item().unwrap();
+        for len in [3, 5] {
+            let mut candidate = aggregate(&[0], 0, Hash256::ZERO);
+            if let Attestation::Pq(attestation) = &mut candidate {
+                attestation.aggregation_bits = ProgressiveBitList::with_capacity(len);
+                attestation.aggregation_bits.set(0, true).unwrap();
+            }
+            assert!(!candidate.as_reference().is_subset(&known_bits));
+            assert!(!candidate.as_reference().is_superset(&known_bits));
+        }
     }
 
     #[test]

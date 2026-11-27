@@ -1,10 +1,11 @@
 pub use case_result::CaseResult;
 pub use cases::{
-    BuilderPendingPayments, Case, EffectiveBalanceUpdates, Eth1DataReset, ExecutionPayloadBidBlock,
-    FeatureName, HistoricalRootsUpdate, HistoricalSummariesUpdate, InactivityUpdates,
-    JustificationAndFinalization, ParentExecutionPayloadBlock, ParticipationFlagUpdates,
-    ParticipationRecordUpdates, PendingBalanceDeposits, PendingConsolidations,
-    PendingDepositsChurn, ProposerLookahead, PtcWindow, RandaoMixesReset, RegistryUpdates,
+    AggregationCommitteeWindow, BuilderPendingPayments, Case, EffectiveBalanceUpdates,
+    Eth1DataReset, ExecutionPayloadBidBlock, FeatureName, HistoricalRootsUpdate,
+    HistoricalSummariesUpdate, InactivityUpdates, JustificationAndFinalization, LoadCase,
+    ParentExecutionPayloadBlock, ParticipationFlagUpdates, ParticipationRecordUpdates,
+    PendingBalanceDeposits, PendingConsolidations, PendingDepositsChurn, PreregistrationExpiry,
+    ProposerLookahead, PtcWindow, RandaoBody, RandaoMixesReset, RegistryUpdates,
     RewardsAndPenalties, Slashings, SlashingsReset, SyncCommitteeUpdates, VoluntaryExitChurn,
     WithdrawalsPayload,
 };

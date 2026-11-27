@@ -486,3 +486,30 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         Ok(())
     }
 }
+
+#[derive(Debug)]
+pub struct AggregationCommitteeWindow;
+#[derive(Debug)]
+pub struct PreregistrationExpiry;
+type_name!(AggregationCommitteeWindow, "aggregation_committee_window");
+type_name!(PreregistrationExpiry, "preregistration_expiry");
+impl<E: EthSpec> EpochTransition<E> for AggregationCommitteeWindow {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        let epoch = types::Epoch::new(
+            state
+                .next_epoch()?
+                .as_u64()
+                .checked_add(spec.min_seed_lookahead.as_u64())
+                .expect("fixture epoch fits u64"),
+        );
+        let cache = state.initialize_committee_cache_for_lookahead(epoch, spec)?;
+        state_processing::pq::process_aggregation_committee_window(state, &cache, spec)?;
+        Ok(())
+    }
+}
+impl<E: EthSpec> EpochTransition<E> for PreregistrationExpiry {
+    fn run(state: &mut BeaconState<E>, _: &ChainSpec) -> Result<(), EpochProcessingError> {
+        state_processing::pq::expire_preregistrations(state)?;
+        Ok(())
+    }
+}

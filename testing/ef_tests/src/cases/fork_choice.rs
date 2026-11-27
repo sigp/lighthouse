@@ -1,5 +1,6 @@
 use super::common::{load_config, testing_spec_with_config};
 use super::*;
+use crate::bls_setting::BlsSetting;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::{
     AttestationFromBlock, ForkChoiceStore, PayloadStatus as FcPayloadStatus, ProposerHeadError,
@@ -41,8 +42,9 @@ use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
     DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    IndexedPayloadAttestation, KzgProof, PayloadAttestationMessageGloas, ProposerPreparationData,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas, Slot, Uint256,
+    IndexedAttestationPq, IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage,
+    ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopePq, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -204,10 +206,8 @@ fn default_true() -> bool {
 pub struct Meta {
     #[serde(default, rename(deserialize = "description"))]
     _description: Option<String>,
-    // Some Gloas fork choice tests carry a `bls_setting` instead of a description. We accept and
-    // ignore it: the value is always `1` (BLS required), which matches our default behaviour.
-    #[serde(default, rename(deserialize = "bls_setting"))]
-    _bls_setting: Option<u8>,
+    #[serde(default)]
+    bls_setting: Option<BlsSetting>,
 }
 
 #[derive(Debug)]
@@ -216,6 +216,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub config: Option<types::Config>,
     /// True when the case comes from the `fast_confirmation` runner.
     pub fast_confirmation: bool,
+    pub bls_setting: Option<BlsSetting>,
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
     #[allow(clippy::type_complexity)]
@@ -227,8 +228,8 @@ pub struct ForkChoiceTest<E: EthSpec> {
             Attestation<E>,
             AttesterSlashing<E>,
             PowBlock,
-            SignedExecutionPayloadEnvelopeGloas<E>,
-            PayloadAttestationMessageGloas,
+            SignedExecutionPayloadEnvelope<E>,
+            PayloadAttestationMessage,
         >,
     >,
 }
@@ -285,7 +286,14 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                 }
                 Step::Attestation { attestation, valid } => {
-                    if fork_name.gloas_enabled() {
+                    if fork_name.pq_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Pq(attestation),
+                                valid,
+                            },
+                        )
+                    } else if fork_name.gloas_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Gloas(attestation),
@@ -312,7 +320,13 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     attester_slashing,
                     valid,
                 } => {
-                    if fork_name.gloas_enabled() {
+                    if fork_name.pq_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Pq(attester_slashing),
+                                valid,
+                            })
+                    } else if fork_name.gloas_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Gloas(attester_slashing),
@@ -381,8 +395,13 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     execution_payload,
                     valid,
                 } => {
-                    let envelope =
-                        ssz_decode_file(&path.join(format!("{execution_payload}.ssz_snappy")))?;
+                    let envelope = if fork_name.pq_enabled() {
+                        ssz_decode_file(&path.join(format!("{execution_payload}.ssz_snappy")))
+                            .map(SignedExecutionPayloadEnvelope::Pq)?
+                    } else {
+                        ssz_decode_file(&path.join(format!("{execution_payload}.ssz_snappy")))
+                            .map(SignedExecutionPayloadEnvelope::Gloas)?
+                    };
                     Ok(Step::OnExecutionPayload {
                         execution_payload: envelope,
                         valid,
@@ -392,9 +411,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     payload_attestation_message,
                     valid,
                 } => {
-                    let msg: PayloadAttestationMessageGloas = ssz_decode_file(
-                        &path.join(format!("{payload_attestation_message}.ssz_snappy")),
-                    )?;
+                    let file = path.join(format!("{payload_attestation_message}.ssz_snappy"));
+                    let msg = if fork_name.pq_enabled() {
+                        ssz_decode_file(&file).map(PayloadAttestationMessage::Pq)?
+                    } else {
+                        ssz_decode_file(&file).map(PayloadAttestationMessage::Gloas)?
+                    };
                     Ok(Step::PayloadAttestationMessageGloas {
                         payload_attestation_message: msg,
                         valid,
@@ -407,22 +429,18 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             BeaconBlock::from_ssz_bytes(bytes, spec)
         })?;
 
-        // None of the tests have a `meta.yaml` file, except the altair/genesis tests. For those
-        // tests, the meta file has an irrelevant comment as the `description` field. If the meta
-        // file is present, we parse it for two reasons:
-        //
-        // - To satisfy the `check_all_files_accessed.py` check.
-        // - To ensure that the `meta.yaml` only contains a description field and nothing else that
-        //   might be useful.
         let meta_path = path.join("meta.yaml");
-        if meta_path.exists() {
-            let _meta: Meta = yaml_decode_file(&meta_path)?;
-        }
+        let bls_setting = if meta_path.exists() {
+            yaml_decode_file::<Meta>(&meta_path)?.bls_setting
+        } else {
+            None
+        };
 
         Ok(Self {
             description,
             config,
             fast_confirmation,
+            bls_setting,
             anchor_state,
             anchor_block,
             steps,
@@ -436,6 +454,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        if let Some(setting) = self.bls_setting {
+            // The spec's never_bls decorator disables XMSS too. Real signatures must not be
+            // compared with those placeholder fixtures, nor should they be counted as passes.
+            setting.check()?;
+            if fork_name.pq_enabled() && matches!(setting, BlsSetting::Ignored) {
+                return Err(Error::SkippedKnownFailure);
+            }
+        }
         // These cases run past a sync committee period boundary. The vectors contain a real
         // `next_sync_committee.aggregate_pubkey`, but `fake_crypto` aggregation returns the
         // infinity pubkey, so the state roots cannot match.
@@ -448,7 +474,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // See: https://github.com/ethereum/consensus-specs/pull/5547
         const IGNORED_PRE_FULU_CASES: &[&str] = &["epoch_boundary"];
 
-        if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str())
+        if (cfg!(feature = "fake_crypto")
+            && IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str()))
             || (!fork_name.fulu_enabled()
                 && IGNORED_PRE_FULU_CASES.contains(&self.description.as_str()))
         {
@@ -681,6 +708,11 @@ impl<E: EthSpec> Tester<E> {
             .chain_config(ChainConfig {
                 archive: true,
                 fast_confirmation: FastConfirmationMode::Enabled,
+                // Reference vectors use the spec's hash-based PQ proof backend and synthetic EL hashes.
+                pq_prover: spec
+                    .is_pq_scheduled()
+                    .then_some(beacon_chain::chain_config::PqProverConfig::Reference),
+                verify_envelope_payload_hash_on_cl: false,
                 ..ChainConfig::default()
             })
             .genesis_state_ephemeral_store(case.anchor_state.clone())
@@ -1035,9 +1067,21 @@ impl<E: EthSpec> Tester<E> {
                     |e| Error::InternalError(format!("attestation indexing failed: {e:?}")),
                 )
             }
-            AttestationRef::Pq(_) => Err(Error::InternalError(
-                "Pq attestation indexing is not implemented".to_string(),
-            )),
+            AttestationRef::Pq(att) => {
+                let indices = state_processing::common::get_attesting_indices_from_state(
+                    state,
+                    attestation.to_ref(),
+                )
+                .map_err(|e| Error::InternalError(format!("attestation indexing failed: {e:?}")))?;
+                Ok(IndexedAttestation::Pq(IndexedAttestationPq {
+                    attesting_indices: ssz_types::ProgressiveVariableList::new(indices).map_err(
+                        |e| Error::InternalError(format!("attesting indices failed: {e:?}")),
+                    )?,
+                    data: att.data.clone(),
+                    // Fork-choice fixtures supply already authenticated votes, like the BLS paths.
+                    proof: Default::default(),
+                }))
+            }
         }
     }
 
@@ -1265,11 +1309,60 @@ impl<E: EthSpec> Tester<E> {
         check_equal("proposer_head", proposer_head, expected_proposer_head)
     }
 
-    pub fn process_execution_payload(
+    fn process_pq_execution_payload(
         &self,
-        signed_envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
+        envelope: &SignedExecutionPayloadEnvelopePq<E>,
         valid: bool,
     ) -> Result<(), Error> {
+        let block_hash = envelope.message.payload.block_hash;
+        if valid {
+            self.harness
+                .mock_execution_layer
+                .as_ref()
+                .unwrap()
+                .server
+                .set_new_payload_status(
+                    block_hash,
+                    PayloadStatusV1 {
+                        status: PayloadStatusV1Status::Valid,
+                        latest_valid_hash: Some(block_hash),
+                        validation_error: None,
+                        inclusion_list_satisfied: None,
+                    },
+                );
+        }
+        let chain = self.harness.chain.clone();
+        let envelope = Arc::new(envelope.clone());
+        let result = self.block_on_dangerous(async move {
+            let verified = chain
+                .verify_pq_envelope_for_rpc(envelope)
+                .await
+                .map_err(|e| Error::InternalError(format!("PQ envelope verification: {e:?}")))?;
+            chain
+                .process_verified_pq_envelope(verified)
+                .await
+                .map_err(|e| Error::InternalError(format!("PQ envelope import: {e:?}")))?;
+            Ok(())
+        })?;
+        if valid {
+            result?;
+        } else if result.is_ok() {
+            return Err(Error::DidntFail("invalid PQ envelope accepted".into()));
+        }
+        Ok(())
+    }
+
+    pub fn process_execution_payload(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        valid: bool,
+    ) -> Result<(), Error> {
+        let signed_envelope = match envelope {
+            SignedExecutionPayloadEnvelope::Gloas(envelope) => envelope,
+            SignedExecutionPayloadEnvelope::Pq(envelope) => {
+                return self.process_pq_execution_payload(envelope, valid);
+            }
+        };
         let block_root = signed_envelope.message.beacon_block_root;
         let block_hash = signed_envelope.message.payload.block_hash;
         let store = &self.harness.chain.store;
@@ -1627,9 +1720,83 @@ impl<E: EthSpec> Tester<E> {
     }
     pub fn process_payload_attestation_message(
         &self,
-        msg: &PayloadAttestationMessageGloas,
+        message: &PayloadAttestationMessage,
         valid: bool,
     ) -> Result<(), Error> {
+        let msg = match message {
+            PayloadAttestationMessage::Gloas(message) => message,
+            PayloadAttestationMessage::Pq(message) => {
+                let chain = &self.harness.chain;
+                // This runner tests the fork-choice callback, after gossip filtering. In
+                // particular, repeat votes are valid and a block/slot mismatch is a no-op.
+                let result = (|| {
+                    let root = message.data.beacon_block_root;
+                    let block = chain
+                        .store
+                        .get_blinded_block(&root)
+                        .map_err(|e| Error::InternalError(format!("payload block: {e:?}")))?
+                        .ok_or_else(|| Error::InternalError("unknown payload block".into()))?;
+                    let state = chain
+                        .store
+                        .get_hot_state(&block.state_root(), CACHE_STATE_IN_TESTS)
+                        .map_err(|e| Error::InternalError(format!("payload state: {e:?}")))?
+                        .ok_or_else(|| Error::InternalError("unknown payload state".into()))?;
+                    let slot = message.data.slot;
+                    if slot != state.slot() {
+                        return Ok(());
+                    }
+                    let ptc = state
+                        .get_ptc(slot, &self.spec)
+                        .map_err(|e| Error::InternalError(format!("payload committee: {e:?}")))?;
+                    if !ptc.0.contains(&(message.validator_index as usize))
+                        || chain.slot().ok() != Some(slot)
+                    {
+                        return Err(Error::InternalError(
+                            "payload vote outside current slot or PTC".into(),
+                        ));
+                    }
+                    let validator = state
+                        .get_validator(message.validator_index as usize)
+                        .map_err(|e| Error::InternalError(format!("payload validator: {e:?}")))?;
+                    let domain = self.spec.get_domain(
+                        slot.epoch(E::slots_per_epoch()),
+                        types::Domain::PTCAttester,
+                        &state.fork(),
+                        state.genesis_validators_root(),
+                    );
+                    let leaf = state_processing::pq::slot_leaf_index(
+                        slot,
+                        state_processing::pq::LEAF_OFFSET_PTC_ATTESTER,
+                    )
+                    .map_err(|e| Error::InternalError(format!("payload leaf: {e:?}")))?;
+                    if !state_processing::pq::verify_signature(
+                        &validator.pubkey,
+                        leaf,
+                        types::SignedRoot::signing_root(&message.data, domain),
+                        &message.signature,
+                    ) {
+                        return Err(Error::InternalError(
+                            "invalid PQ payload vote signature".into(),
+                        ));
+                    }
+                    let indexed = IndexedPayloadAttestation::<E> {
+                        attesting_indices: VariableList::new(vec![message.validator_index])
+                            .unwrap(),
+                        data: message.data.clone(),
+                        signature: AggregateSignature::empty(),
+                    };
+                    chain
+                        .apply_payload_attestation_to_fork_choice(&indexed, &ptc)
+                        .map_err(|e| Error::InternalError(format!("PQ payload vote import: {e:?}")))
+                })();
+                if valid {
+                    result.map_err(|e| Error::InternalError(format!("PQ payload vote: {e:?}")))?;
+                } else if result.is_ok() {
+                    return Err(Error::DidntFail("invalid PQ payload vote accepted".into()));
+                }
+                return Ok(());
+            }
+        };
         let slot = msg.data.slot;
         let block_root = msg.data.beacon_block_root;
 
