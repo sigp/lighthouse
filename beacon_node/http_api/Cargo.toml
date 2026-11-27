@@ -37,6 +37,7 @@ network = { workspace = true }
 network_utils = { workspace = true }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
+pq_measurement = { workspace = true }
 proto_array = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }

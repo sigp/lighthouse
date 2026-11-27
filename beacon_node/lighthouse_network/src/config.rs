@@ -490,11 +490,13 @@ pub fn gossipsub_config(
     }
     let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;
     let gossip_message_id = move |message: &gossipsub::Message| {
-        gossipsub::MessageId::from(
+        let id = gossipsub::MessageId::from(
             &Sha256::digest(
                 prefix(message_domain_valid_snappy, message, fork_context.clone()).as_slice(),
             )[..20],
-        )
+        );
+        pq_measurement::gossip::observe_message_id(&id.0);
+        id
     };
 
     let load = NetworkLoad::from(network_load);

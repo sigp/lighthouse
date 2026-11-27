@@ -41,6 +41,7 @@ members = [
     "common/monitoring_api",
     "common/network_utils",
     "common/oneshot_broadcast",
+    "common/pq_measurement",
     "common/pretty_reqwest_error",
     "common/slot_clock",
     "common/system_health",
@@ -214,6 +215,7 @@ operation_pool = { path = "beacon_node/operation_pool" }
 parking_lot = "0.12"
 paste = "1"
 pq_prover = { path = "beacon_node/pq_prover" }
+pq_measurement = { path = "common/pq_measurement" }
 pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 prometheus = { version = "0.13", default-features = false }
 proof_engine = { path = "beacon_node/proof_engine" }

@@ -458,6 +458,12 @@ Options:
           verify the node's sync against. The block root should be 0x-prefixed.
           Note that this flag is for verification only, to perform a checkpoint
           sync from a recent state use --checkpoint-sync-url.
+      --pq-measurement-otlp-endpoint <URL>
+          Export production PQ measurement events as dedicated OTLP/gRPC logs;
+          does not enable tracing or observer duties.
+      --pq-measurement-node-id <ID>
+          Stable logical node identity shared with its VC; alternatively set
+          PQ_MEASUREMENT_NODE_ID.
   -V, --version
           Print version
 

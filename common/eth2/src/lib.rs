@@ -455,6 +455,33 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// Optional bounded measurement context. Invalid telemetry is omitted, never a duty error.
+    async fn post_with_measurement<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+        timeout: Option<Duration>,
+        fork: Option<ForkName>,
+        measurement: Option<&str>,
+    ) -> Result<(), Error> {
+        let mut request = self
+            .client
+            .post(url)
+            .json(body)
+            .timeout(timeout.unwrap_or(self.timeouts.default));
+        if let Some(fork) = fork {
+            request = request.header(CONSENSUS_VERSION_HEADER, fork.to_string());
+        }
+        if let Some(value) = measurement
+            .filter(|value| value.len() <= 16 * 1024)
+            .and_then(|value| reqwest::header::HeaderValue::from_str(value).ok())
+        {
+            request = request.header("x-lighthouse-pq-measurement", value);
+        }
+        success_or_error(request.send().await?).await?;
+        Ok(())
+    }
+
     /// Perform a HTTP POST request with a custom timeout and consensus header.
     async fn post_with_timeout_and_consensus_header<T: Serialize, U: IntoUrl>(
         &self,
@@ -2530,6 +2557,15 @@ impl BeaconNodeHttpClient {
         &self,
         preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
+        self.post_validator_prepare_beacon_proposer_with_measurement(preparation_data, None)
+            .await
+    }
+
+    pub async fn post_validator_prepare_beacon_proposer_with_measurement(
+        &self,
+        preparation_data: &[ProposerPreparationData],
+        measurement: Option<&str>,
+    ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2537,7 +2573,8 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("prepare_beacon_proposer");
 
-        self.post(path, &preparation_data).await?;
+        self.post_with_measurement(path, &preparation_data, None, None, measurement)
+            .await?;
 
         Ok(())
     }
@@ -4278,6 +4315,16 @@ impl BeaconNodeHttpClient {
         aggregates: &[SignedAggregateAndProof<E>],
         fork_name: ForkName,
     ) -> Result<(), Error> {
+        self.post_validator_aggregate_and_proof_v2_with_measurement(aggregates, fork_name, None)
+            .await
+    }
+
+    pub async fn post_validator_aggregate_and_proof_v2_with_measurement<E: EthSpec>(
+        &self,
+        aggregates: &[SignedAggregateAndProof<E>],
+        fork_name: ForkName,
+        measurement: Option<&str>,
+    ) -> Result<(), Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -4285,11 +4332,12 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("aggregate_and_proofs");
 
-        self.post_with_timeout_and_consensus_header(
+        self.post_with_measurement(
             path,
             &aggregates,
-            self.timeouts.attestation,
-            fork_name,
+            Some(self.timeouts.attestation),
+            Some(fork_name),
+            measurement,
         )
         .await?;
 
@@ -4301,6 +4349,15 @@ impl BeaconNodeHttpClient {
         &self,
         subscriptions: &[BeaconCommitteeSubscription],
     ) -> Result<(), Error> {
+        self.post_validator_beacon_committee_subscriptions_with_measurement(subscriptions, None)
+            .await
+    }
+
+    pub async fn post_validator_beacon_committee_subscriptions_with_measurement(
+        &self,
+        subscriptions: &[BeaconCommitteeSubscription],
+        measurement: Option<&str>,
+    ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -4308,10 +4365,12 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("beacon_committee_subscriptions");
 
-        self.post_with_timeout(
+        self.post_with_measurement(
             path,
             &subscriptions,
-            self.timeouts.attestation_subscriptions,
+            Some(self.timeouts.attestation_subscriptions),
+            None,
+            measurement,
         )
         .await?;
 

@@ -458,6 +458,19 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("pq-measurement-otlp-endpoint")
+                .long("pq-measurement-otlp-endpoint")
+                .value_name("URL")
+                .help("Export production PQ measurement events as dedicated OTLP/gRPC logs; does not enable tracing or observer duties.")
+        )
+        .arg(
+            Arg::new("pq-measurement-node-id")
+                .long("pq-measurement-node-id")
+                .value_name("ID")
+                .requires("pq-measurement-otlp-endpoint")
+                .help("Stable logical node identity shared with its VC; alternatively set PQ_MEASUREMENT_NODE_ID.")
+        )
+        .arg(
             Arg::new("pq-timing-output")
                 .long("pq-timing-output")
                 .value_name("DIR")
@@ -1757,4 +1770,52 @@ pub fn cli_app() -> Command {
                 .hide(true)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
+}
+
+#[cfg(test)]
+mod pq_measurement_cli_tests {
+    use super::*;
+    #[test]
+    fn dedicated_measurements_do_not_enable_observer_or_subscriptions() {
+        let disabled = cli_app()
+            .try_get_matches_from([
+                "beacon_node",
+                "--execution-endpoint",
+                "http://localhost:8551",
+            ])
+            .unwrap();
+        assert!(
+            disabled
+                .get_one::<String>("pq-measurement-otlp-endpoint")
+                .is_none()
+        );
+        let enabled = cli_app()
+            .try_get_matches_from([
+                "beacon_node",
+                "--execution-endpoint",
+                "http://localhost:8551",
+                "--pq-measurement-otlp-endpoint",
+                "http://collector:4317",
+                "--pq-measurement-node-id",
+                "bn-1",
+            ])
+            .unwrap();
+        assert!(!enabled.get_flag("pq-measurement"));
+        assert!(!enabled.get_flag("pq-aggregate-all"));
+        assert!(!enabled.get_flag("subscribe-all-subnets"));
+        assert!(enabled.get_one::<String>("pq-timing-output").is_none());
+        assert!(
+            pq_measurement::validate_endpoint(
+                enabled
+                    .get_one::<String>("pq-measurement-otlp-endpoint")
+                    .unwrap()
+            )
+            .is_ok()
+        );
+        assert!(
+            cli_app()
+                .try_get_matches_from(["beacon_node", "--pq-measurement-node-id", "bn-1"])
+                .is_err()
+        );
+    }
 }

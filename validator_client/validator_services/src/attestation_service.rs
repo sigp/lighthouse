@@ -533,6 +533,22 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         self.produce_and_publish_aggregates(&attestation_data, committee_index, &validator_duties)
             .await
             .map_err(move |e| {
+                if pq_measurement::global().is_some() {
+                    for duty in &validator_duties {
+                        if let Some(position) = duty.duty.aggregator_position {
+                            pq_measurement::duty::complete(
+                                &pq_measurement::duty::committee_key(
+                                    slot.as_u64(),
+                                    committee_index,
+                                    position,
+                                ),
+                                "failed",
+                                "other",
+                                false,
+                            );
+                        }
+                    }
+                }
                 crit!(
                     error = format!("{:?}", e),
                     committee_index,
@@ -789,6 +805,20 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
                 if !duty.match_attestation_data::<S::E>(attestation_data, &self.chain_spec) {
                     crit!("Inconsistent validator duties during signing");
+                    if pq_measurement::global().is_some() {
+                        if let Some(position) = duty.aggregator_position {
+                            pq_measurement::duty::complete(
+                                &pq_measurement::duty::committee_key(
+                                    duty.slot.as_u64(),
+                                    duty.committee_index,
+                                    position,
+                                ),
+                                "cancelled",
+                                "reorg",
+                                false,
+                            );
+                        }
+                    }
                     return None;
                 }
 
@@ -801,6 +831,32 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             })
             .collect();
 
+        // Keep input identities until signing has completed. The signer may omit individual
+        // failures from an otherwise successful batch. Removing signed identities before HTTP
+        // submission ensures a later HTTP timeout is never reported as a signing failure.
+        let mut unsigned_measurement_duties: HashMap<u64, String> =
+            if pq_measurement::global().is_some() {
+                aggregates_to_sign
+                    .iter()
+                    .filter_map(|aggregate| {
+                        let duty = validator_duties
+                            .iter()
+                            .find(|duty| duty.duty.validator_index == aggregate.aggregator_index)?;
+                        let position = duty.duty.aggregator_position?;
+                        Some((
+                            aggregate.aggregator_index,
+                            pq_measurement::duty::committee_key(
+                                attestation_data.slot.as_u64(),
+                                committee_index,
+                                position,
+                            ),
+                        ))
+                    })
+                    .collect()
+            } else {
+                HashMap::new()
+            };
+
         // Sign aggregates. Returns a stream of batches.
         let aggregate_stream = self
             .validator_store
@@ -812,6 +868,31 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             match result {
                 Ok(batch) if !batch.is_empty() => {
                     let signed_aggregate_and_proofs = batch.as_slice();
+                    for signed in signed_aggregate_and_proofs {
+                        if let Some(key) =
+                            unsigned_measurement_duties.remove(&signed.message().aggregator_index())
+                        {
+                            pq_measurement::duty::submitted(&key);
+                        }
+                    }
+                    let measurement_keys = if pq_measurement::global().is_some() {
+                        validator_duties
+                            .iter()
+                            .filter_map(|duty| {
+                                duty.duty.aggregator_position.map(|position| {
+                                    pq_measurement::duty::committee_key(
+                                        attestation_data.slot.as_u64(),
+                                        committee_index,
+                                        position,
+                                    )
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+                    let measurement = pq_measurement::handoff::encode(&measurement_keys);
+                    let measurement_ref = measurement.as_deref();
                     match self
                         .beacon_nodes
                         .first_success(|beacon_node| async move {
@@ -821,9 +902,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                             );
                             if fork_name.electra_enabled() {
                                 beacon_node
-                                    .post_validator_aggregate_and_proof_v2(
+                                    .post_validator_aggregate_and_proof_v2_with_measurement(
                                         signed_aggregate_and_proofs,
                                         fork_name,
+                                        measurement_ref,
                                     )
                                     .await
                             } else {
@@ -880,6 +962,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             }
         }
 
+        // Normal exhaustion proves these requested identities never produced a signed output
+        // and therefore were never submitted by this routine. Interrupted streams remain unknown.
+        for key in unsigned_measurement_duties.into_values() {
+            pq_measurement::duty::complete(&key, "failed", "other", false);
+        }
         Ok(())
     }
 

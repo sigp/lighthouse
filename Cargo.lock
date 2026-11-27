@@ -1523,6 +1523,7 @@ dependencies = [
  "oneshot_broadcast",
  "operation_pool",
  "parking_lot",
+ "pq_measurement",
  "pq_prover",
  "proof_engine",
  "proto_array",
@@ -1578,6 +1579,7 @@ dependencies = [
  "monitoring_api",
  "network_utils",
  "node_test_rig",
+ "pq_measurement",
  "sensitive_url",
  "serde_json",
  "slasher",
@@ -5379,6 +5381,7 @@ dependencies = [
  "network_utils",
  "operation_pool",
  "parking_lot",
+ "pq_measurement",
  "proto_array",
  "rand 0.9.5",
  "reqwest 0.12.28",
@@ -6819,6 +6822,7 @@ dependencies = [
  "metrics",
  "network_utils",
  "parking_lot",
+ "pq_measurement",
  "prometheus-client",
  "proptest",
  "rand 0.9.5",
@@ -7466,6 +7470,7 @@ dependencies = [
  "operation_pool",
  "parking_lot",
  "paste",
+ "pq_measurement",
  "pq_prover",
  "rand 0.8.8",
  "rand 0.9.5",
@@ -8251,12 +8256,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "pq_measurement"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+ "opentelemetry-proto",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.13.1",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "pq_prover"
 version = "0.1.0"
 dependencies = [
  "claims",
  "lean_vm",
  "lean_xmss",
+ "pq_measurement",
+ "serde_json",
  "thiserror 2.0.21",
  "xmss",
 ]
@@ -10887,8 +10910,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
 dependencies = [
  "async-trait",
+ "axum 0.8.9",
  "base64 0.22.1",
  "bytes",
+ "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -10899,6 +10924,7 @@ dependencies = [
  "pin-project",
  "prost 0.13.5",
  "rustls-native-certs",
+ "socket2 0.5.10",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -11410,9 +11436,11 @@ dependencies = [
  "hyper",
  "initialized_validators",
  "lighthouse_validator_store",
+ "lighthouse_version",
  "metrics",
  "monitoring_api",
  "parking_lot",
+ "pq_measurement",
  "reqwest 0.12.28",
  "sensitive_url",
  "serde",
@@ -11572,9 +11600,11 @@ dependencies = [
  "graffiti_file",
  "logging",
  "parking_lot",
+ "pq_measurement",
  "reqwest 0.12.28",
  "safe_arith",
  "serde",
+ "serde_json",
  "slot_clock",
  "task_executor",
  "tokio",

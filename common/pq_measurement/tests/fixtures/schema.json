@@ -1,0 +1,1949 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PQ measurement event contract draft 3",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "pq.measurement/0.1-draft3"
+    },
+    "event_name": {
+      "type": "string",
+      "enum": [
+        "pq.context",
+        "pq.aggregate_received",
+        "pq.aggregate_processed",
+        "pq.aggregate_published",
+        "pq.validation_batch",
+        "pq.operation_admitted",
+        "pq.operation_completed",
+        "pq.duty_scheduled",
+        "pq.duty_completed",
+        "pq.aggregate_traffic"
+      ]
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "process_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "context_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp_unix_ns": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "production",
+        "experiment",
+        "replay"
+      ]
+    },
+    "data": {}
+  },
+  "required": [
+    "schema_version",
+    "event_name",
+    "node_id",
+    "process_id",
+    "event_seq",
+    "context_id",
+    "timestamp_unix_ns",
+    "mode",
+    "data"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ref": {
+      "type": "object",
+      "properties": {
+        "process_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "process_id",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "message": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gossip_id": {
+          "type": "string",
+          "pattern": "^0x(?:[0-9a-f]{2})+$"
+        }
+      },
+      "required": [
+        "topic",
+        "gossip_id"
+      ],
+      "additionalProperties": false
+    },
+    "time": {
+      "type": "object",
+      "properties": {
+        "process_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "unix_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "mono_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        }
+      },
+      "required": [
+        "process_id",
+        "unix_ns",
+        "mono_ns"
+      ],
+      "additionalProperties": false
+    },
+    "point": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/time"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "missing": {
+              "type": "string",
+              "enum": [
+                "not_reached",
+                "not_exposed",
+                "not_applicable"
+              ]
+            }
+          },
+          "required": [
+            "missing"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "none",
+        "invalid",
+        "duplicate",
+        "already_covered",
+        "missing_state",
+        "no_inputs",
+        "deadline",
+        "reorg",
+        "shutdown",
+        "backend_error",
+        "queue_full",
+        "other",
+        "decode_error",
+        "early_gate",
+        "dependency_timeout",
+        "pool_error",
+        "duplicate_suppressed",
+        "accepted_zero_recipients"
+      ]
+    },
+    "sizes": {
+      "type": "object",
+      "properties": {
+        "ssz_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "compressed_payload_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "proof_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "vote": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "committee_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "attestation_data_root": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{64}$"
+        },
+        "signers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "claims": {
+      "type": "object",
+      "properties": {
+        "input_sum": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "input_unique": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "baseline_unique": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "output_unique": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "added_unique": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "credited": {
+      "type": "object",
+      "properties": {
+        "parent_root": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{64}$"
+        },
+        "state_root": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{64}$"
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseline": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "output": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "parent_root",
+        "state_root",
+        "definition",
+        "unit",
+        "baseline",
+        "output"
+      ],
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string",
+          "minLength": 1
+        },
+        "genesis_root": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{64}$"
+        },
+        "genesis_unix_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "slot_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "client_commit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prover_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "proof_parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "integer",
+              "boolean"
+            ]
+          }
+        },
+        "hardware_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metrics_node_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effective_prover_threads": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "schedule_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gossip_id_algorithm": {
+          "type": "string",
+          "minLength": 1
+        },
+        "instrumentation_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hooks": {
+          "type": "object",
+          "properties": {
+            "receipt": {
+              "type": "object",
+              "properties": {
+                "code_location": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "decompression": {
+                  "type": "string",
+                  "enum": [
+                    "before",
+                    "after",
+                    "unknown"
+                  ]
+                },
+                "deduplication": {
+                  "type": "string",
+                  "enum": [
+                    "before",
+                    "after",
+                    "unknown"
+                  ]
+                }
+              },
+              "required": [
+                "code_location",
+                "decompression",
+                "deduplication"
+              ],
+              "additionalProperties": false
+            },
+            "validation_start": {
+              "type": "string",
+              "minLength": 1
+            },
+            "validation_finish": {
+              "type": "string",
+              "minLength": 1
+            },
+            "usable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "publish": {
+              "type": "string",
+              "minLength": 1
+            },
+            "backend_start": {
+              "type": "string",
+              "minLength": 1
+            },
+            "backend_finish": {
+              "type": "string",
+              "minLength": 1
+            },
+            "backend_scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "caller_scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "proof_verify_scope": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "receipt",
+            "validation_start",
+            "validation_finish",
+            "usable",
+            "publish",
+            "backend_start",
+            "backend_finish",
+            "backend_scope",
+            "caller_scope",
+            "proof_verify_scope"
+          ],
+          "additionalProperties": false
+        },
+        "unavailable": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "effective_prover_threads",
+              "prover_revision",
+              "proof_parameters"
+            ]
+          }
+        }
+      },
+      "required": [
+        "network",
+        "genesis_root",
+        "genesis_unix_ns",
+        "slot_ns",
+        "client_commit",
+        "hardware_ref",
+        "metrics_node_ref",
+        "schedule_ref",
+        "gossip_id_algorithm",
+        "instrumentation_revision",
+        "hooks",
+        "unavailable"
+      ],
+      "additionalProperties": false
+    },
+    "aggregate_received": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/message"
+        },
+        "attempt": {
+          "$ref": "#/$defs/ref"
+        },
+        "received": {
+          "$ref": "#/$defs/time"
+        },
+        "vote": {
+          "$ref": "#/$defs/vote"
+        },
+        "sizes": {
+          "$ref": "#/$defs/sizes"
+        }
+      },
+      "required": [
+        "message",
+        "attempt",
+        "received"
+      ],
+      "additionalProperties": false
+    },
+    "aggregate_processed": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/message"
+        },
+        "attempt": {
+          "$ref": "#/$defs/ref"
+        },
+        "receipt_attempt": {
+          "$ref": "#/$defs/ref"
+        },
+        "vote": {
+          "$ref": "#/$defs/vote"
+        },
+        "sizes": {
+          "$ref": "#/$defs/sizes"
+        },
+        "queued": {
+          "$ref": "#/$defs/point"
+        },
+        "started": {
+          "$ref": "#/$defs/point"
+        },
+        "finished": {
+          "$ref": "#/$defs/point"
+        },
+        "usable": {
+          "$ref": "#/$defs/point"
+        },
+        "validation_outcome": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "rejected",
+            "ignored",
+            "deferred",
+            "error",
+            "dropped",
+            "expired",
+            "cancelled"
+          ]
+        },
+        "pool_outcome": {
+          "type": "string",
+          "enum": [
+            "inserted",
+            "already_available",
+            "not_inserted",
+            "not_applicable",
+            "error"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        },
+        "batch": {
+          "$ref": "#/$defs/ref"
+        },
+        "proof_verify_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "terminal_stage": {
+          "enum": [
+            "decode",
+            "precheck",
+            "queue",
+            "validation",
+            "pool"
+          ]
+        },
+        "proof_verify_scope": {
+          "enum": [
+            "backend",
+            "caller"
+          ]
+        }
+      },
+      "required": [
+        "message",
+        "attempt",
+        "receipt_attempt",
+        "queued",
+        "started",
+        "finished",
+        "usable",
+        "validation_outcome",
+        "pool_outcome",
+        "reason",
+        "terminal_stage"
+      ],
+      "additionalProperties": false,
+      "dependentRequired": {
+        "proof_verify_ns": [
+          "proof_verify_scope"
+        ]
+      }
+    },
+    "aggregate_published": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/message"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "missing": {
+                  "const": "not_created"
+                }
+              },
+              "required": [
+                "topic",
+                "missing"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "publication": {
+          "$ref": "#/$defs/ref"
+        },
+        "requested": {
+          "$ref": "#/$defs/time"
+        },
+        "returned": {
+          "$ref": "#/$defs/point"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "failed",
+            "unknown"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        },
+        "operation": {
+          "$ref": "#/$defs/ref"
+        },
+        "duty": {
+          "$ref": "#/$defs/ref"
+        },
+        "duty_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "vote": {
+          "$ref": "#/$defs/vote"
+        },
+        "sizes": {
+          "$ref": "#/$defs/sizes"
+        },
+        "handoff": {
+          "$ref": "#/$defs/point"
+        },
+        "recipient_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "message",
+        "publication",
+        "requested",
+        "returned",
+        "outcome",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "accepted"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "properties": {
+              "message": {
+                "$ref": "#/$defs/message"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "message": {
+                "required": [
+                  "missing"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "outcome": {
+                "const": "failed"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "validation_batch": {
+      "type": "object",
+      "properties": {
+        "batch": {
+          "$ref": "#/$defs/ref"
+        },
+        "queued": {
+          "$ref": "#/$defs/point"
+        },
+        "started": {
+          "$ref": "#/$defs/point"
+        },
+        "finished": {
+          "$ref": "#/$defs/point"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          }
+        },
+        "member_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "proof_verify_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "proof_verify_scope": {
+          "enum": [
+            "backend",
+            "caller"
+          ]
+        }
+      },
+      "required": [
+        "batch",
+        "queued",
+        "started",
+        "finished",
+        "members",
+        "member_count",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "dependentRequired": {
+        "proof_verify_ns": [
+          "proof_verify_scope"
+        ]
+      }
+    },
+    "workload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "committee",
+            "merge"
+          ]
+        },
+        "committee_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "committees_per_slot": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "committee_members": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "signatures": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "proposal_slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "vote_slots": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "input_proofs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "input_messages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "sequence": {
+          "$ref": "#/$defs/ref"
+        },
+        "attempt_index": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "baseline": {
+          "$ref": "#/$defs/ref"
+        },
+        "raw_signatures": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "plan": {
+          "$ref": "#/$defs/ref"
+        },
+        "plan_call_index": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "previous_retained_result": {
+          "$ref": "#/$defs/ref"
+        },
+        "purpose": {
+          "enum": [
+            "committee_duty",
+            "proposal_preparation",
+            "reusable_preparation"
+          ]
+        },
+        "vote_slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "kind",
+        "purpose"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "committee"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "vote_slot",
+              "committee_index",
+              "committees_per_slot",
+              "committee_members",
+              "signatures"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "merge"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "vote_slots",
+              "input_proofs",
+              "input_messages",
+              "sequence",
+              "attempt_index",
+              "raw_signatures",
+              "plan",
+              "plan_call_index"
+            ],
+            "anyOf": [
+              {
+                "properties": {
+                  "input_proofs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "raw_signatures": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "purpose": {
+                "const": "proposal_preparation"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "proposal_slot"
+            ]
+          }
+        }
+      ],
+      "dependentRequired": {
+        "plan": [
+          "plan_call_index"
+        ],
+        "plan_call_index": [
+          "plan"
+        ]
+      }
+    },
+    "operation_admitted": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/ref"
+        },
+        "duty": {
+          "$ref": "#/$defs/ref"
+        },
+        "duty_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "workload": {
+          "$ref": "#/$defs/workload"
+        },
+        "queued": {
+          "$ref": "#/$defs/time"
+        },
+        "submission_concurrency": {
+          "$ref": "#/$defs/submission_concurrency"
+        }
+      },
+      "required": [
+        "operation",
+        "workload",
+        "queued"
+      ],
+      "additionalProperties": false,
+      "dependentRequired": {
+        "duty": [
+          "duty_revision"
+        ],
+        "duty_revision": [
+          "duty"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "purpose": {
+                    "enum": [
+                      "committee_duty",
+                      "proposal_preparation"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "duty",
+              "duty_revision"
+            ]
+          }
+        }
+      ]
+    },
+    "operation_completed": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/ref"
+        },
+        "duty": {
+          "$ref": "#/$defs/ref"
+        },
+        "duty_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "workload": {
+          "$ref": "#/$defs/workload"
+        },
+        "queued": {
+          "$ref": "#/$defs/time"
+        },
+        "started": {
+          "$ref": "#/$defs/point"
+        },
+        "backend_finished": {
+          "$ref": "#/$defs/point"
+        },
+        "ready": {
+          "$ref": "#/$defs/point"
+        },
+        "terminal": {
+          "$ref": "#/$defs/time"
+        },
+        "timing_scope": {
+          "type": "string",
+          "enum": [
+            "backend",
+            "rpc",
+            "caller"
+          ]
+        },
+        "rpc_started": {
+          "$ref": "#/$defs/point"
+        },
+        "rpc_finished": {
+          "$ref": "#/$defs/point"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "success",
+            "failed",
+            "expired",
+            "cancelled",
+            "discarded_late"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        },
+        "output_proof_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "claims": {
+          "$ref": "#/$defs/claims"
+        },
+        "credited": {
+          "$ref": "#/$defs/credited"
+        },
+        "concurrency": {
+          "type": "object",
+          "properties": {
+            "active_jobs_including_self": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "queued_jobs_excluding_self": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "pool": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "pool"
+          ],
+          "additionalProperties": false
+        },
+        "caller_started": {
+          "$ref": "#/$defs/point"
+        },
+        "caller_finished": {
+          "$ref": "#/$defs/point"
+        },
+        "worker_started": {
+          "$ref": "#/$defs/point"
+        },
+        "ready_kind": {
+          "enum": [
+            "committee",
+            "intermediate",
+            "proposal",
+            "reusable"
+          ]
+        },
+        "plan_ready": {
+          "$ref": "#/$defs/point"
+        },
+        "submission_concurrency": {
+          "$ref": "#/$defs/submission_concurrency"
+        }
+      },
+      "required": [
+        "operation",
+        "workload",
+        "queued",
+        "started",
+        "backend_finished",
+        "ready",
+        "terminal",
+        "timing_scope",
+        "outcome",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "success"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "output_proof_bytes",
+              "ready_kind"
+            ],
+            "properties": {
+              "ready": {
+                "$ref": "#/$defs/time"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "timing_scope": {
+                "const": "rpc"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "rpc_started",
+              "rpc_finished"
+            ],
+            "properties": {
+              "started": {
+                "const": {
+                  "missing": "not_exposed"
+                }
+              },
+              "backend_finished": {
+                "const": {
+                  "missing": "not_exposed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "timing_scope": {
+                "const": "caller"
+              }
+            },
+            "required": [
+              "timing_scope"
+            ]
+          },
+          "then": {
+            "required": [
+              "caller_started",
+              "caller_finished"
+            ],
+            "properties": {
+              "started": {
+                "const": {
+                  "missing": "not_exposed"
+                }
+              },
+              "backend_finished": {
+                "const": {
+                  "missing": "not_exposed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "purpose": {
+                    "enum": [
+                      "committee_duty",
+                      "proposal_preparation"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "duty",
+              "duty_revision"
+            ]
+          }
+        }
+      ],
+      "dependentRequired": {
+        "caller_started": [
+          "caller_finished"
+        ],
+        "caller_finished": [
+          "caller_started"
+        ],
+        "rpc_started": [
+          "rpc_finished"
+        ],
+        "rpc_finished": [
+          "rpc_started"
+        ],
+        "duty": [
+          "duty_revision"
+        ],
+        "duty_revision": [
+          "duty"
+        ]
+      }
+    },
+    "duty_scheduled": {
+      "type": "object",
+      "properties": {
+        "duty": {
+          "$ref": "#/$defs/ref"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "committee",
+            "proposal"
+          ]
+        },
+        "slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "known": {
+          "$ref": "#/$defs/time"
+        },
+        "collection_unix_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "broadcast_unix_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "proposal_unix_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "aggregator_position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "committee_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "committee_members": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "committees_per_slot": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "duty",
+        "revision",
+        "kind",
+        "slot",
+        "known"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "committee"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "collection_unix_ns",
+              "broadcast_unix_ns",
+              "committee_index",
+              "committee_members",
+              "committees_per_slot"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "proposal"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "proposal_unix_ns"
+            ]
+          }
+        }
+      ]
+    },
+    "duty_completed": {
+      "type": "object",
+      "properties": {
+        "duty": {
+          "$ref": "#/$defs/ref"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "committee",
+            "proposal"
+          ]
+        },
+        "slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "terminal": {
+          "$ref": "#/$defs/time"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "published",
+            "suppressed",
+            "no_inputs",
+            "empty",
+            "unavailable",
+            "failed",
+            "cancelled",
+            "superseded",
+            "missed_deadline"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        },
+        "late": {
+          "type": "boolean"
+        },
+        "collection_closed": {
+          "$ref": "#/$defs/point"
+        },
+        "available_signers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "selected_signers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "selection_time": {
+          "$ref": "#/$defs/point"
+        },
+        "parent_root": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{64}$"
+        },
+        "selected_operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          }
+        },
+        "reused_messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/message"
+          }
+        },
+        "publication": {
+          "$ref": "#/$defs/ref"
+        },
+        "published_at": {
+          "$ref": "#/$defs/point"
+        },
+        "attestation_records": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "claims_by_slot": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "slot": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "claims": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "slot",
+              "claims"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "duty",
+        "revision",
+        "kind",
+        "slot",
+        "terminal",
+        "outcome",
+        "reason",
+        "late"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "committee"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "collection_closed"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "proposal"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "selection_time",
+              "selected_operations",
+              "reused_messages"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "published"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "published_at"
+            ],
+            "properties": {
+              "published_at": {
+                "$ref": "#/$defs/time"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "submission_concurrency": {
+      "type": "object",
+      "properties": {
+        "sampled": {
+          "$ref": "#/$defs/time"
+        },
+        "pool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "active_jobs_excluding_self": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "queued_jobs_excluding_self": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "sampled",
+        "pool",
+        "active_jobs_excluding_self",
+        "queued_jobs_excluding_self"
+      ],
+      "additionalProperties": false
+    },
+    "traffic_counts": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "payload_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "message_copies": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "payload_bytes",
+            "message_copies"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "missing": {
+              "enum": [
+                "not_exposed",
+                "not_observed"
+              ]
+            }
+          },
+          "required": [
+            "missing"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "traffic_scope": {
+      "type": "object",
+      "properties": {
+        "code_location": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload_encoding": {
+          "enum": [
+            "compressed",
+            "uncompressed",
+            "unavailable"
+          ]
+        },
+        "copy_basis": {
+          "enum": [
+            "all_received_copies",
+            "per_recipient",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [
+        "code_location",
+        "payload_encoding",
+        "copy_basis"
+      ],
+      "additionalProperties": false
+    },
+    "aggregate_traffic": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "window_start": {
+          "$ref": "#/$defs/time"
+        },
+        "bucket_ns": {
+          "const": "100000000"
+        },
+        "rx_scope": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/traffic_scope"
+            },
+            {
+              "properties": {
+                "copy_basis": {
+                  "enum": [
+                    "all_received_copies",
+                    "unavailable"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "tx_scope": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/traffic_scope"
+            },
+            {
+              "properties": {
+                "copy_basis": {
+                  "enum": [
+                    "per_recipient",
+                    "unavailable"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "buckets": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "properties": {
+              "rx": {
+                "$ref": "#/$defs/traffic_counts"
+              },
+              "tx": {
+                "$ref": "#/$defs/traffic_counts"
+              }
+            },
+            "required": [
+              "rx",
+              "tx"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "topic",
+        "window_start",
+        "bucket_ns",
+        "rx_scope",
+        "tx_scope",
+        "buckets"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "rx_scope": {
+                "properties": {
+                  "copy_basis": {
+                    "const": "unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "buckets": {
+                "items": {
+                  "properties": {
+                    "rx": {
+                      "const": {
+                        "missing": "not_exposed"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tx_scope": {
+                "properties": {
+                  "copy_basis": {
+                    "const": "unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "buckets": {
+                "items": {
+                  "properties": {
+                    "tx": {
+                      "const": {
+                        "missing": "not_exposed"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.context"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/context"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.aggregate_received"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/aggregate_received"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.aggregate_processed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/aggregate_processed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.aggregate_published"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/aggregate_published"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.validation_batch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/validation_batch"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.operation_admitted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/operation_admitted"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.operation_completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/operation_completed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.duty_scheduled"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/duty_scheduled"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.duty_completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/duty_completed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_name": {
+            "const": "pq.aggregate_traffic"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/aggregate_traffic"
+          }
+        }
+      }
+    }
+  ]
+}

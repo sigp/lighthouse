@@ -402,6 +402,29 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 }
             };
 
+        if let Some(endpoint) = &config.pq_measurement_otlp_endpoint {
+            let node_id = config
+                .pq_measurement_node_id
+                .as_deref()
+                .ok_or("PQ measurement logical node identity missing")?;
+            pq_measurement::client::start(
+                endpoint,
+                node_id,
+                "vc",
+                context
+                    .eth2_config
+                    .spec
+                    .config_name
+                    .as_deref()
+                    .unwrap_or("custom"),
+                format!("{genesis_validators_root:#x}"),
+                genesis_time,
+                context.eth2_config.spec.get_slot_duration(),
+                lighthouse_version::COMMIT,
+                None,
+            )?;
+        }
+
         // Update the metrics server.
         if let Some(ctx) = &validator_metrics_ctx {
             ctx.shared.write().genesis_time = Some(genesis_time);

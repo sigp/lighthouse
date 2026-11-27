@@ -1,0 +1,18 @@
+[package]
+name = "pq_measurement"
+version = "0.1.0"
+edition = { workspace = true }
+
+[dependencies]
+metrics = { workspace = true }
+opentelemetry-proto = { version = "0.30", default-features = false, features = ["gen-tonic", "logs"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["time", "net"] }
+tonic = { version = "0.13", features = ["transport", "tls-native-roots"] }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio-stream = { workspace = true, features = ["net"] }

@@ -43,6 +43,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: VrfProof,
         graffiti: GraffitiSettings,
     ) -> Result<PqBlockContents<T::EthSpec>, BlockProductionError> {
+        self.common_proposal_known(slot, None);
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
         let graffiti = self.graffiti_calculator.get_graffiti(graffiti).await;
@@ -172,14 +173,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::TokioJoin)?
                 .ok_or(BlockProductionError::ShuttingDown)?
         };
-        let (payload, (attestations, proof)) = tokio::join!(
-            build_execution_payload,
-            self.pq_proposal_attestations(
-                Arc::clone(&state),
-                should_build_on_full.then(|| parent_requests.clone()),
-                ready,
-            ),
-        );
+        let (payload, ((attestations, proof), selection_time)) =
+            tokio::join!(build_execution_payload, async {
+                let bundle = self
+                    .pq_proposal_attestations(
+                        Arc::clone(&state),
+                        should_build_on_full.then(|| parent_requests.clone()),
+                        ready,
+                    )
+                    .await;
+                (
+                    bundle,
+                    pq_measurement::global().map(|recorder| recorder.point()),
+                )
+            },);
+        if let Some(recorder) = pq_measurement::global() {
+            let mut claims = std::collections::BTreeMap::<u64, usize>::new();
+            for attestation in &attestations {
+                *claims.entry(attestation.data.slot.as_u64()).or_default() +=
+                    attestation.aggregation_bits.num_set_bits();
+            }
+            pq_measurement::duty::details(
+                &pq_measurement::duty::proposal_key(slot.as_u64()),
+                json!({
+                    "selection_time":selection_time.unwrap_or_else(||recorder.point()),"parent_root":format!("{:#x}",block.parent_root),
+                    "selected_operations":pq_measurement::duty::result(&proof).into_iter().collect::<Vec<_>>(),
+                    "reused_messages":pq_measurement::duty::message(&proof).into_iter().collect::<Vec<_>>(),"attestation_records":attestations.len(),
+                    "claims_by_slot":claims.into_iter().map(|(slot,claims)|json!({"slot":slot,"claims":claims})).collect::<Vec<_>>()
+                }),
+            );
+        }
         let BlockProposalContentsGloas {
             payload,
             payload_value,
@@ -315,7 +338,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
                 if let Some(proof) = reuse(&packing) {
                     return PreparedAttestations::finish(packing, proof)
-                        .map(|bundle| bundle.for_proposal());
+                        .map(|bundle| (bundle.for_proposal(),None));
                 }
                 let Some(now) = chain.slot_clock.now_duration() else {
                     return Ok(Default::default());
@@ -326,11 +349,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         single.and_then(|packing| reuse(&packing).map(|proof| (packing, proof)))
                     {
                         return PreparedAttestations::finish(packing, proof)
-                            .map(|bundle| bundle.for_proposal());
+                            .map(|bundle| (bundle.for_proposal(),None));
                     }
                     return Ok(Default::default());
                 };
                 let trace = chain.pq_measurement.fallback_job(slot, now, deadline);
+                let common=pq_measurement::global().and_then(|_|chain.common_merge_plan(slot,false,packing.attestations.iter()
+                    .map(|a|a.data.slot.as_u64()).collect::<std::collections::BTreeSet<_>>().into_iter().collect()));
+                if let Some(common)=&common {
+                    common.messages(packing.statements.iter().zip(&packing.attestations).map(|(statement,attestation)|(statement.message,attestation.data.slot.as_u64())));
+                }
                 trace.emit("experiment_selected", "selected", now, || json!({
                     "available_inputs": candidates.len(), "input_proof_count": packing.children.len(),
                     "records": packing.attestations.len(), "unique_claims": packing.unique_claims,
@@ -339,14 +367,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let proof = active
                     .run_observed(&trace, None, || chain.slot_clock.now_duration(), || merge(provers.aggregate.as_ref(), &packing))
                     .map_err(BeaconChainError::PqProverError)?;
-                PreparedAttestations::finish(packing, proof).map(|bundle| bundle.for_proposal())
+                let bundle=PreparedAttestations::finish(packing, proof).inspect_err(|_| {if let Some(common)=&common {common.discard("failed","invalid");}})?;
+                let completion=common.as_ref().and_then(pq_measurement::proof::Plan::take_completion);
+                Ok((bundle.for_proposal(),completion))
             },
             "pq_proposal_fallback",
         ) else {
             return Default::default();
         };
         match timeout_at(fallback_at, job).await {
-            Ok(Ok(Ok(bundle))) => bundle,
+            Ok(Ok(Ok((bundle, completion)))) => {
+                if let Some(completion) = completion
+                    && let Some(operation) = completion.ready("proposal")
+                {
+                    pq_measurement::duty::remember_result(&bundle.1, operation);
+                }
+                bundle
+            }
             Ok(Ok(Err(error))) => {
                 warn!(%slot, ?error, "Unable to prepare fallback PQ proposal proof");
                 Default::default()

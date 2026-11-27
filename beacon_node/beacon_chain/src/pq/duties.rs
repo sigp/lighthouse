@@ -163,6 +163,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         pq::aggregator_position(&state, duty.slot, duty.index, validator)
                     && let Some(window) = self.pq_committee_window_at(duty.slot, position)
                 {
+                    if pq_measurement::global().is_some()
+                        && let (Ok(beacon_committee), Ok(count)) = (
+                            state.get_beacon_committee(duty.slot, duty.index),
+                            state.get_committee_count_at_slot(duty.slot),
+                        )
+                    {
+                        pq_measurement::duty::schedule(
+                            pq_measurement::duty::committee_key(
+                                duty.slot.as_u64(),
+                                duty.index,
+                                position,
+                            ),
+                            serde_json::json!({"kind":"committee","slot":duty.slot.as_u64(),
+                                "committee_index":duty.index,"committee_members":beacon_committee.committee.len(),
+                                "committees_per_slot":count,"aggregator_position":position,
+                                "collection_unix_ns":window.start.as_nanos().to_string(),
+                                "broadcast_unix_ns":window.end.as_nanos().to_string()}),
+                            Some(validator),
+                        );
+                    }
                     committees.insert((duty.slot, duty.index, position), window);
                 }
             }
@@ -200,6 +220,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.slot_clock.start_of(slot),
                     )
                 {
+                    self.common_proposal_known(slot, Some(validator as u64));
                     let (window, forecast) =
                         proposal_window(vote_start, target_start, self.slot_clock.slot_duration());
                     proposals.insert(slot, (window, forecast, validator as u64));

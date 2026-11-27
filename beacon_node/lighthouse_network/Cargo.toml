@@ -37,6 +37,7 @@ lru_cache = { workspace = true }
 metrics = { workspace = true }
 network_utils = { workspace = true }
 parking_lot = { workspace = true }
+pq_measurement = { workspace = true }
 prometheus-client = "0.25.1"
 rand = { workspace = true }
 regex = { workspace = true }

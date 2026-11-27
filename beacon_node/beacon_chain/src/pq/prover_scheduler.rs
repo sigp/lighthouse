@@ -181,10 +181,18 @@ struct Schedule<E: EthSpec> {
 impl<E: EthSpec> Schedule<E> {
     fn expire(&mut self, now: Duration) {
         let count = self.committees.len() + self.proposals.len();
-        self.committees.retain(|(slot, committee, _position), duty| {
+        self.committees.retain(|(slot, committee, position), duty| {
             if now < duty.window.end {
                 true
             } else {
+                if duty.local && duty.experiment.is_none() && duty.attempted.is_none() {
+                    pq_measurement::duty::complete(
+                        &pq_measurement::duty::committee_key(slot.as_u64(), *committee, *position),
+                        "missed_deadline",
+                        "deadline",
+                        true,
+                    );
+                }
                 if duty.attempted.is_none() && duty.priority > 0 {
                     metrics::inc_counter(&metrics::PQ_PROOF_DEADLINE_MISSES);
                     debug!(%slot, committee, "PQ committee reservation expired before dispatch");
@@ -196,6 +204,14 @@ impl<E: EthSpec> Schedule<E> {
             if now < duty.window.end || duty.experiment.is_some() {
                 true
             } else {
+                if duty.experiment.is_none() && duty.ready.is_none() {
+                    pq_measurement::duty::complete(
+                        &pq_measurement::duty::proposal_key(slot.as_u64()),
+                        "missed_deadline",
+                        "deadline",
+                        true,
+                    );
+                }
                 if duty.ready.is_none() {
                     metrics::inc_counter(&metrics::PQ_PROOF_DEADLINE_MISSES);
                     debug!(%slot, "PQ initial proposal preparation expired without a candidate");
@@ -214,6 +230,14 @@ impl<E: EthSpec> Schedule<E> {
         self.expire(now);
         let previous = (self.generation, self.committees.len(), self.proposals.len());
         self.committees.retain(|key, old| {
+            if old.local && old.experiment.is_none() && !committees.contains_key(key) {
+                pq_measurement::duty::complete(
+                    &pq_measurement::duty::committee_key(key.0.as_u64(), key.1, key.2),
+                    "cancelled",
+                    "reorg",
+                    false,
+                );
+            }
             if old.experiment.is_some() {
                 !committees.contains_key(key)
             } else {
@@ -221,6 +245,18 @@ impl<E: EthSpec> Schedule<E> {
             }
         });
         self.proposals.retain(|slot, old| {
+            if old.experiment.is_none()
+                && !proposals
+                    .get(slot)
+                    .is_some_and(|(_, _, validator)| old.validator == Some(*validator))
+            {
+                pq_measurement::duty::complete(
+                    &pq_measurement::duty::proposal_key(slot.as_u64()),
+                    "cancelled",
+                    "reorg",
+                    false,
+                );
+            }
             if old.experiment.is_some() {
                 !proposals.contains_key(slot)
             } else {

@@ -116,6 +116,9 @@ Options:
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
           values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
+      --pq-measurement-otlp-endpoint <URL>
+          Export dedicated common PQ measurement logs over OTLP/gRPC,
+          independently of tracing.
       --proposer-nodes <NETWORK_ADDRESSES>
           Comma-separated addresses to one or more beacon node HTTP APIs. These
           specify nodes that are used to send beacon block proposals. A failure
@@ -156,6 +159,9 @@ Options:
       --web3-signer-max-idle-connections <COUNT>
           Maximum number of idle connections to maintain per web3signer host.
           Default is unlimited.
+      --pq-measurement-node-id <ID>
+          Stable logical node identity shared with the BN; alternatively set
+          PQ_MEASUREMENT_NODE_ID.
       --vrf-state-url <URL_OR_PATH>
           Load full-tree PQ VRF state from an HTTP(S) URL or local file.
           Required for PQ block proposals.

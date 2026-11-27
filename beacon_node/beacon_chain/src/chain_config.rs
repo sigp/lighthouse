@@ -45,6 +45,11 @@ pub struct ChainConfig {
     /// Optional root for versioned local PQ timing runs.
     #[serde(default)]
     pub pq_timing_output: Option<PathBuf>,
+    /// Dedicated common measurement OTLP endpoint; absent disables collection.
+    #[serde(default)]
+    pub pq_measurement_otlp_endpoint: Option<String>,
+    #[serde(default)]
+    pub pq_measurement_node_id: Option<String>,
     /// Maximum number of slots to skip when importing an attestation.
     ///
     /// If `None`, there is no limit.
@@ -174,6 +179,8 @@ impl Default for ChainConfig {
             pq_aggregate_all: false,
             pq_measurement: false,
             pq_timing_output: None,
+            pq_measurement_otlp_endpoint: None,
+            pq_measurement_node_id: None,
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
             archive: false,

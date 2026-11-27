@@ -33,13 +33,13 @@ where
     T: BeaconChainTypes,
     I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
 {
-    batch_verify_aggregated_attestations_observed(aggregates, chain, |_| {})
+    batch_verify_aggregated_attestations_observed(aggregates, chain, |_, _| {})
 }
 
 pub(crate) fn batch_verify_aggregated_attestations_observed<'a, T, I>(
     aggregates: I,
     chain: &BeaconChain<T>,
-    mut completed: impl FnMut(usize),
+    mut completed: impl FnMut(usize, bool),
 ) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, Error>>, Error>
 where
     T: BeaconChainTypes,
@@ -54,8 +54,9 @@ where
             .into_iter()
             .enumerate()
             .map(|(index, aggregate)| {
+                completed(index, true);
                 let result = VerifiedAggregatedAttestation::verify(aggregate, chain);
-                completed(index);
+                completed(index, false);
                 result
             })
             .collect());

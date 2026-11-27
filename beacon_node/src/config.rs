@@ -825,6 +825,15 @@ pub fn get_config<E: EthSpec>(
             });
     client_config.chain.pq_aggregate_all = cli_args.get_flag("pq-aggregate-all");
     client_config.chain.pq_measurement = cli_args.get_flag("pq-measurement");
+    if let Some(endpoint) = cli_args.get_one::<String>("pq-measurement-otlp-endpoint") {
+        pq_measurement::validate_endpoint(endpoint)?;
+        client_config.chain.pq_measurement_node_id = Some(pq_measurement::client::node_id(
+            cli_args
+                .get_one::<String>("pq-measurement-node-id")
+                .map(String::as_str),
+        )?);
+        client_config.chain.pq_measurement_otlp_endpoint = Some(endpoint.clone());
+    }
     client_config.chain.pq_timing_output =
         clap_utils::parse_optional(cli_args, "pq-timing-output")?;
     if client_config.chain.pq_measurement {

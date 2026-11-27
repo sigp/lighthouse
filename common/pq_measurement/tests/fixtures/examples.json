@@ -1,0 +1,996 @@
+[
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.context",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 1,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000000000000000",
+    "mode": "production",
+    "data": {
+      "network": "example-devnet",
+      "genesis_root": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "genesis_unix_ns": "1799988000000000000",
+      "slot_ns": "12000000000",
+      "client_commit": "example-client-commit",
+      "prover_revision": "example-prover-revision",
+      "proof_parameters": {
+        "log_inverse_rate": 2
+      },
+      "hardware_ref": "deployment/node-a",
+      "metrics_node_ref": "node-a",
+      "effective_prover_threads": 8,
+      "schedule_ref": "deployment/schedule",
+      "gossip_id_algorithm": "example-pinned-gossip-algorithm",
+      "instrumentation_revision": "example-instrumentation",
+      "hooks": {
+        "receipt": {
+          "code_location": "example:application_gossip_callback",
+          "decompression": "before",
+          "deduplication": "before"
+        },
+        "validation_start": "example:validation_worker_entry",
+        "validation_finish": "example:validation_result",
+        "usable": "example:proposal_pool_insert",
+        "publish": "example:gossip_publish_call",
+        "backend_start": "example:backend_call",
+        "backend_finish": "example:backend_return",
+        "backend_scope": "One native lean_vm::aggregate invocation; includes internal lock wait, excludes wrapper conversion.",
+        "caller_scope": "Async submit to resolution, including worker queue and conversion; absent when synchronous.",
+        "proof_verify_scope": "Native verifier call elapsed, including internal waiting; not CPU time."
+      },
+      "unavailable": []
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.context",
+    "node_id": "node-b",
+    "process_id": "22222222-2222-4222-8222-222222222222",
+    "event_seq": 1,
+    "context_id": "ctx-b",
+    "timestamp_unix_ns": "1800000000000000000",
+    "mode": "production",
+    "data": {
+      "network": "example-devnet",
+      "genesis_root": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "genesis_unix_ns": "1799988000000000000",
+      "slot_ns": "12000000000",
+      "client_commit": "example-client-commit",
+      "prover_revision": "example-prover-revision",
+      "proof_parameters": {
+        "log_inverse_rate": 2
+      },
+      "hardware_ref": "deployment/node-b",
+      "metrics_node_ref": "node-b",
+      "effective_prover_threads": 8,
+      "schedule_ref": "deployment/schedule",
+      "gossip_id_algorithm": "example-pinned-gossip-algorithm",
+      "instrumentation_revision": "example-instrumentation",
+      "hooks": {
+        "receipt": {
+          "code_location": "example:application_gossip_callback",
+          "decompression": "before",
+          "deduplication": "before"
+        },
+        "validation_start": "example:validation_worker_entry",
+        "validation_finish": "example:validation_result",
+        "usable": "example:proposal_pool_insert",
+        "publish": "example:gossip_publish_call",
+        "backend_start": "example:backend_call",
+        "backend_finish": "example:backend_return",
+        "backend_scope": "One native lean_vm::aggregate invocation; includes internal lock wait, excludes wrapper conversion.",
+        "caller_scope": "Async submit to resolution, including worker queue and conversion; absent when synchronous.",
+        "proof_verify_scope": "Native verifier call elapsed, including internal waiting; not CPU time."
+      },
+      "unavailable": []
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.duty_scheduled",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 2,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000000100000000",
+    "mode": "production",
+    "data": {
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "committee-1000-0"
+      },
+      "revision": 0,
+      "kind": "committee",
+      "slot": 1000,
+      "known": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000000100000000",
+        "mono_ns": "100000000"
+      },
+      "collection_unix_ns": "1800000004800000000",
+      "broadcast_unix_ns": "1800000007200000000",
+      "aggregator_position": 0,
+      "committee_index": 0,
+      "committee_members": 256,
+      "committees_per_slot": 2
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.operation_admitted",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 3,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000004800000000",
+    "mode": "production",
+    "data": {
+      "operation": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "committee-proof"
+      },
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "committee-1000-0"
+      },
+      "duty_revision": 0,
+      "workload": {
+        "kind": "committee",
+        "committee_index": 0,
+        "committees_per_slot": 2,
+        "committee_members": 256,
+        "signatures": 128,
+        "purpose": "committee_duty",
+        "vote_slot": 1000
+      },
+      "queued": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000004800000000",
+        "mono_ns": "4800000000"
+      },
+      "submission_concurrency": {
+        "sampled": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "unix_ns": "1800000004800000000",
+          "mono_ns": "4800000000"
+        },
+        "pool": "example-shared-prover",
+        "active_jobs_excluding_self": 1,
+        "queued_jobs_excluding_self": 0
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.operation_completed",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 4,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000005400000000",
+    "mode": "production",
+    "data": {
+      "operation": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "committee-proof"
+      },
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "committee-1000-0"
+      },
+      "duty_revision": 0,
+      "workload": {
+        "kind": "committee",
+        "committee_index": 0,
+        "committees_per_slot": 2,
+        "committee_members": 256,
+        "signatures": 128,
+        "purpose": "committee_duty",
+        "vote_slot": 1000
+      },
+      "queued": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000004800000000",
+        "mono_ns": "4800000000"
+      },
+      "started": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000004850000000",
+        "mono_ns": "4850000000"
+      },
+      "backend_finished": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000005350000000",
+        "mono_ns": "5350000000"
+      },
+      "ready": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000005400000000",
+        "mono_ns": "5400000000"
+      },
+      "terminal": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000005400000000",
+        "mono_ns": "5400000000"
+      },
+      "timing_scope": "backend",
+      "outcome": "success",
+      "reason": "none",
+      "output_proof_bytes": 180000,
+      "claims": {
+        "output_unique": 128
+      },
+      "ready_kind": "committee",
+      "submission_concurrency": {
+        "sampled": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "unix_ns": "1800000004800000000",
+          "mono_ns": "4800000000"
+        },
+        "pool": "example-shared-prover",
+        "active_jobs_excluding_self": 1,
+        "queued_jobs_excluding_self": 0
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.aggregate_published",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 5,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000007201000000",
+    "mode": "production",
+    "data": {
+      "message": {
+        "topic": "/eth2/12345678/beacon_aggregate_and_proof/ssz_snappy",
+        "gossip_id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "publication": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "pub-1"
+      },
+      "requested": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000007200000000",
+        "mono_ns": "7200000000"
+      },
+      "returned": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000007201000000",
+        "mono_ns": "7201000000"
+      },
+      "outcome": "accepted",
+      "reason": "none",
+      "operation": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "committee-proof"
+      },
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "committee-1000-0"
+      },
+      "duty_revision": 0,
+      "vote": {
+        "slot": 1000,
+        "committee_index": 0,
+        "attestation_data_root": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "signers": 128
+      },
+      "sizes": {
+        "proof_bytes": 180000,
+        "compressed_payload_bytes": 180500
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.aggregate_received",
+    "node_id": "node-b",
+    "process_id": "22222222-2222-4222-8222-222222222222",
+    "event_seq": 2,
+    "context_id": "ctx-b",
+    "timestamp_unix_ns": "1800000007500000000",
+    "mode": "production",
+    "data": {
+      "message": {
+        "topic": "/eth2/12345678/beacon_aggregate_and_proof/ssz_snappy",
+        "gossip_id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "attempt": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "id": "recv-1"
+      },
+      "received": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007500000000",
+        "mono_ns": "57500000000"
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.aggregate_processed",
+    "node_id": "node-b",
+    "process_id": "22222222-2222-4222-8222-222222222222",
+    "event_seq": 3,
+    "context_id": "ctx-b",
+    "timestamp_unix_ns": "1800000007545000000",
+    "mode": "production",
+    "data": {
+      "message": {
+        "topic": "/eth2/12345678/beacon_aggregate_and_proof/ssz_snappy",
+        "gossip_id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "attempt": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "id": "recv-1"
+      },
+      "receipt_attempt": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "id": "recv-1"
+      },
+      "queued": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007505000000",
+        "mono_ns": "57505000000"
+      },
+      "started": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007520000000",
+        "mono_ns": "57520000000"
+      },
+      "finished": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007540000000",
+        "mono_ns": "57540000000"
+      },
+      "usable": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007545000000",
+        "mono_ns": "57545000000"
+      },
+      "validation_outcome": "accepted",
+      "pool_outcome": "inserted",
+      "reason": "none",
+      "proof_verify_ns": "15000000",
+      "terminal_stage": "pool",
+      "proof_verify_scope": "backend"
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.duty_completed",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 6,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000007201000000",
+    "mode": "production",
+    "data": {
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "committee-1000-0"
+      },
+      "revision": 0,
+      "kind": "committee",
+      "slot": 1000,
+      "terminal": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000007201000000",
+        "mono_ns": "7201000000"
+      },
+      "outcome": "published",
+      "reason": "none",
+      "late": false,
+      "collection_closed": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000004800000000",
+        "mono_ns": "4800000000"
+      },
+      "available_signers": 128,
+      "selected_signers": 128,
+      "publication": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "pub-1"
+      },
+      "published_at": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000007200000000",
+        "mono_ns": "7200000000"
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.aggregate_received",
+    "node_id": "node-b",
+    "process_id": "22222222-2222-4222-8222-222222222222",
+    "event_seq": 4,
+    "context_id": "ctx-b",
+    "timestamp_unix_ns": "1800000007600000000",
+    "mode": "production",
+    "data": {
+      "message": {
+        "topic": "/eth2/12345678/beacon_aggregate_and_proof/ssz_snappy",
+        "gossip_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "attempt": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "id": "recv-2"
+      },
+      "received": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007600000000",
+        "mono_ns": "57600000000"
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.aggregate_processed",
+    "node_id": "node-b",
+    "process_id": "22222222-2222-4222-8222-222222222222",
+    "event_seq": 5,
+    "context_id": "ctx-b",
+    "timestamp_unix_ns": "1800000007640000000",
+    "mode": "production",
+    "data": {
+      "message": {
+        "topic": "/eth2/12345678/beacon_aggregate_and_proof/ssz_snappy",
+        "gossip_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "attempt": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "id": "recv-2"
+      },
+      "receipt_attempt": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "id": "recv-2"
+      },
+      "queued": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007605000000",
+        "mono_ns": "57605000000"
+      },
+      "started": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007620000000",
+        "mono_ns": "57620000000"
+      },
+      "finished": {
+        "process_id": "22222222-2222-4222-8222-222222222222",
+        "unix_ns": "1800000007640000000",
+        "mono_ns": "57640000000"
+      },
+      "usable": {
+        "missing": "not_reached"
+      },
+      "validation_outcome": "rejected",
+      "pool_outcome": "not_applicable",
+      "reason": "invalid",
+      "terminal_stage": "validation"
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.duty_scheduled",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 7,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000000500000000",
+    "mode": "production",
+    "data": {
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "proposal-1002"
+      },
+      "revision": 0,
+      "kind": "proposal",
+      "slot": 1002,
+      "known": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000000500000000",
+        "mono_ns": "500000000"
+      },
+      "proposal_unix_ns": "1800000024000000000"
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.operation_admitted",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 8,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000008000000000",
+    "mode": "production",
+    "data": {
+      "operation": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "merge-1"
+      },
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "proposal-1002"
+      },
+      "duty_revision": 0,
+      "workload": {
+        "kind": "merge",
+        "proposal_slot": 1002,
+        "vote_slots": [
+          1000
+        ],
+        "input_proofs": 2,
+        "input_messages": 1,
+        "sequence": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "sequence-1002"
+        },
+        "attempt_index": 1,
+        "raw_signatures": 0,
+        "plan": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "plan-1"
+        },
+        "plan_call_index": 1,
+        "purpose": "proposal_preparation"
+      },
+      "queued": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000008000000000",
+        "mono_ns": "8000000000"
+      },
+      "submission_concurrency": {
+        "sampled": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "unix_ns": "1800000008000000000",
+          "mono_ns": "8000000000"
+        },
+        "pool": "example-shared-prover",
+        "active_jobs_excluding_self": 1,
+        "queued_jobs_excluding_self": 0
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.operation_completed",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 9,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000010100000000",
+    "mode": "production",
+    "data": {
+      "operation": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "merge-1"
+      },
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "proposal-1002"
+      },
+      "duty_revision": 0,
+      "workload": {
+        "kind": "merge",
+        "proposal_slot": 1002,
+        "vote_slots": [
+          1000
+        ],
+        "input_proofs": 2,
+        "input_messages": 1,
+        "sequence": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "sequence-1002"
+        },
+        "attempt_index": 1,
+        "raw_signatures": 0,
+        "plan": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "plan-1"
+        },
+        "plan_call_index": 1,
+        "purpose": "proposal_preparation"
+      },
+      "queued": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000008000000000",
+        "mono_ns": "8000000000"
+      },
+      "started": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000008050000000",
+        "mono_ns": "8050000000"
+      },
+      "backend_finished": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000010050000000",
+        "mono_ns": "10050000000"
+      },
+      "ready": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000010100000000",
+        "mono_ns": "10100000000"
+      },
+      "terminal": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000010100000000",
+        "mono_ns": "10100000000"
+      },
+      "timing_scope": "backend",
+      "outcome": "success",
+      "reason": "none",
+      "output_proof_bytes": 180000,
+      "claims": {
+        "input_sum": 256,
+        "input_unique": 256,
+        "baseline_unique": 0,
+        "output_unique": 256,
+        "added_unique": 256
+      },
+      "ready_kind": "proposal",
+      "plan_ready": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000010100000000",
+        "mono_ns": "10100000000"
+      },
+      "submission_concurrency": {
+        "sampled": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "unix_ns": "1800000008000000000",
+          "mono_ns": "8000000000"
+        },
+        "pool": "example-shared-prover",
+        "active_jobs_excluding_self": 1,
+        "queued_jobs_excluding_self": 0
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.operation_admitted",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 10,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000010200000000",
+    "mode": "production",
+    "data": {
+      "operation": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "merge-2"
+      },
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "proposal-1002"
+      },
+      "duty_revision": 0,
+      "workload": {
+        "kind": "merge",
+        "proposal_slot": 1002,
+        "vote_slots": [
+          1000
+        ],
+        "input_proofs": 2,
+        "input_messages": 1,
+        "sequence": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "sequence-1002"
+        },
+        "attempt_index": 2,
+        "baseline": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "merge-1"
+        },
+        "raw_signatures": 0,
+        "plan": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "plan-2"
+        },
+        "plan_call_index": 1,
+        "purpose": "proposal_preparation"
+      },
+      "queued": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000010200000000",
+        "mono_ns": "10200000000"
+      },
+      "submission_concurrency": {
+        "sampled": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "unix_ns": "1800000010200000000",
+          "mono_ns": "10200000000"
+        },
+        "pool": "example-shared-prover",
+        "active_jobs_excluding_self": 1,
+        "queued_jobs_excluding_self": 0
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.operation_completed",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 11,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000012300000000",
+    "mode": "production",
+    "data": {
+      "operation": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "merge-2"
+      },
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "proposal-1002"
+      },
+      "duty_revision": 0,
+      "workload": {
+        "kind": "merge",
+        "proposal_slot": 1002,
+        "vote_slots": [
+          1000
+        ],
+        "input_proofs": 2,
+        "input_messages": 1,
+        "sequence": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "sequence-1002"
+        },
+        "attempt_index": 2,
+        "baseline": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "merge-1"
+        },
+        "raw_signatures": 0,
+        "plan": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "plan-2"
+        },
+        "plan_call_index": 1,
+        "purpose": "proposal_preparation"
+      },
+      "queued": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000010200000000",
+        "mono_ns": "10200000000"
+      },
+      "started": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000010250000000",
+        "mono_ns": "10250000000"
+      },
+      "backend_finished": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000012250000000",
+        "mono_ns": "12250000000"
+      },
+      "ready": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000012300000000",
+        "mono_ns": "12300000000"
+      },
+      "terminal": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000012300000000",
+        "mono_ns": "12300000000"
+      },
+      "timing_scope": "backend",
+      "outcome": "success",
+      "reason": "none",
+      "output_proof_bytes": 180000,
+      "claims": {
+        "input_sum": 384,
+        "input_unique": 320,
+        "baseline_unique": 256,
+        "output_unique": 320,
+        "added_unique": 64
+      },
+      "ready_kind": "proposal",
+      "plan_ready": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000012300000000",
+        "mono_ns": "12300000000"
+      },
+      "submission_concurrency": {
+        "sampled": {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "unix_ns": "1800000010200000000",
+          "mono_ns": "10200000000"
+        },
+        "pool": "example-shared-prover",
+        "active_jobs_excluding_self": 1,
+        "queued_jobs_excluding_self": 0
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.duty_completed",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 12,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000024000000000",
+    "mode": "production",
+    "data": {
+      "duty": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "id": "proposal-1002"
+      },
+      "revision": 0,
+      "kind": "proposal",
+      "slot": 1002,
+      "terminal": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000024000000000",
+        "mono_ns": "24000000000"
+      },
+      "outcome": "published",
+      "reason": "none",
+      "late": false,
+      "selection_time": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000023500000000",
+        "mono_ns": "23500000000"
+      },
+      "parent_root": "0x4444444444444444444444444444444444444444444444444444444444444444",
+      "selected_operations": [
+        {
+          "process_id": "11111111-1111-4111-8111-111111111111",
+          "id": "merge-2"
+        }
+      ],
+      "reused_messages": [],
+      "attestation_records": 1,
+      "claims_by_slot": [
+        {
+          "slot": 1000,
+          "claims": 320
+        }
+      ],
+      "published_at": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000024000000000",
+        "mono_ns": "24000000000"
+      }
+    }
+  },
+  {
+    "schema_version": "pq.measurement/0.1-draft3",
+    "event_name": "pq.aggregate_traffic",
+    "node_id": "node-a",
+    "process_id": "11111111-1111-4111-8111-111111111111",
+    "event_seq": 13,
+    "context_id": "ctx-a",
+    "timestamp_unix_ns": "1800000008000000000",
+    "mode": "production",
+    "data": {
+      "topic": "/eth2/example/beacon_aggregate_and_proof/ssz_snappy",
+      "window_start": {
+        "process_id": "11111111-1111-4111-8111-111111111111",
+        "unix_ns": "1800000007000000000",
+        "mono_ns": "8000000000"
+      },
+      "bucket_ns": "100000000",
+      "rx_scope": {
+        "code_location": "example:gossip_payload_received_before_dedup",
+        "payload_encoding": "compressed",
+        "copy_basis": "all_received_copies"
+      },
+      "tx_scope": {
+        "code_location": "example:gossip_payload_enqueued_per_peer",
+        "payload_encoding": "compressed",
+        "copy_basis": "per_recipient"
+      },
+      "buckets": [
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 180000,
+            "message_copies": 1
+          },
+          "tx": {
+            "payload_bytes": 720000,
+            "message_copies": 4
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        },
+        {
+          "rx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          },
+          "tx": {
+            "payload_bytes": 0,
+            "message_copies": 0
+          }
+        }
+      ]
+    }
+  }
+]

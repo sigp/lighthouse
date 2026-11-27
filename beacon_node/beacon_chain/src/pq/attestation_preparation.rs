@@ -244,6 +244,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }));
         debug!(%slot, gained = packing.gained, children = packing.children.len(), "Packed PQ proposal participation");
         let mut merged = false;
+        let common = pq_measurement::global().and_then(|_| {
+            self.common_merge_plan(
+                slot,
+                job.experiment().is_some(),
+                packing
+                    .attestations
+                    .iter()
+                    .map(|attestation| attestation.data.slot.as_u64())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+            )
+        });
+        if let Some(common) = &common {
+            common.messages(packing.statements.iter().zip(&packing.attestations).map(
+                |(statement, attestation)| (statement.message, attestation.data.slot.as_u64()),
+            ));
+        }
         let proof = if let Some(proof) = reuse(&packing) {
             trace.emit("job_outcome", "reused", now, || {
                 json!({
@@ -273,19 +291,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let verified = provers
             .aggregate
             .verify(&packing.statements, &proof)
+            .inspect_err(|_| {
+                if let Some(common) = &common {
+                    common.discard("failed", "backend_error");
+                }
+            })
             .map_err(BeaconChainError::PqProverError)?;
         let verification = verify_start.elapsed();
         trace.latency("verification", verification);
         let verified_at = self.slot_clock.now_duration().unwrap_or(now);
         if !verified {
+            if let Some(common) = &common {
+                common.discard("failed", "invalid");
+            }
             trace.emit("job_outcome", "invalid_proof", verified_at, || json!({}));
             scheduler.skip(job);
             return Ok(());
         }
 
-        let mut prepared = PreparedAttestations::finish(packing, proof)?;
+        let mut prepared = PreparedAttestations::finish(packing, proof).inspect_err(|_| {
+            if let Some(common) = &common {
+                common.discard("failed", "invalid");
+            }
+        })?;
         let checked_head = scheduler.head_revision();
         if checked_head != observed_head {
+            if let Some(common) = &common {
+                common.unfinished_reason("reorg");
+            }
             let Some((state, parent)) = self.speculative_pq_state(slot)? else {
                 return Ok(());
             };
@@ -313,6 +346,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 prepared.attestations.len(),
             )
         });
+        let measured_proof = pq_measurement::global().map(|_| prepared.proof.to_vec());
         if let Some(installed) = scheduler.save_candidate(
             || self.slot_clock.now_duration(),
             job,
@@ -320,6 +354,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Arc::new(prepared),
             merged,
         ) {
+            if let Some(common) = &common
+                && let Some(operation) = common.ready("proposal")
+                && let Some(proof) = measured_proof
+            {
+                pq_measurement::duty::remember_result(&proof, operation);
+            }
             trace.latency("ready", trace.queue_wait());
             trace.emit("candidate_ready", "ready", installed, || {
                 json!({
@@ -334,6 +374,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             });
         } else {
+            if let Some(common) = &common {
+                let late = self
+                    .slot_clock
+                    .now_duration()
+                    .zip(self.slot_clock.start_of(slot))
+                    .is_some_and(|(now, start)| now >= start);
+                common.discard(
+                    if late { "discarded_late" } else { "cancelled" },
+                    if late { "deadline" } else { "reorg" },
+                );
+            }
             trace.emit("job_outcome", "expired_or_reassigned", verified_at, || {
                 json!({})
             });

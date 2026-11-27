@@ -11,5 +11,7 @@ fake_crypto = ["xmss/fake_crypto"]
 lean_vm = { workspace = true }
 lean_xmss = { workspace = true }
 leanvm_claims = { workspace = true }
+pq_measurement = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 xmss = { workspace = true }

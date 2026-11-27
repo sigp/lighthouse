@@ -1451,6 +1451,21 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 let aggregate = aggregate_and_proof.message().aggregate();
                 let slot = aggregate.data().slot;
                 if let types::AttestationRef::Pq(bits) = aggregate {
+                    if pq_measurement::global().is_some() {
+                        use tree_hash::TreeHash;
+                        let mut vote = serde_json::json!({
+                            "slot":slot.as_u64(),
+                            "attestation_data_root":format!("{:?}", aggregate.data().tree_hash_root()),
+                            "signers":bits.aggregation_bits.iter().filter(|bit| *bit).count(),
+                        });
+                        if let Some(index) = aggregate.committee_index() {
+                            vote["committee_index"] = serde_json::json!(index);
+                        }
+                        pq_measurement::gossip::annotate(
+                            &format!("0x{}", hex::encode(&message_id.0)),
+                            vote,
+                        );
+                    }
                     self.beacon_chain.record_pq_gossip_receive(
                         PqGossipKind::Aggregate,
                         || message_id.to_string(),

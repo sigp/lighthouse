@@ -177,6 +177,8 @@ pub struct QueuedUnaggregate {
 pub struct QueuedAggregate {
     pub beacon_block_root: Hash256,
     pub process_fn: BlockingFn,
+    /// Invoked when dependency waiting ends and this work becomes eligible for execution.
+    pub on_ready: Option<BlockingFn>,
 }
 
 /// A payload attestation message for which the corresponding block was not seen while processing,
@@ -384,6 +386,12 @@ enum AwaitingComponent {
 }
 
 impl QueuedAggregate {
+    fn ready(mut self) -> Self {
+        if let Some(on_ready) = self.on_ready.take() {
+            on_ready();
+        }
+        self
+    }
     pub fn beacon_block_root(&self) -> &Hash256 {
         &self.beacon_block_root
     }
@@ -961,7 +969,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 .queued_aggregates
                                 .remove(&id)
                                 .map(|(aggregate, delay_key)| {
-                                    (ReadyWork::Aggregate(aggregate), delay_key)
+                                    (ReadyWork::Aggregate(aggregate.ready()), delay_key)
                                 }),
                             QueuedAttestationId::Unaggregate(id) => self
                                 .queued_unaggregates
@@ -1045,7 +1053,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 .queued_aggregates
                                 .remove(&id)
                                 .map(|(aggregate, delay_key)| {
-                                    (ReadyWork::Aggregate(aggregate), delay_key)
+                                    (ReadyWork::Aggregate(aggregate.ready()), delay_key)
                                 }),
                             QueuedAttestationId::Unaggregate(id) => self
                                 .queued_unaggregates
@@ -1230,7 +1238,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             .map(|(aggregate, _delay_key)| {
                                 (
                                     *aggregate.beacon_block_root(),
-                                    ReadyWork::Aggregate(aggregate),
+                                    ReadyWork::Aggregate(aggregate.ready()),
                                 )
                             })
                     }
@@ -2043,6 +2051,7 @@ mod tests {
         let beacon_block_root = Hash256::repeat_byte(0xaf);
 
         let att = ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
+            on_ready: None,
             beacon_block_root,
             process_fn: Box::new(|| {}),
         });
@@ -2077,6 +2086,7 @@ mod tests {
         let beacon_block_root = Hash256::repeat_byte(0xaf);
 
         let att = ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
+            on_ready: None,
             beacon_block_root,
             process_fn: Box::new(|| {}),
         });

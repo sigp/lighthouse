@@ -23,6 +23,19 @@ use types::Address;
 pub struct ValidatorClient {
     #[clap(
         long,
+        value_name = "URL",
+        help = "Export dedicated common PQ measurement logs over OTLP/gRPC, independently of tracing."
+    )]
+    pub pq_measurement_otlp_endpoint: Option<String>,
+    #[clap(
+        long,
+        value_name = "ID",
+        requires = "pq_measurement_otlp_endpoint",
+        help = "Stable logical node identity shared with the BN; alternatively set PQ_MEASUREMENT_NODE_ID."
+    )]
+    pub pq_measurement_node_id: Option<String>,
+    #[clap(
+        long,
         value_name = "NETWORK_ADDRESSES",
         value_delimiter = ',',
         help = "Comma-separated addresses to one or more beacon node HTTP APIs. \
@@ -568,4 +581,37 @@ pub struct ValidatorClient {
         display_order = 0
     )]
     pub web3_signer_max_idle_connections: Option<usize>,
+}
+
+#[cfg(test)]
+mod pq_measurement_cli_tests {
+    use super::*;
+    use clap::CommandFactory;
+    fn parse<const N: usize>(args: [&str; N]) -> Result<ValidatorClient, clap::Error> {
+        let matches = ValidatorClient::command()
+            .arg(clap::Arg::new("datadir").long("datadir"))
+            .try_get_matches_from(args)?;
+        ValidatorClient::from_arg_matches(&matches)
+    }
+    #[test]
+    fn dedicated_measurement_endpoint_is_optional_and_uses_explicit_identity() {
+        let disabled = parse(["validator_client"]).unwrap();
+        assert!(disabled.pq_measurement_otlp_endpoint.is_none());
+        let enabled = parse([
+            "validator_client",
+            "--pq-measurement-otlp-endpoint",
+            "https://collector:4317",
+            "--pq-measurement-node-id",
+            "bn-1",
+        ])
+        .unwrap();
+        assert_eq!(enabled.pq_measurement_node_id.as_deref(), Some("bn-1"));
+        assert!(
+            pq_measurement::validate_endpoint(
+                enabled.pq_measurement_otlp_endpoint.as_deref().unwrap()
+            )
+            .is_ok()
+        );
+        assert!(parse(["validator_client", "--pq-measurement-node-id", "bn-1"]).is_err());
+    }
 }

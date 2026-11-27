@@ -1896,6 +1896,7 @@ async fn verified_pq_gossip_aggregates_reach_proposal_pool() {
         if slot == Slot::new(2) {
             processor.clone().process_gossip_aggregate_batch(
                 vec![GossipAggregatePackage {
+                    on_discard: None,
                     message_id: message_id.clone(),
                     peer_id: peer,
                     aggregate: signed,

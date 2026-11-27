@@ -27,6 +27,10 @@ pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub pq_measurement_otlp_endpoint: Option<String>,
+    #[serde(default)]
+    pub pq_measurement_node_id: Option<String>,
     /// Configuration parameters for the validator store.
     #[serde(flatten)]
     pub validator_store: ValidatorStoreConfig,
@@ -117,6 +121,8 @@ impl Default for Config {
                 .expect("beacon_nodes must always be a valid url."),
         ];
         Self {
+            pq_measurement_otlp_endpoint: None,
+            pq_measurement_node_id: None,
             validator_store: ValidatorStoreConfig::default(),
             validator_dir,
             secrets_dir,
@@ -160,6 +166,13 @@ impl Config {
         validator_client_config: &ValidatorClient,
     ) -> Result<Config, String> {
         let mut config = Config::default();
+        if let Some(endpoint) = &validator_client_config.pq_measurement_otlp_endpoint {
+            pq_measurement::validate_endpoint(endpoint)?;
+            config.pq_measurement_node_id = Some(pq_measurement::client::node_id(
+                validator_client_config.pq_measurement_node_id.as_deref(),
+            )?);
+            config.pq_measurement_otlp_endpoint = Some(endpoint.clone());
+        }
 
         let default_root_dir = dirs::home_dir()
             .map(|home| home.join(DEFAULT_ROOT_DIR))

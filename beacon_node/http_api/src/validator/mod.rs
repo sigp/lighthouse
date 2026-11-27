@@ -1019,12 +1019,14 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
+        .and(warp::header::headers_cloned())
         .then(
             |not_synced_filter: Result<(), Rejection>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             preparation_data: Vec<ProposerPreparationData>| {
+             preparation_data: Vec<ProposerPreparationData>,
+             measurement_headers: warp::http::HeaderMap| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
                     let current_slot = chain
@@ -1033,6 +1035,24 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                         .ok_or(BeaconChainError::UnableToReadSlot)
                         .map_err(warp_utils::reject::unhandled_error)?;
                     let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+                    if let Some(header) = measurement_headers
+                        .get(pq_measurement::handoff::HEADER)
+                        .and_then(|value| value.to_str().ok())
+                    {
+                        pq_measurement::handoff::import(header, |entry| {
+                            entry.is_proposal()
+                                && entry.slot().is_some_and(|slot| {
+                                    slot >= current_slot.as_u64()
+                                        && slot
+                                            <= current_slot.as_u64().saturating_add(
+                                                T::EthSpec::slots_per_epoch().saturating_mul(2),
+                                            )
+                                })
+                                && preparation_data
+                                    .iter()
+                                    .any(|item| Some(item.validator_index) == entry.validator_index)
+                        });
+                    }
 
                     debug!(
                         count = preparation_data.len(),
@@ -1145,12 +1165,28 @@ pub fn post_validator_beacon_committee_subscriptions<T: BeaconChainTypes>(
         .and(validator_subscription_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(warp::header::headers_cloned())
         .then(
             |committee_subscriptions: Vec<BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
+             chain: Arc<BeaconChain<T>>,
+             measurement_headers: warp::http::HeaderMap| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Some(header) = measurement_headers
+                        .get(pq_measurement::handoff::HEADER)
+                        .and_then(|value| value.to_str().ok())
+                    {
+                        pq_measurement::handoff::import(header, |entry| {
+                            !entry.is_proposal()
+                                && committee_subscriptions.iter().any(|item| {
+                                    item.is_aggregator
+                                        && Some(item.slot.as_u64()) == entry.slot()
+                                        && Some(item.committee_index) == entry.committee()
+                                        && Some(item.validator_index) == entry.validator_index
+                                })
+                        });
+                    }
                     let subscriptions: std::collections::BTreeSet<_> = committee_subscriptions
                         .iter()
                         .map(|subscription| {
@@ -1246,6 +1282,7 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
         .and(warp_utils::json::json())
         .and(warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER))
         .and(network_tx_filter.clone())
+        .and(warp::header::headers_cloned())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
             // The header (or, failing that, the fork at the current wall-clock slot) decides
@@ -1258,7 +1295,8 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              aggregates_json: serde_json::Value,
              consensus_version: Option<ForkName>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             measurement_headers: warp::http::HeaderMap| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
                     let fork_name = match consensus_version {
@@ -1283,6 +1321,12 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
                         ))
                     })?;
                     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
+                    if let Some(header) = measurement_headers.get(pq_measurement::handoff::HEADER).and_then(|value|value.to_str().ok()) {
+                        pq_measurement::handoff::import(header, |entry| !entry.is_proposal() && aggregates.iter().any(|item|
+                            Some(item.message().aggregate().data().slot.as_u64())==entry.slot()
+                            && item.message().aggregate().committee_index()==entry.committee()
+                            && Some(item.message().aggregator_index())==entry.validator_index));
+                    }
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());
                     let mut failures = Vec::new();
@@ -1315,7 +1359,18 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err(AttestationError::AttestationSupersetKnown(_)) => continue,
+                            Err(AttestationError::AttestationSupersetKnown(_)) => {
+                                if pq_measurement::global().is_some() && fork_name == ForkName::Pq {
+                                    let slot = aggregate.message().aggregate().data().slot.as_u64();
+                                    let validator = aggregate.message().aggregator_index();
+                                    for key in pq_measurement::duty::keys_for_validators(&[validator], "committee") {
+                                        if pq_measurement::duty::export(&key).is_some_and(|(_,_,schedule,_)|schedule["slot"]==slot) {
+                                            pq_measurement::duty::complete(&key,"suppressed","already_covered",false);
+                                        }
+                                    }
+                                }
+                                continue;
+                            },
                             // If we've already seen this aggregator produce an aggregate, just
                             // skip this one.
                             //

@@ -2410,13 +2410,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
     {
-        self.batch_verify_aggregated_attestations_for_gossip_observed(aggregates, |_| {})
+        self.batch_verify_aggregated_attestations_for_gossip_observed(aggregates, |_, _| {})
     }
 
     pub fn batch_verify_aggregated_attestations_for_gossip_observed<'a, I>(
         &self,
         aggregates: I,
-        completed: impl FnMut(usize),
+        completed: impl FnMut(usize, bool),
     ) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, AttestationError>>, AttestationError>
     where
         I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
@@ -2837,6 +2837,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let changed = self
                     .op_pool
                     .insert_pq_attestation(epoch, Arc::clone(&entry));
+                if pq_measurement::global().is_some() {
+                    if let Some(gossip_id) = gossip_id {
+                        let id = format!("0x{}", gossip_id());
+                        pq_measurement::gossip::pool_result(
+                            &id,
+                            changed,
+                            entry.attestation.data.target.epoch.saturating_add(1u64) < epoch,
+                        );
+                        if changed {
+                            if let Some(message) = pq_measurement::gossip::message(&id) {
+                                pq_measurement::duty::remember_message(
+                                    entry.proof.as_ref(),
+                                    message,
+                                );
+                            }
+                        }
+                    }
+                }
                 let from_network = gossip_id.is_some_and(|id| {
                     let inserted =
                         self.pq_measurement

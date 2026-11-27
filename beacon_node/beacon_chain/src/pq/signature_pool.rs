@@ -238,7 +238,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .best_at(slot, committee, job.cutoff())
                 .map(|(key, inputs)| (Some(key), inputs))
         };
+        if job.experiment().is_none()
+            && let Some(recorder) = pq_measurement::global()
+        {
+            let collected = recorder.point();
+            let signers = input
+                .as_ref()
+                .map_or(0, |(_, input)| input.signatures.len());
+            pq_measurement::duty::details(
+                &pq_measurement::duty::committee_key(slot.as_u64(), committee, position),
+                json!({
+                    "collection_closed":collected,"available_signers":signers,"selected_signers":signers
+                }),
+            );
+        }
         let Some((key, input)) = input else {
+            if job.experiment().is_none() {
+                pq_measurement::duty::complete(
+                    &pq_measurement::duty::committee_key(slot.as_u64(), committee, position),
+                    "no_inputs",
+                    "no_inputs",
+                    false,
+                );
+            }
             trace.emit(
                 "job_outcome",
                 "no_inputs",
@@ -295,6 +317,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         });
         let _timer = metrics::start_timer(&metrics::PQ_PROVE_SECONDS);
         metrics::observe(&metrics::PQ_PROVE_SIGNERS, signatures.len() as f64);
+        let common = pq_measurement::global().and_then(|_| {
+            self.common_committee_plan(
+                job,
+                slot,
+                committee,
+                position,
+                input.committee_len,
+                state.get_committee_count_at_slot(slot).ok()? as u64,
+                signatures.len(),
+            )
+        });
         let proof = active
             .run_observed(
                 trace,
@@ -312,6 +345,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         };
         if !provers.scheduler.committee_result_is_current(now, job) {
+            if let Some(common) = &common {
+                let late = self
+                    .pq_committee_window_at(slot, position)
+                    .is_some_and(|window| now >= window.end);
+                common.discard(
+                    if late { "discarded_late" } else { "cancelled" },
+                    if late { "deadline" } else { "reorg" },
+                );
+            }
             metrics::inc_counter(&metrics::PQ_PROOF_DEADLINE_MISSES);
             debug!(%slot, committee, "Discarded an expired or reassigned PQ committee proof");
             trace.emit("job_outcome", "expired_or_reassigned", now, || json!({}));
@@ -322,6 +364,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let valid = provers
                 .aggregate
                 .verify(std::slice::from_ref(&statement), &proof)
+                .inspect_err(|_| {
+                    if let Some(common) = &common {
+                        common.discard("failed", "backend_error");
+                    }
+                })
                 .map_err(BeaconChainError::PqProverError)?;
             let verification = verify_start.elapsed();
             trace.latency("verification", verification);
@@ -331,6 +378,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .scheduler
                     .committee_result_is_current(verified_at, job)
             {
+                if let Some(common) = &common {
+                    if !valid {
+                        common.discard("failed", "invalid");
+                    } else {
+                        common.discard("cancelled", "other");
+                    }
+                }
                 trace.emit(
                     "job_outcome",
                     if valid {
@@ -345,6 +399,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             self.pq_measurement
                 .committee_completed(slot, committee, experiment);
+            if let Some(common) = &common {
+                common.ready("committee");
+            }
             trace.emit("candidate_ready", "ready", verified_at, || {
                 json!({
                     "committee": committee, "private": true, "claims": statement.pubkeys.len(),
@@ -358,7 +415,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             attestation,
             attesting_indices: indices,
             statement,
-            proof: proof.into_bytes().try_into()?,
+            proof: proof.into_bytes().try_into().inspect_err(|_| {
+                if let Some(common) = &common {
+                    common.discard("failed", "invalid");
+                }
+            })?,
         });
         if self.op_pool.insert_pq_attestation(
             slot.epoch(T::EthSpec::slots_per_epoch()),
@@ -367,11 +428,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             provers.scheduler.aggregate_changed();
         }
         if let Some(key) = key {
+            let measured_proof = pq_measurement::global().map(|_| aggregate.proof.to_vec());
             let publication_id = trace.detailed().then(|| proof_id(&aggregate.proof));
             self.pq_signatures
                 .lock()
                 .proven
                 .insert((key, position), aggregate);
+            if let Some(common) = &common
+                && let Some(operation) = common.ready("committee")
+                && let Some(proof) = measured_proof
+            {
+                pq_measurement::duty::remember_result(&proof, operation);
+            }
             trace.emit(
                 "candidate_ready",
                 "ready",

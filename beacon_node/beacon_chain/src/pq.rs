@@ -5,6 +5,7 @@ use std::sync::Arc;
 use types::EthSpec;
 
 pub(crate) mod attestation_preparation;
+pub(crate) mod common_measurement;
 pub(crate) mod duties;
 pub(crate) mod measurement;
 pub(crate) mod prover_scheduler;

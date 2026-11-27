@@ -334,11 +334,27 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
         // Post the proposer preparations to the BN.
         let preparation_data_len = preparation_data.len();
         let preparation_entries = preparation_data.as_slice();
+        let measurement_keys = if pq_measurement::global().is_some() {
+            pq_measurement::duty::keys_for_validators(
+                &preparation_data
+                    .iter()
+                    .map(|item| item.validator_index)
+                    .collect::<Vec<_>>(),
+                "proposal",
+            )
+        } else {
+            Vec::new()
+        };
+        let measurement = pq_measurement::handoff::encode(&measurement_keys);
+        let measurement_ref = measurement.as_deref();
         match self
             .beacon_nodes
             .request(ApiTopic::Subscriptions, |beacon_node| async move {
                 beacon_node
-                    .post_validator_prepare_beacon_proposer(preparation_entries)
+                    .post_validator_prepare_beacon_proposer_with_measurement(
+                        preparation_entries,
+                        measurement_ref,
+                    )
                     .await
             })
             .await

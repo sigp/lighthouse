@@ -588,9 +588,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
 
+        let measurement_id =
+            pq_measurement::global().map(|_| format!("0x{}", hex::encode(&message_id.0)));
+        if let Some(id) = &measurement_id {
+            pq_measurement::gossip::started(id);
+        }
         let verified = self
             .chain
             .verify_aggregated_attestation_for_gossip(&aggregate);
+        if let Some(id) = &measurement_id {
+            pq_measurement::gossip::finished(id);
+        }
         if matches!(aggregate.as_ref(), SignedAggregateAndProof::Pq(_)) {
             let (completed, wall) = validation_stamp();
             self.chain.record_pq_gossip_validation(
@@ -639,9 +647,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let mut stamps = Vec::new();
         let results = match self
             .chain
-            .batch_verify_aggregated_attestations_for_gossip_observed(aggregates, |index| {
-                stamps.push((index, validation_stamp()));
-            }) {
+            .batch_verify_aggregated_attestations_for_gossip_observed(
+                aggregates,
+                |index, starting| {
+                    if let Some(package) = packages.get(index) {
+                        if pq_measurement::global().is_some() {
+                            let id = format!("0x{}", hex::encode(&package.message_id.0));
+                            if starting {
+                                pq_measurement::gossip::started(&id);
+                            } else {
+                                pq_measurement::gossip::finished(&id);
+                            }
+                        }
+                    }
+                    if !starting {
+                        stamps.push((index, validation_stamp()));
+                    }
+                },
+            ) {
             Ok(results) => results,
             Err(e) => {
                 error!(
@@ -727,6 +750,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
         received_at: Option<Instant>,
     ) {
+        let measurement_id =
+            pq_measurement::global().map(|_| format!("0x{}", hex::encode(&message_id.0)));
         match result {
             Ok(verified_aggregate) => {
                 let aggregate = &verified_aggregate.signed_aggregate;
@@ -792,6 +817,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 .map_or_else(String::new, ToString::to_string)
                         })
                 {
+                    if let Some(id) = &measurement_id {
+                        pq_measurement::gossip::pool_error(id);
+                    }
                     debug!(
                         reason = ?e,
                         %peer_id,
@@ -808,6 +836,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 signed_aggregate,
                 error,
             }) => {
+                if let Some(id) = &measurement_id {
+                    let (outcome, reason) =
+                        match pq_validation_outcome(Some(&error), reprocess_allowance) {
+                            PqValidationOutcome::Duplicate => ("ignored", "duplicate"),
+                            PqValidationOutcome::Deferred => ("deferred", "missing_state"),
+                            PqValidationOutcome::Ignored => ("ignored", "missing_state"),
+                            _ => ("rejected", "invalid"),
+                        };
+                    pq_measurement::gossip::validation_failed(id, outcome, reason);
+                }
                 // Report the failure to gossipsub
                 self.handle_attestation_verification_failure(
                     peer_id,
@@ -3075,9 +3113,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
                             );
                             let processor = self.clone();
+                            let retry_id = pq_measurement::global()
+                                .map(|_| format!("0x{}", hex::encode(&message_id.0)));
+                            let retry_guard = retry_id
+                                .clone()
+                                .map(pq_measurement::gossip::RetryGuard::new);
                             ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
                                 beacon_block_root: *beacon_block_root,
+                                on_ready: retry_id.map(|id| {
+                                    Box::new(move || pq_measurement::gossip::queued(&id))
+                                        as beacon_processor::BlockingFn
+                                }),
                                 process_fn: Box::new(move || {
+                                    if let Some(guard) = retry_guard {
+                                        guard.executing();
+                                    }
                                     processor.process_gossip_aggregate(
                                         message_id,
                                         peer_id,
@@ -3165,9 +3215,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
                             );
                             let processor = self.clone();
+                            let retry_id = pq_measurement::global()
+                                .map(|_| format!("0x{}", hex::encode(&message_id.0)));
+                            let retry_guard = retry_id
+                                .clone()
+                                .map(pq_measurement::gossip::RetryGuard::new);
                             ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
                                 beacon_block_root: *beacon_block_root,
+                                on_ready: retry_id.map(|id| {
+                                    Box::new(move || pq_measurement::gossip::queued(&id))
+                                        as beacon_processor::BlockingFn
+                                }),
                                 process_fn: Box::new(move || {
+                                    if let Some(guard) = retry_guard {
+                                        guard.executing();
+                                    }
                                     processor.process_gossip_aggregate(
                                         message_id,
                                         peer_id,

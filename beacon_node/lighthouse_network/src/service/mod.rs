@@ -855,10 +855,38 @@ impl<E: EthSpec> Network<E> {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 let message_data = message.encode(GossipEncoding::default());
-                if let Err(e) = self
+                let payload = message_data.clone();
+                let measurement_start = matches!(
+                    topic.kind(),
+                    GossipKind::BeaconAggregateAndProof | GossipKind::BeaconBlock
+                )
+                .then(pq_measurement::gossip::publication_started)
+                .flatten();
+                let publication_result = self
                     .gossipsub_mut()
-                    .publish(Topic::from(topic.clone()), message_data.clone())
-                {
+                    .publish(Topic::from(topic.clone()), payload);
+                if let Some(requested) = measurement_start {
+                    let returned = pq_measurement::global().map(|recorder| recorder.point());
+                    let id = pq_measurement::gossip::publication_id();
+                    let reason = match &publication_result {
+                        Ok(_) => "none",
+                        Err(PublishError::Duplicate) => "duplicate_suppressed",
+                        Err(_) => "other",
+                    };
+                    if let Some(returned) = returned {
+                        Self::record_pq_publication(
+                            &message,
+                            &topic,
+                            &requested,
+                            &returned,
+                            id.as_deref(),
+                            reason,
+                            message_data.len(),
+                            publication_result.is_ok(),
+                        );
+                    }
+                }
+                if let Err(e) = publication_result {
                     match e {
                         PublishError::Duplicate => {
                             debug!(
@@ -908,6 +936,57 @@ impl<E: EthSpec> Network<E> {
                     if let PublishError::NoPeersSubscribedToTopic = e {
                         self.gossip_cache.insert(topic, message_data);
                     }
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_pq_publication(
+        message: &PubsubMessage<E>,
+        topic: &GossipTopic,
+        requested: &pq_measurement::Point,
+        returned: &pq_measurement::Point,
+        id: Option<&str>,
+        reason: &str,
+        ssz_bytes: usize,
+        accepted: bool,
+    ) {
+        if let PubsubMessage::BeaconBlock(block) = message {
+            if matches!(block.as_ref(), types::SignedBeaconBlock::Pq(_)) {
+                pq_measurement::duty::proposal_published(
+                    block.slot().as_u64(),
+                    requested,
+                    returned,
+                    accepted,
+                );
+            }
+        }
+        if let PubsubMessage::AggregateAndProofAttestation(signed) = message {
+            if let types::SignedAggregateAndProof::Pq(signed) = signed.as_ref() {
+                let slot = signed.message.aggregate.data.slot.as_u64();
+                let validator = Some(signed.message.aggregator_index);
+                let proof = signed.message.proof.as_ref();
+                let metadata = pq_measurement::duty::publication_metadata(slot, validator, proof);
+                if let Some(publication) = pq_measurement::gossip::published(
+                    &topic.to_string(),
+                    id,
+                    requested,
+                    returned,
+                    reason,
+                    ssz_bytes,
+                    accepted,
+                    metadata,
+                ) {
+                    pq_measurement::duty::published(
+                        slot,
+                        validator,
+                        proof,
+                        &publication,
+                        requested,
+                        returned,
+                        accepted,
+                    );
                 }
             }
         }
@@ -1470,9 +1549,34 @@ impl<E: EthSpec> Network<E> {
                 // peer that originally published the message.
                 let received_at = Instant::now();
                 let received_wall = SystemTime::now();
+                let measurement_received = pq_measurement::point();
                 let decoded_bytes = gs_msg.data.len();
+                let measurement_id = if pq_measurement::global().is_some()
+                    && GossipTopic::decode(gs_msg.topic.as_str()).is_ok_and(|topic| {
+                        matches!(topic.kind(), GossipKind::BeaconAggregateAndProof)
+                            && self
+                                .fork_context
+                                .get_fork_from_context_bytes(topic.fork_digest)
+                                == Some(&types::ForkName::Pq)
+                    }) {
+                    let id = format!("0x{}", hex::encode(&id.0));
+                    if let Some(received) = measurement_received {
+                        pq_measurement::gossip::received_at(
+                            gs_msg.topic.as_str(),
+                            &id,
+                            decoded_bytes,
+                            received,
+                        );
+                    }
+                    Some(id)
+                } else {
+                    None
+                };
                 match PubsubMessage::decode(&gs_msg.topic, &gs_msg.data, &self.fork_context) {
                     Err(e) => {
+                        if let Some(id) = &measurement_id {
+                            pq_measurement::gossip::decode_failed(id);
+                        }
                         debug!(topic = ?gs_msg.topic, error = e, "Could not decode gossipsub message");
                         //reject the message
                         self.gossipsub_mut().report_message_validation_result(
@@ -1563,12 +1667,51 @@ impl<E: EthSpec> Network<E> {
                     if let Some(msgs) = self.gossip_cache.retrieve(&topic) {
                         for data in msgs {
                             let topic_str: &str = topic.kind().as_ref();
-                            match self
+                            let decoded = if pq_measurement::global().is_some()
+                                && matches!(
+                                    topic.kind(),
+                                    GossipKind::BeaconAggregateAndProof | GossipKind::BeaconBlock
+                                ) {
+                                PubsubMessage::decode(
+                                    &TopicHash::from(Topic::from(topic.clone())),
+                                    &data,
+                                    &self.fork_context,
+                                )
+                                .ok()
+                            } else {
+                                None
+                            };
+                            let size = data.len();
+                            let requested = decoded
+                                .as_ref()
+                                .and_then(|_| pq_measurement::gossip::publication_started());
+                            let result = self
                                 .swarm
                                 .behaviour_mut()
                                 .gossipsub
-                                .publish(Topic::from(topic.clone()), data)
+                                .publish(Topic::from(topic.clone()), data);
+                            if let (Some(message), Some(requested), Some(recorder)) =
+                                (decoded, requested, pq_measurement::global())
                             {
+                                let returned = recorder.point();
+                                let id = pq_measurement::gossip::publication_id();
+                                let reason = match &result {
+                                    Ok(_) => "none",
+                                    Err(PublishError::Duplicate) => "duplicate_suppressed",
+                                    Err(_) => "other",
+                                };
+                                Self::record_pq_publication(
+                                    &message,
+                                    &topic,
+                                    &requested,
+                                    &returned,
+                                    id.as_deref(),
+                                    reason,
+                                    size,
+                                    result.is_ok(),
+                                );
+                            }
+                            match result {
                                 Ok(_) => {
                                     debug!(topic = topic_str, "Gossip message published on retry");
                                     metrics::inc_counter_vec(

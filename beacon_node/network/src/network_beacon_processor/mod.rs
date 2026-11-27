@@ -93,6 +93,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             let chain = self.chain.clone();
             let message_id = message_id.clone();
             GossipSyncDrop::new(move || {
+                if matches!(kind, beacon_chain::PqGossipKind::Aggregate)
+                    && pq_measurement::global().is_some()
+                {
+                    pq_measurement::gossip::sync_dropped(&format!(
+                        "0x{}",
+                        hex::encode(&message_id.0)
+                    ));
+                }
                 let wall = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default();
@@ -203,7 +211,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             aggregate.message().aggregate().data().slot,
             received_at,
         );
-        self.try_send(BeaconWorkEvent {
+        let measurement_id =
+            pq_measurement::global().map(|_| format!("0x{}", hex::encode(&message_id.0)));
+        if let Some(id) = &measurement_id {
+            pq_measurement::gossip::queued(id);
+        }
+        let result = self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAggregate {
                 aggregate: Box::new(GossipAggregatePackage {
@@ -214,11 +227,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     seen_timestamp,
                     received_at,
                     on_sync_drop,
+                    on_discard: measurement_id.as_ref().and_then(|id| {
+                        let attempt = pq_measurement::gossip::attempt(id)?;
+                        let id = id.clone();
+                        Some(beacon_processor::GossipDiscard::new(move || {
+                            pq_measurement::gossip::abandoned(&id, &attempt)
+                        }))
+                    }),
                 }),
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),
             },
-        })
+        });
+        if result.is_err() {
+            if let Some(id) = &measurement_id {
+                pq_measurement::gossip::queue_dropped(id);
+            }
+        }
+        result
     }
 
     /// Create a new `Work` event for some block.

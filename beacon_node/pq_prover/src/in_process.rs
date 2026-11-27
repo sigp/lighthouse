@@ -63,15 +63,31 @@ impl InProcessBackend {
                         .ok_or(Error::InvalidChild)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let (claims, proof) = lean_vm::aggregate(
+            let mut measurement = pq_measurement::global().and_then(|_| {
+                let messages = expected
+                    .lean_xmss
+                    .iter()
+                    .map(|(_, message)| *message)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                pq_measurement::proof::Call::start(children.len(), signatures.len(), &messages)
+            });
+            if let Some(measurement) = &mut measurement {
+                measurement.starting();
+            }
+            let result = lean_vm::aggregate(
                 &children,
                 signatures,
                 vec![],
                 None,
                 OutputClaims::All,
                 self.log_inv_rate,
-            )
-            .map_err(|error| match error {
+            );
+            if let Some(measurement) = &mut measurement {
+                measurement.backend_finished();
+            }
+            let (claims, proof) = result.map_err(|error| match error {
                 lean_vm::AggregateError::ProvingFailed => Error::ProvingFailed(error.to_string()),
                 lean_vm::AggregateError::InvalidChild => Error::InvalidChild,
                 lean_vm::AggregateError::InvalidInput(_)
@@ -85,7 +101,11 @@ impl InProcessBackend {
                     found: claims.num_signature_claims(),
                 });
             }
-            Ok(proof.to_bytes())
+            let bytes = proof.to_bytes();
+            if let Some(measurement) = measurement {
+                measurement.returned(bytes.len());
+            }
+            Ok(bytes)
         })
     }
 }
@@ -156,6 +176,9 @@ impl ProverBackend for InProcessBackend {
                 let expected = union(chunk);
                 let proof = self.aggregate(chunk, vec![], &expected)?;
                 next.push((expected, proof));
+                if level.len() > MAX_CHILDREN_PER_AGGREGATE {
+                    pq_measurement::proof::intermediate_ready();
+                }
             }
             level = next;
         }

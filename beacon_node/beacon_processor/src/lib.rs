@@ -284,6 +284,7 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
             ReadyWork::Aggregate(QueuedAggregate {
                 process_fn,
                 beacon_block_root: _,
+                on_ready: _,
             }) => Self {
                 drop_during_sync: true,
                 work: Work::UnknownBlockAggregate { process_fn },
@@ -355,6 +356,25 @@ pub struct GossipAttestationPackage<T> {
     pub on_sync_drop: Option<GossipSyncDrop>,
 }
 
+/// Observes a package discarded by a bounded queue or during shutdown. The callback also runs
+/// after normal processing, where its completed-attempt check makes it a no-op.
+pub struct GossipDiscard(Box<dyn Fn() + Send + Sync>);
+impl GossipDiscard {
+    pub fn new(report: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(Box::new(report))
+    }
+}
+impl Drop for GossipDiscard {
+    fn drop(&mut self) {
+        (self.0)();
+    }
+}
+impl std::fmt::Debug for GossipDiscard {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("GossipDiscard")
+    }
+}
+
 /// Items required to verify a batch of aggregated gossip attestations.
 #[derive(Debug)]
 pub struct GossipAggregatePackage<E: EthSpec> {
@@ -365,6 +385,7 @@ pub struct GossipAggregatePackage<E: EthSpec> {
     pub seen_timestamp: Duration,
     pub received_at: Option<Instant>,
     pub on_sync_drop: Option<GossipSyncDrop>,
+    pub on_discard: Option<GossipDiscard>,
 }
 
 #[derive(Clone)]

@@ -451,6 +451,27 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
+    /// Record only known terminal paths before block HTTP submission. Once submission starts,
+    /// a timeout cannot distinguish failure from a block the BN has already published.
+    fn measurement_proposal_terminal(
+        &self,
+        slot: Slot,
+        outcome: &'static str,
+        reason: &'static str,
+        late: bool,
+    ) {
+        if pq_measurement::global().is_some()
+            && self.chain_spec.fork_name_at_slot::<S::E>(slot) == ForkName::Pq
+        {
+            pq_measurement::duty::complete(
+                &pq_measurement::duty::proposal_key(slot.as_u64()),
+                outcome,
+                reason,
+                late,
+            );
+        }
+    }
+
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     async fn do_update(&self, notification: BlockServiceNotification) -> Result<(), ()> {
         let _timer = validator_metrics::start_timer_vec(
@@ -458,11 +479,26 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             &[validator_metrics::FULL_UPDATE],
         );
 
-        let slot = self.slot_clock.now().ok_or_else(move || {
+        let slot = self.slot_clock.now().ok_or_else(|| {
+            self.measurement_proposal_terminal(notification.slot, "failed", "other", false);
             crit!("Duties manager failed to read slot clock");
         })?;
 
         if notification.slot != slot {
+            self.measurement_proposal_terminal(
+                notification.slot,
+                if notification.slot < slot {
+                    "missed_deadline"
+                } else {
+                    "cancelled"
+                },
+                if notification.slot < slot {
+                    "deadline"
+                } else {
+                    "other"
+                },
+                notification.slot < slot,
+            );
             warn!(
                 current_slot = slot.as_u64(),
                 notification_slot = notification.slot.as_u64(),
@@ -558,9 +594,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     ?slot,
                     "Missing pubkey for block"
                 );
+                self.measurement_proposal_terminal(slot, "cancelled", "other", false);
                 return Ok(None);
             }
             Err(e) => {
+                self.measurement_proposal_terminal(slot, "failed", "backend_error", false);
                 return Err(BlockError::Recoverable(format!(
                     "Unable to sign block: {:?}",
                     e
@@ -583,6 +621,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // protect them from DoS attacks and they're most likely to successfully
         // publish a block.
         let builder_url_ref = builder_url.as_deref();
+        if pq_measurement::global().is_some()
+            && self.chain_spec.fork_name_at_slot::<S::E>(slot) == ForkName::Pq
+        {
+            pq_measurement::duty::submitted(&pq_measurement::duty::proposal_key(slot.as_u64()));
+        }
         proposer_fallback
             .request_proposers_first(|beacon_node| async {
                 self.publish_signed_block_contents(&signed_block, beacon_node, builder_url_ref)
@@ -944,6 +987,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             .randao_vrf_proof(pubkey, slot)
             .await
             .map_err(|error| {
+                self.measurement_proposal_terminal(slot, "failed", "backend_error", false);
                 BlockError::Recoverable(format!("Unable to produce PQ VRF proof: {error:?}"))
             })?;
         let graffiti = determine_graffiti(
@@ -967,7 +1011,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     })
             })
             .await
-            .map_err(BlockError::from)?;
+            .map_err(|error| {
+                self.measurement_proposal_terminal(slot, "failed", "other", false);
+                BlockError::from(error)
+            })?;
         let eth2::types::PqBlockAndEnvelope {
             block,
             execution_payload_envelope,
@@ -979,6 +1026,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             || Some(block.proposer_index()) != self.validator_store.validator_index(&pubkey)
             || block.canonical_root() != execution_payload_envelope.beacon_block_root
         {
+            self.measurement_proposal_terminal(slot, "failed", "invalid", false);
             return Err(BlockError::Recoverable(
                 "Beacon node returned a mismatched PQ block or envelope".into(),
             ));

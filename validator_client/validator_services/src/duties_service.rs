@@ -1199,6 +1199,7 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
         )
         / overallocation_denominator;
     let mut subscriptions = Vec::with_capacity(num_expected_subscriptions);
+    let mut measurement_keys = Vec::new();
     let mut subscription_slots_to_confirm = Vec::with_capacity(num_expected_subscriptions);
 
     // For this epoch and the next epoch, produce any beacon committee subscriptions.
@@ -1220,6 +1221,15 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
             .for_each(|(_, duty_and_proof)| {
                 let duty = &duty_and_proof.duty;
                 let is_aggregator = duty_and_proof.is_aggregator();
+                if pq_measurement::global().is_some() && is_aggregator {
+                    if let Some(position) = duty.aggregator_position {
+                        measurement_keys.push(pq_measurement::duty::committee_key(
+                            duty.slot.as_u64(),
+                            duty.committee_index,
+                            position,
+                        ));
+                    }
+                }
 
                 subscriptions.push(BeaconCommitteeSubscription {
                     validator_index: duty.validator_index,
@@ -1235,6 +1245,8 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
     // If there are any subscriptions, push them out to beacon nodes
     if !subscriptions.is_empty() {
         let subscriptions_ref = &subscriptions;
+        let measurement = pq_measurement::handoff::encode(&measurement_keys);
+        let measurement_ref = measurement.as_deref();
         let subscription_result = duties_service
             .beacon_nodes
             .request(ApiTopic::Subscriptions, |beacon_node| async move {
@@ -1243,7 +1255,10 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
                     &[validator_metrics::SUBSCRIPTIONS_HTTP_POST],
                 );
                 beacon_node
-                    .post_validator_beacon_committee_subscriptions(subscriptions_ref)
+                    .post_validator_beacon_committee_subscriptions_with_measurement(
+                        subscriptions_ref,
+                        measurement_ref,
+                    )
                     .await
             })
             .await;
@@ -1287,6 +1302,12 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
         });
 
     Ok(())
+}
+
+// After publication may have been handed to another process, its outcome is unknown here.
+// Do not emit a second terminal record from a later refresh of a past duty.
+fn measurement_before_cutoff(now: Option<Duration>, cutoff: Option<Duration>) -> bool {
+    now.zip(cutoff).is_some_and(|(now, cutoff)| now < cutoff)
 }
 
 /// For the given `local_indices` and `local_pubkeys`, download the duties for the given `epoch` and
@@ -1387,6 +1408,48 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
 
     // Update the duties service with the new `DutyAndProof` messages.
     let mut attesters = duties_service.attesters.write();
+    // Reuse this already-required map guard. Measurement work must not acquire another duty
+    // lock. Only close a removed/replaced duty while its publication cutoff is still ahead.
+    let mut superseded_measurement_duties = Vec::new();
+    if pq_measurement::global().is_some()
+        && duties_service.spec.fork_name_at_epoch(epoch) == ForkName::Pq
+    {
+        let replacements = new_duties
+            .iter()
+            .map(|duty| (duty.pubkey, duty))
+            .collect::<HashMap<_, _>>();
+        let now = duties_service.slot_clock.now_duration();
+        for pubkey in &validators_to_update {
+            if let Some((_, prior)) = attesters.get(*pubkey).and_then(|map| map.get(&epoch)) {
+                if prior.is_aggregator()
+                    && replacements
+                        .get(*pubkey)
+                        .is_none_or(|next| **next != prior.duty)
+                {
+                    if let Some(position) = prior.duty.aggregator_position {
+                        let deadline =
+                            duties_service
+                                .slot_clock
+                                .start_of(prior.duty.slot)
+                                .map(|start| {
+                                    start.saturating_add(
+                                        duties_service.spec.get_pq_aggregate_due(position),
+                                    )
+                                });
+                        if measurement_before_cutoff(now, deadline) {
+                            superseded_measurement_duties.push(
+                                pq_measurement::duty::committee_key(
+                                    prior.duty.slot.as_u64(),
+                                    prior.duty.committee_index,
+                                    position,
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     let mut already_warned = Some(());
     let current_slot = duties_service
         .slot_clock
@@ -1437,8 +1500,39 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
         }
     }
     drop(attesters);
+    for key in superseded_measurement_duties {
+        pq_measurement::duty::complete(&key, "superseded", "reorg", false);
+    }
 
     if duties_service.spec.fork_name_at_epoch(epoch) == ForkName::Pq {
+        if pq_measurement::global().is_some() {
+            for duty in &new_duties {
+                if duty.is_aggregator != Some(true) {
+                    continue;
+                }
+                if let (Some(position), Some(start)) = (
+                    duty.aggregator_position,
+                    duties_service.slot_clock.start_of(duty.slot),
+                ) {
+                    if position >= types::consts::pq::AGGREGATORS_PER_COMMITTEE {
+                        continue;
+                    }
+                    pq_measurement::duty::schedule(
+                        pq_measurement::duty::committee_key(
+                            duty.slot.as_u64(),
+                            duty.committee_index,
+                            position,
+                        ),
+                        serde_json::json!({"kind":"committee","slot":duty.slot.as_u64(),
+                            "committee_index":duty.committee_index,"committee_members":duty.committee_length,
+                            "committees_per_slot":duty.committees_at_slot,"aggregator_position":position,
+                            "collection_unix_ns":start.saturating_add(duties_service.spec.get_pq_aggregation_cutoff(position)).as_nanos().to_string(),
+                            "broadcast_unix_ns":start.saturating_add(duties_service.spec.get_pq_aggregate_due(position)).as_nanos().to_string()}),
+                        Some(duty.validator_index),
+                    );
+                }
+            }
+        }
         return Ok(());
     }
 
@@ -2089,13 +2183,50 @@ async fn fetch_and_store_proposer_duties<S: ValidatorStore, T: SlotClock + 'stat
                 num_relevant_duties = relevant_duties.len(),
                 "Downloaded proposer duties"
             );
+            if pq_measurement::global().is_some()
+                && duties_service.spec.fork_name_at_epoch(epoch) == ForkName::Pq
+            {
+                for duty in &relevant_duties {
+                    if let Some(start) = duties_service.slot_clock.start_of(duty.slot) {
+                        pq_measurement::duty::schedule(
+                            pq_measurement::duty::proposal_key(duty.slot.as_u64()),
+                            serde_json::json!({"kind":"proposal","slot":duty.slot.as_u64(),"proposal_unix_ns":start.as_nanos().to_string()}),
+                            Some(duty.validator_index),
+                        );
+                    }
+                }
+            }
 
-            if let Some((prior_dependent_root, _)) = duties_service
+            let measured_proposal_keys = pq_measurement::global().map(|_| {
+                relevant_duties
+                    .iter()
+                    .map(|duty| (duty.slot, duty.validator_index))
+                    .collect::<HashSet<_>>()
+            });
+            if let Some((prior_dependent_root, prior_duties)) = duties_service
                 .proposers
                 .write()
                 .insert(epoch, (dependent_root, relevant_duties))
                 && dependent_root != prior_dependent_root
             {
+                if let Some(keys) = measured_proposal_keys {
+                    let now = duties_service.slot_clock.now_duration();
+                    for prior in prior_duties {
+                        if !keys.iter().any(|(slot, _)| *slot == prior.slot)
+                            && measurement_before_cutoff(
+                                now,
+                                duties_service.slot_clock.start_of(prior.slot),
+                            )
+                        {
+                            pq_measurement::duty::complete(
+                                &pq_measurement::duty::proposal_key(prior.slot.as_u64()),
+                                "superseded",
+                                "reorg",
+                                false,
+                            );
+                        }
+                    }
+                }
                 warn!(
                     %prior_dependent_root,
                     %dependent_root,
@@ -2335,6 +2466,26 @@ async fn notify_block_production_service<S: ValidatorStore>(
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn measurement_supersession_requires_a_known_future_cutoff() {
+        let cutoff = Some(Duration::from_secs(10));
+        assert!(measurement_before_cutoff(
+            Some(Duration::from_secs(9)),
+            cutoff
+        ));
+        assert!(!measurement_before_cutoff(
+            Some(Duration::from_secs(10)),
+            cutoff
+        ));
+        assert!(!measurement_before_cutoff(
+            Some(Duration::from_secs(11)),
+            cutoff
+        ));
+        assert!(!measurement_before_cutoff(None, cutoff));
+        assert!(!measurement_before_cutoff(Some(Duration::ZERO), None));
+    }
+
     use std::future::{Ready, ready};
     use types::test_utils::generate_deterministic_keypair;
 

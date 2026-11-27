@@ -1013,6 +1013,34 @@ where
             canonical_head.cached_head(),
             &self.spec,
         )?;
+        if let Some(endpoint) = &self.chain_config.pq_measurement_otlp_endpoint {
+            let node_id = self
+                .chain_config
+                .pq_measurement_node_id
+                .as_deref()
+                .ok_or("PQ measurement logical node identity missing")?;
+            let prover = self
+                .chain_config
+                .pq_prover
+                .as_ref()
+                .and_then(|config| match config {
+                    crate::chain_config::PqProverConfig::InProcess { threads } => {
+                        Some((pq_prover::LEANVM_REV, (*threads > 0).then_some(*threads)))
+                    }
+                    crate::chain_config::PqProverConfig::Reference => None,
+                });
+            pq_measurement::client::start(
+                endpoint,
+                node_id,
+                "bn",
+                self.spec.config_name.as_deref().unwrap_or("custom"),
+                format!("{genesis_validators_root:#x}"),
+                genesis_time,
+                self.spec.get_slot_duration(),
+                lighthouse_version::COMMIT,
+                prover,
+            )?;
+        }
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,

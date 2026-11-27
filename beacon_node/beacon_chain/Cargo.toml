@@ -53,6 +53,7 @@ once_cell = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
+pq_measurement = { workspace = true }
 pq_prover = { workspace = true }
 proof_engine = { workspace = true }
 proto_array = { workspace = true }
