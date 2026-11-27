@@ -63,8 +63,10 @@ warp_utils = { workspace = true }
 [dev-dependencies]
 fork_choice = { workspace = true }
 genesis = { workspace = true }
+oas3 = { version = "0.21.0", features = ["yaml-spec"] }
 proto_array = { workspace = true }
 rcgen = { workspace = true }
+regex = { workspace = true }
 tempfile = { workspace = true }
 
 [[test]]
