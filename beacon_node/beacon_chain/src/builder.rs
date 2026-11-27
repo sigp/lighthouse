@@ -1006,8 +1006,7 @@ where
             .map(crate::pq::Provers::connect)
             .transpose()?;
         let pq_measurement = crate::pq::measurement::Measurement::new(
-            self.chain_config.pq_timing_output.as_deref(),
-            self.chain_config.pq_measurement,
+            &self.chain_config,
             genesis_time,
             genesis_validators_root,
             self.spec.config_name.as_deref(),

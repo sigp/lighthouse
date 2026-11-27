@@ -7,7 +7,12 @@ use super::{
     prover_scheduler::{Attempt, Work},
     signature_pool::{CommitteeInputs, SignaturePool},
 };
-use crate::{BeaconChain, BeaconChainTypes, canonical_head::CachedHead, metrics};
+use crate::{
+    BeaconChain, BeaconChainTypes,
+    canonical_head::CachedHead,
+    chain_config::{ChainConfig, PqProverConfig},
+    metrics,
+};
 use operation_pool::{CompactIndexedAttestationPq, OperationPool};
 use parking_lot::Mutex;
 use rand::Rng;
@@ -225,8 +230,7 @@ pub(crate) struct Measurement<E: EthSpec> {
 
 impl<E: EthSpec> Measurement<E> {
     pub(crate) fn new(
-        output: Option<&Path>,
-        observer: bool,
+        config: &ChainConfig,
         genesis_time: u64,
         genesis_root: Hash256,
         network: Option<&str>,
@@ -237,7 +241,17 @@ impl<E: EthSpec> Measurement<E> {
         let start = wall_now_ns();
         let seed = rand::rng().random::<u64>();
         let id = format!("{start}-{seed:016x}");
-        let recorder = output
+        let observer = config.pq_measurement;
+        let (backend, configured_threads) = match config.pq_prover.as_ref() {
+            Some(PqProverConfig::InProcess { threads }) => {
+                (Some("leanvm-in-process"), Some(*threads))
+            }
+            Some(PqProverConfig::Reference) => (Some("reference"), None),
+            None => (None, None),
+        };
+        let recorder = config
+            .pq_timing_output
+            .as_deref()
             .map(|path| {
                 let timing_slot = spec
                     .pq_fork_epoch
@@ -261,13 +275,13 @@ impl<E: EthSpec> Measurement<E> {
                         "lighthouse_commit": (!lighthouse_version::COMMIT.is_empty()).then_some(lighthouse_version::COMMIT),
                         "leanvm_revision": pq_prover::LEANVM_REV,
                         "leanvm_bindings_version": (pq_prover::LEANVM_REV == "351f7ae421529ce164ed747eee1f78bdeaec3e80").then_some("0.19.0"),
-                        "prover_backend": "leanvm-in-process",
+                        "prover_backend": backend,
                         "prover_log_inv_rate": 2,
                         "prover_cpu_profile": Value::Null,
                         "prover_cpu_profile_requested": std::env::var("LEANVM_TIER").ok(),
                         "prover_threads": Value::Null,
-                        "prover_threads_configured": std::env::var("LEANVM_THREADS").ok()
-                            .and_then(|threads| threads.parse::<u64>().ok()),
+                        // The wrapper environment is only a default; explicit CLI flags win.
+                        "prover_threads_configured": configured_threads,
                         "hardware": hardware(),
                         "timing": {
                             "slot_ns": ns(spec.get_slot_duration()),
@@ -768,7 +782,7 @@ mod tests {
     use super::*;
     use crate::{
         chain_config::{ChainConfig, PqProverConfig},
-        pq::prover_scheduler::{Window, committee_window, proposal_window},
+        pq::prover_scheduler::{Window, proposal_window},
         test_utils::{BeaconChainHarness, EphemeralHarnessType},
     };
     use state_processing::pq;
@@ -782,8 +796,13 @@ mod tests {
         let config = ChainConfig {
             pq_measurement: true,
             pq_timing_output: Some(output.path().to_path_buf()),
-            pq_prover: std::env::var_os("PQ_MEASUREMENT_TEST_LEANVM")
-                .map(|_| PqProverConfig::InProcess { threads: 0 }),
+            pq_prover: Some(
+                if std::env::var_os("PQ_MEASUREMENT_TEST_LEANVM").is_some() {
+                    PqProverConfig::InProcess { threads: 0 }
+                } else {
+                    PqProverConfig::Reference
+                },
+            ),
             ..ChainConfig::default()
         };
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
@@ -797,15 +816,28 @@ mod tests {
         let prover = chain.pq_provers.as_ref().unwrap();
         let scheduler = &prover.scheduler;
         let measurement = &chain.pq_measurement;
+        let run_dir = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let metadata: Value =
+            serde_json::from_slice(&std::fs::read(run_dir.join("run.json")).unwrap()).unwrap();
+        assert_eq!(metadata["prover_backend"], prover.aggregate.name());
+        assert_eq!(
+            metadata["prover_threads_configured"],
+            if std::env::var_os("PQ_MEASUREMENT_TEST_LEANVM").is_some() {
+                json!(0)
+            } else {
+                Value::Null
+            }
+        );
         let slot = Slot::new(0);
         let target = Slot::new(2);
         let start = chain.slot_clock.start_of(slot).unwrap();
         let deadline = chain.slot_clock.start_of(target).unwrap();
-        let committee = committee_window(
-            start,
-            spec.get_attestation_due::<E>(slot),
-            spec.get_aggregate_attestation_due::<E>(slot),
-        );
+        let committee = chain.pq_committee_window_at(slot, 0).unwrap();
         let (proposal_window, _) =
             proposal_window(start, deadline, chain.slot_clock.slot_duration());
         let proposal = Window {
