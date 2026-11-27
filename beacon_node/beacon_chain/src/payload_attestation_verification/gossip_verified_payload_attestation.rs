@@ -3,7 +3,7 @@ use crate::beacon_chain::BeaconStore;
 use crate::canonical_head::CanonicalHead;
 use crate::observed_attesters::ObservedPayloadAttesters;
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::AggregateSignature;
 use educe::Educe;
@@ -12,7 +12,6 @@ use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set_from_pubkeys;
-use std::borrow::Cow;
 use types::{
     ChainSpec, EthSpec, Hash256, IndexedPayloadAttestation, PTC, PayloadAttestationMessage, Slot,
 };
@@ -129,9 +128,9 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
 
         {
             // [REJECT] The signature is valid with respect to the `validator_index`.
-            let pubkey_cache = ctx.validator_pubkey_cache.read();
+            let pubkeys = HeadPubkeys::new(ctx.canonical_head, ctx.validator_pubkey_cache);
             let signature_set = indexed_payload_attestation_signature_set_from_pubkeys(
-                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                |validator_index| pubkeys.get(validator_index),
                 &indexed_payload_attestation.signature,
                 &indexed_payload_attestation,
                 ctx.genesis_validators_root,
@@ -235,24 +234,24 @@ fn verify_propagation_slot_range<S: SlotClock>(
     message_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let latest_permissible_slot = slot_clock
-        .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
+    let current_time = slot_clock
+        .now_duration()
         .ok_or(BeaconChainError::UnableToReadSlot)?;
-    if message_slot > latest_permissible_slot {
-        return Err(Error::FutureSlot {
-            message_slot,
-            latest_permissible_slot,
-        });
+    let earliest_permissible_time = slot_clock
+        .start_of(message_slot)
+        .ok_or(BeaconChainError::UnableToReadSlot)?
+        .saturating_sub(spec.maximum_gossip_clock_disparity());
+    let latest_permissible_time = slot_clock
+        .start_of(message_slot.saturating_add(1u64))
+        .ok_or(BeaconChainError::UnableToReadSlot)?
+        .saturating_add(spec.maximum_gossip_clock_disparity());
+
+    if current_time < earliest_permissible_time {
+        return Err(Error::FutureSlot { message_slot });
     }
 
-    let earliest_permissible_slot = slot_clock
-        .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
-        .ok_or(BeaconChainError::UnableToReadSlot)?;
-    if message_slot < earliest_permissible_slot {
-        return Err(Error::PastSlot {
-            message_slot,
-            earliest_permissible_slot,
-        });
+    if current_time > latest_permissible_time {
+        return Err(Error::PastSlot { message_slot });
     }
 
     Ok(())

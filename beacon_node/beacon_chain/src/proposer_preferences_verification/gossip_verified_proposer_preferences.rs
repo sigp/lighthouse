@@ -6,7 +6,7 @@ use crate::{
     proposer_preferences_verification::{
         ProposerPreferencesError, proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
-    validator_pubkey_cache::ValidatorPubkeyCache,
+    validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache},
 };
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::{Mutex, RwLock};
@@ -19,6 +19,7 @@ use types::{ChainSpec, EthSpec, Hash256, ProposerPreferences, SignedProposerPref
 pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     preferences: &ProposerPreferences,
     current_slot: Slot,
+    latest_permissible_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<(), ProposerPreferencesError> {
     let proposal_slot = preferences.proposal_slot;
@@ -32,12 +33,34 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     }
 
     if proposal_epoch < current_epoch
-        || proposal_epoch > current_epoch.saturating_add(spec.min_seed_lookahead)
+        || proposal_epoch
+            > latest_permissible_slot
+                .epoch(E::slots_per_epoch())
+                .saturating_add(spec.min_seed_lookahead)
     {
         return Err(ProposerPreferencesError::InvalidProposalEpoch { proposal_epoch });
     }
 
-    if proposal_slot <= current_slot {
+    Ok(())
+}
+
+/// Verify that the proposal slot has not passed, accounting for
+/// `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+fn verify_proposal_slot_range<S: SlotClock>(
+    slot_clock: &S,
+    proposal_slot: Slot,
+    current_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<(), ProposerPreferencesError> {
+    let current_time = slot_clock
+        .now_duration()
+        .ok_or(ProposerPreferencesError::UnableToReadSlot)?;
+    let latest_permissible_time = slot_clock
+        .start_of(proposal_slot)
+        .ok_or(ProposerPreferencesError::UnableToReadSlot)?
+        .saturating_add(spec.maximum_gossip_clock_disparity());
+
+    if current_time > latest_permissible_time {
         return Err(ProposerPreferencesError::ProposalSlotAlreadyPassed {
             proposal_slot,
             current_slot,
@@ -77,6 +100,10 @@ impl GossipVerifiedProposerPreferences {
             .slot_clock
             .now()
             .ok_or(ProposerPreferencesError::UnableToReadSlot)?;
+        let latest_permissible_slot = ctx
+            .slot_clock
+            .now_with_future_tolerance(ctx.spec.maximum_gossip_clock_disparity())
+            .ok_or(ProposerPreferencesError::UnableToReadSlot)?;
 
         if ctx
             .gossip_verified_proposer_preferences_cache
@@ -91,8 +118,11 @@ impl GossipVerifiedProposerPreferences {
         verify_preferences_consistency::<T::EthSpec>(
             &signed_preferences.message,
             current_slot,
+            latest_permissible_slot,
             ctx.spec,
         )?;
+
+        verify_proposal_slot_range(ctx.slot_clock, proposal_slot, current_slot, ctx.spec)?;
 
         let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
 
@@ -176,14 +206,14 @@ impl GossipVerifiedProposerPreferences {
             });
         }
 
-        // Verify the signature using the proposer's pubkey from the validator pubkey cache
+        // Verify the signature using the proposer's pubkey
         let signature_is_valid = {
-            let pubkey_cache = ctx.validator_pubkey_cache.read();
-            let pubkey = pubkey_cache
+            let pubkeys = HeadPubkeys::new(ctx.canonical_head, ctx.validator_pubkey_cache);
+            let pubkey = pubkeys
                 .get(validator_index as usize)
                 .ok_or(ProposerPreferencesError::BadSignature)?;
             signed_preferences.verify_signature::<T::EthSpec>(
-                pubkey,
+                &pubkey,
                 &proposer.fork,
                 ctx.genesis_validators_root,
                 ctx.spec,
@@ -268,10 +298,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
     use types::{Address, ChainSpec, EthSpec, Hash256, ProposerPreferences, Slot, Spec};
 
-    use super::verify_preferences_consistency;
+    use super::{verify_preferences_consistency, verify_proposal_slot_range};
     use crate::proposer_preferences_verification::ProposerPreferencesError;
+    use crate::slot_clock::{SlotClock, TestingSlotClock};
     use crate::test_utils::{fork_name_from_env, test_spec};
 
     type E = Spec;
@@ -291,6 +323,29 @@ mod tests {
     }
 
     #[test]
+    fn test_proposal_slot_disparity_boundary() {
+        let spec = spec();
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
+        let proposal_slot = Slot::new(10);
+        let upper_boundary = slot_clock
+            .start_of(proposal_slot)
+            .unwrap()
+            .saturating_add(spec.maximum_gossip_clock_disparity());
+
+        slot_clock.set_current_time(upper_boundary);
+        assert!(
+            verify_proposal_slot_range(&slot_clock, proposal_slot, proposal_slot, &spec).is_ok()
+        );
+
+        slot_clock.set_current_time(upper_boundary.saturating_add(Duration::from_millis(1)));
+        assert!(matches!(
+            verify_proposal_slot_range(&slot_clock, proposal_slot, proposal_slot, &spec),
+            Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
+        ));
+    }
+
+    #[test]
     fn test_invalid_epoch_too_old() {
         if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
             return;
@@ -298,7 +353,8 @@ mod tests {
         let current_slot = Slot::new(2 * E::slots_per_epoch());
         let prefs = make_preferences(Slot::new(3), 0);
 
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &spec());
+        let result =
+            verify_preferences_consistency::<E>(&prefs, current_slot, current_slot, &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
@@ -313,40 +369,11 @@ mod tests {
         let current_slot = Slot::new(E::slots_per_epoch());
         let prefs = make_preferences(Slot::new(3 * E::slots_per_epoch() + 1), 0);
 
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &spec());
+        let result =
+            verify_preferences_consistency::<E>(&prefs, current_slot, current_slot, &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
-        ));
-    }
-
-    #[test]
-    fn test_proposal_slot_already_passed() {
-        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-            return;
-        }
-        let current_slot = Slot::new(10);
-        let prefs = make_preferences(Slot::new(9), 0);
-
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &spec());
-        assert!(matches!(
-            result,
-            Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
-        ));
-    }
-
-    #[test]
-    fn test_proposal_slot_equal_to_current() {
-        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-            return;
-        }
-        let current_slot = Slot::new(10);
-        let prefs = make_preferences(Slot::new(10), 0);
-
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &spec());
-        assert!(matches!(
-            result,
-            Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
         ));
     }
 }

@@ -12,7 +12,8 @@ type DBMap = BTreeMap<BytesKey, Vec<u8>>;
 pub struct MemoryStore {
     db: RwLock<DBMap>,
     fault: AtomicBool,
-    fault_armed: AtomicBool,
+    /// When set, the next batch that writes to this column enables fault injection.
+    fault_armed: RwLock<Option<DBColumn>>,
 }
 
 impl MemoryStore {
@@ -21,7 +22,7 @@ impl MemoryStore {
         Self {
             db: RwLock::new(BTreeMap::new()),
             fault: AtomicBool::new(false),
-            fault_armed: AtomicBool::new(false),
+            fault_armed: RwLock::new(None),
         }
     }
 
@@ -32,7 +33,7 @@ impl MemoryStore {
     pub fn inject_faults(&self, enabled: bool) {
         self.fault.store(enabled, Ordering::SeqCst);
         if !enabled {
-            self.fault_armed.store(false, Ordering::SeqCst);
+            *self.fault_armed.write() = None;
         }
     }
 
@@ -40,7 +41,14 @@ impl MemoryStore {
     ///
     /// Simulates resource exhaustion during a block write.
     pub fn inject_faults_on_next_block_write(&self) {
-        self.fault_armed.store(true, Ordering::SeqCst);
+        *self.fault_armed.write() = Some(DBColumn::BeaconBlock);
+    }
+
+    /// Set fault injection to trigger on the next batch that writes a payload envelope.
+    ///
+    /// Simulates resource exhaustion during a payload envelope write.
+    pub fn inject_faults_on_next_payload_envelope_write(&self) {
+        *self.fault_armed.write() = Some(DBColumn::PayloadSummary);
     }
 
     fn check_fault(&self) -> Result<(), Error> {
@@ -96,16 +104,17 @@ impl KeyValueStore for MemoryStore {
 
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         self.check_fault()?;
-        let writes_block = batch.iter().any(|op| {
-            matches!(
-                op,
-                KeyValueStoreOp::PutKeyValue(DBColumn::BeaconBlock, _, _)
-            )
-        });
-        if writes_block && self.fault_armed.load(Ordering::SeqCst) {
-            self.fault_armed.store(false, Ordering::SeqCst);
-            self.fault.store(true, Ordering::SeqCst);
-            return self.check_fault();
+        {
+            let mut fault_armed = self.fault_armed.write();
+            if let Some(armed_column) = *fault_armed
+                && batch.iter().any(|op| {
+                    matches!(op, KeyValueStoreOp::PutKeyValue(column, _, _) if *column == armed_column)
+                })
+            {
+                *fault_armed = None;
+                self.fault.store(true, Ordering::SeqCst);
+                return self.check_fault();
+            }
         }
         for op in batch {
             match op {

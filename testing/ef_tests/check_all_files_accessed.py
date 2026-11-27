@@ -49,8 +49,6 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
-    # TODO(gloas): Add production-backed handlers for the new Gloas gossip test suites.
-    "tests/.*/gloas/networking/gossip_.*",
     # Heze fork is not implemented
     "tests/.*/heze/.*",
     # Ignore MatrixEntry SSZ tests for now.
@@ -72,21 +70,35 @@ excluded_paths = [
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__ignore_parent_consensus_failed_execution_known/.*",
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified/.*",
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_failed_validation/.*",
-    # Gossip validation tests target the latest stable fork.
-    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_beacon_attestation/.*",
-    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_beacon_aggregate_and_proof/.*",
-    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_voluntary_exit/.*",
-    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_bls_to_execution_change/.*",
-    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_sync_committee_message/.*",
-    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_sync_committee_contribution_and_proof/.*",
-    # The production-backed harness cannot construct these synthetic fixture histories.
-    # Keep these patterns synchronized with GossipValidation::has_known_harness_limitation.
-    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_.*/.*",
-    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
-    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
+    # Gossip validation tests target the latest stable fork and Gloas.
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_beacon_attestation/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_beacon_aggregate_and_proof/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_voluntary_exit/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_bls_to_execution_change/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_sync_committee_message/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_sync_committee_contribution_and_proof/.*",
+    # Lighthouse does not retain consensus-invalid blocks, and its attestation past-tolerance is
+    # exclusive at the epoch window disparity edge. Keep these patterns synchronized with
+    # GossipValidation::has_known_harness_limitation.
+    "tests/.*/(fulu|gloas)/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_(first|last)_slot_when_epoch_window_closes/.*",
+    "tests/.*/(fulu|gloas)/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
+    # Advancing the parent state across an epoch for every gossip bid would put epoch processing
+    # on the gossip hot path. Keep synchronized with IGNORED_EXECUTION_PAYLOAD_BID_CASES.
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_requires_state_advanced_across_epoch/.*",
+    # Gloas execution payload envelope cases with production-harness limitations. Keep these
+    # synchronized with IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.
+    "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__reject_block_failed_validation/.*",
+    # Lighthouse cannot distinguish a consensus-invalid block from an unseen block when
+    # validating payload attestations. Keep this synchronized with
+    # IGNORED_PAYLOAD_ATTESTATION_CASES.
+    "tests/.*/gloas/networking/gossip_payload_attestation_message/.*/gossip_payload_attestation_message__reject_block_failed_validation/.*",
+    # Fulu partial data column cases with production-harness limitations. Keep synchronized with
+    # IGNORED_PARTIAL_DATA_COLUMN_CASES.
+    "tests/.*/fulu/networking/gossip_partial_data_column_sidecar/.*/gossip_partial_data_column_sidecar__(reject_parent_failed_validation|ignore_cells_with_cached_header_future_slot|ignore_cells_with_cached_header_not_later_than_finalized_slot|reject_non_ancestor_finalized_checkpoint)/.*",
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
-    "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
-    "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
+    # Data column cases with production-harness limitations. Keep synchronized with
+    # IGNORED_DATA_COLUMN_CASES.
+    "tests/.*/(fulu|gloas)/networking/gossip_data_column_sidecar/.*/gossip_data_column_sidecar__(reject_block_failed_validation|reject_parent_failed_validation|reject_non_ancestor_finalized_checkpoint)/.*",
 ]
 
 # Extra arguments are ignored paths. Useful for skipping another preset's vectors.

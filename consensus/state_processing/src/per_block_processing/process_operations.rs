@@ -20,7 +20,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // [New in Gloas:EIP7688] Also enforce limits on lists constructed without decoding.
+    // [New in Gloas:EIP7688] The spec asserts the operation list lengths explicitly.
     if state.fork_name_unchecked().gloas_enabled() {
         verify_operation_list_lengths(block_body)?;
     }
@@ -47,7 +47,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         ctxt,
         spec,
     )?;
-    process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
+    process_deposits(state, block_body.deposits(), spec)?;
     process_exits(
         state,
         &block_body.voluntary_exits().to_cow_slice(),
@@ -86,13 +86,15 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     Ok(())
 }
 
-/// Verify the lengths of the (progressive) operation lists against the spec's runtime limits.
+/// Verify the lengths of the (progressive) operation lists, mirroring the length asserts in the
+/// Gloas spec's `process_operations`.
 ///
-/// Construction and mutation of progressive lists can exceed their decoder limits.
+/// The progressive list types enforce the same limits on decoding, construction and mutation, so
+/// these checks are redundant with the types and are not expected to fail.
 pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
     block_body: BeaconBlockBodyRef<E, Payload>,
 ) -> Result<(), BlockProcessingError> {
-    let checks: [(&str, usize, usize); 6] = [
+    let checks: [(&str, usize, usize); 7] = [
         (
             "proposer_slashings",
             block_body.proposer_slashings().len(),
@@ -108,6 +110,8 @@ pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>
             block_body.attestations_len(),
             E::MaxAttestationsElectra::to_usize(),
         ),
+        // Legacy deposits are no longer processed: `assert len(body.deposits) == 0`.
+        ("deposits", block_body.deposits().len(), 0),
         (
             "voluntary_exits",
             block_body.voluntary_exits().len(),

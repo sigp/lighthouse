@@ -4,14 +4,13 @@ use crate::inclusion_list_verification::{
     InclusionListVerificationError, verify_inclusion_list_transactions_bounds,
 };
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, metrics};
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::inclusion_list_signature_set;
-use std::borrow::Cow;
 use std::time::Duration;
 use tracing::debug;
 use types::{ChainSpec, EthSpec, Hash256, SignedInclusionList, Slot};
@@ -140,9 +139,9 @@ impl GossipVerifiedInclusionList {
 
         {
             // [REJECT] The signature is valid.
-            let pubkey_cache = ctx.validator_pubkey_cache.read();
+            let pubkeys = HeadPubkeys::new(ctx.canonical_head, ctx.validator_pubkey_cache);
             let signature_set = inclusion_list_signature_set::<T::EthSpec, _>(
-                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                |validator_index| pubkeys.get(validator_index),
                 &signed_inclusion_list,
                 ctx.genesis_validators_root,
                 ctx.spec,

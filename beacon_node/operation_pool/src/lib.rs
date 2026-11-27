@@ -1561,7 +1561,7 @@ mod release_tests {
     fn proposer_slashing_not_returned_after_withdrawable_epoch() {
         let harness = get_harness(32, None);
         let mut state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let proposer_index = 0;
         let current_epoch = state.current_epoch();
@@ -1573,7 +1573,7 @@ mod release_tests {
         let slashing = harness.make_proposer_slashing(proposer_index as u64);
         op_pool.insert_proposer_slashing(slashing.clone().validate(&state, &harness.spec).unwrap());
 
-        *state.slot_mut() = withdrawable_epoch.start_slot(MainnetEthSpec::slots_per_epoch());
+        *state.slot_mut() = withdrawable_epoch.start_slot(Spec::slots_per_epoch());
         assert!(slashing.validate(&state, &harness.spec).is_err());
         assert!(
             op_pool

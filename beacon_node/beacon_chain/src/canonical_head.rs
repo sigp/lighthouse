@@ -628,6 +628,18 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.cached_head_read_lock().clone()
     }
 
+    /// Apply a synthetic finalized checkpoint to the cached head state for EF test fixtures.
+    ///
+    /// Some gossip fixtures override finalization after producing their block and state files, so
+    /// replaying those files cannot reproduce the state used by the reference implementation.
+    #[cfg(feature = "ef_tests")]
+    pub fn testing_set_cached_head_state_finalized_checkpoint(&self, checkpoint: Checkpoint) {
+        let mut cached_head = self.cached_head_write_lock();
+        *Arc::make_mut(&mut cached_head.snapshot)
+            .beacon_state
+            .finalized_checkpoint_mut() = checkpoint;
+    }
+
     /// Access a read-lock for the cached head.
     ///
     /// This function is **not safe** to be public. See the module-level documentation for more
@@ -1746,6 +1758,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn persist_fork_choice(&self) -> Result<(), Error> {
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
+        // Check the flag while holding the lock. A failed import write poisons fork choice before
+        // releasing its write lock, so fork choice that is not poisoned here matches the store.
+        let fork_choice = self.canonical_head.fork_choice_read_lock();
         if self.canonical_head.fork_choice_poisoned() {
             crit!(
                 advice = "restarting the node will recover the last consistent fork choice \
@@ -1754,8 +1769,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
             return Err(Error::ForkChoicePoisoned);
         }
+        let fork_choice_op =
+            Self::persist_fork_choice_in_batch_standalone(&fork_choice, self.store.get_config())?;
+        drop(fork_choice);
 
-        let mut batch = vec![self.persist_fork_choice_in_batch()?];
+        let mut batch = vec![fork_choice_op];
         // Written in the same batch as the fork choice that holds the block.
         batch.extend(self.persist_fast_confirmation_roots_in_batch());
         self.store.hot_db.do_atomically(batch)?;

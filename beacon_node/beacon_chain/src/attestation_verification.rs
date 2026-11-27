@@ -42,7 +42,7 @@ use crate::{
 };
 use bls::verify_signature_sets;
 use itertools::Itertools;
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slot_clock::SlotClock;
 use state_processing::{
     common::{
@@ -56,7 +56,6 @@ use state_processing::{
         signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
     },
 };
-use std::borrow::Cow;
 use strum::AsRefStr;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
@@ -183,6 +182,20 @@ pub enum Error {
     /// The attestation may be valid once the payload envelope is retrieved; it's unclear if the
     /// attestation is valid or not, so it is ignored (not penalized) pending the envelope.
     UnknownPayloadEnvelope { beacon_block_root: Hash256 },
+    /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
+    /// execution payload has not yet been verified by the execution layer.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The payload may still be found valid, so the attestation is ignored (not penalized).
+    OptimisticPayload { beacon_block_root: Hash256 },
+    /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
+    /// execution payload has been found invalid by the execution layer.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation is invalid and the peer is faulty.
+    InvalidPayload { beacon_block_root: Hash256 },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring
@@ -633,6 +646,20 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             });
         }
 
+        // [New in Gloas]: `index == 1` requires the block's execution payload to be valid.
+        if fork_name.gloas_enabled() && attestation.data().index == 1 {
+            let beacon_block_root = attestation.data().beacon_block_root;
+            match head_block.execution_status {
+                ExecutionStatus::Optimistic(_) => {
+                    return Err(Error::OptimisticPayload { beacon_block_root });
+                }
+                ExecutionStatus::Invalid(_) => {
+                    return Err(Error::InvalidPayload { beacon_block_root });
+                }
+                _ => {}
+            }
+        }
+
         // Check the attestation target root is consistent with the head root.
         //
         // This check is not in the specification, however we guard against it since it opens us up
@@ -971,6 +998,20 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             });
         }
 
+        // [New in Gloas]: `index == 1` requires the block's execution payload to be valid.
+        if fork_name.gloas_enabled() && attestation.data.index == 1 {
+            let beacon_block_root = attestation.data.beacon_block_root;
+            match head_block.execution_status {
+                ExecutionStatus::Optimistic(_) => {
+                    return Err(Error::OptimisticPayload { beacon_block_root });
+                }
+                ExecutionStatus::Invalid(_) => {
+                    return Err(Error::InvalidPayload { beacon_block_root });
+                }
+                _ => {}
+            }
+        }
+
         // Check the attestation target root is consistent with the head root.
         verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation.data)?;
 
@@ -984,8 +1025,11 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
     ) -> Result<u64, Error> {
         let validator_index = attestation.attester_index;
 
-        // If the attester_index at or above the pubkey cache length, reject it
-        if validator_index as usize >= chain.validator_pubkey_cache.read().len() {
+        // If the attester_index is not the index of a known validator, reject it
+        if !chain
+            .head_pubkeys()
+            .contains_index(validator_index as usize)
+        {
             return Err(Error::ValidatorIndexTooHigh(validator_index as usize));
         }
 
@@ -1347,14 +1391,14 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     let signature_setup_timer =
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
 
-    let pubkey_cache = chain.validator_pubkey_cache.read();
+    let pubkeys = chain.head_pubkeys();
 
     let fork = chain
         .spec
         .fork_at_epoch(indexed_attestation.data().target.epoch);
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
-        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+        |validator_index| pubkeys.get(validator_index),
         indexed_attestation.signature(),
         indexed_attestation,
         &fork,
@@ -1442,10 +1486,10 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: &IndexedAttestation<T::EthSpec>,
 ) -> Result<bool, Error> {
-    let pubkey_cache = chain.validator_pubkey_cache.read();
+    let pubkeys = chain.head_pubkeys();
 
     let aggregator_index = signed_aggregate.message().aggregator_index();
-    if aggregator_index >= pubkey_cache.len() as u64 {
+    if !pubkeys.contains_index(aggregator_index as usize) {
         return Err(Error::AggregatorPubkeyUnknown(aggregator_index));
     }
 
@@ -1455,7 +1499,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
     let signature_sets = [
         signed_aggregate_selection_proof_signature_set(
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+            |validator_index| pubkeys.get(validator_index),
             signed_aggregate,
             &fork,
             chain.genesis_validators_root,
@@ -1463,7 +1507,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         )
         .map_err(BeaconChainError::SignatureSetError)?,
         signed_aggregate_signature_set(
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+            |validator_index| pubkeys.get(validator_index),
             signed_aggregate,
             &fork,
             chain.genesis_validators_root,
@@ -1471,7 +1515,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         )
         .map_err(BeaconChainError::SignatureSetError)?,
         indexed_attestation_signature_set_from_pubkeys(
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+            |validator_index| pubkeys.get(validator_index),
             indexed_attestation.signature(),
             indexed_attestation,
             &fork,

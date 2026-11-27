@@ -11,7 +11,10 @@ use crate::{
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas};
+use beacon_chain::kzg_utils::{
+    blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas,
+    min_columns_for_reconstruction,
+};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
@@ -51,7 +54,7 @@ use types::{
 type E = Spec;
 type T = EphemeralHarnessType<E>;
 
-const SLOTS_PER_EPOCH: u64 = 32;
+const SLOTS_PER_EPOCH: u64 = Spec::SLOTS_PER_EPOCH as u64;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const SMALL_CHAIN: u64 = 2;
 const LONG_CHAIN: u64 = SLOTS_PER_EPOCH * 2;
@@ -1159,21 +1162,122 @@ async fn data_column_reconstruction_at_deadline() {
         .slot_clock
         .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
-    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
 
-    // Enqueue all columns first - at deadline, reconstruction races with gossip drain
+    // Reconstruction is not scheduled while fewer than half of the columns are cached, so each
+    // of these columns completes without a reconstruction event, even past the deadline.
+    for i in 0..min_columns_for_reconstruction - 1 {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    // Wait for a while, as the columns above may complete faster than a reconstruction scheduled
+    // without a delay is dispatched.
+    rig.assert_no_events_for(QUEUED_RECONSTRUCTION_DELAY).await;
+
+    // The column that reaches half of the columns triggers reconstruction without a delay.
+    rig.enqueue_gossip_data_columns(min_columns_for_reconstruction - 1);
+    rig.assert_event_journal_contains_ordered(&[
+        WorkType::GossipDataColumnSidecar,
+        WorkType::ColumnReconstruction,
+    ])
+    .await;
+}
+
+// Test that reconstruction still runs when the columns needed for it arrive after a pause longer
+// than the reconstruction delay.
+#[tokio::test]
+async fn data_column_reconstruction_after_gossip_pause() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip/reconstruction flow doesn't apply.
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot = rig.next_block.slot();
+    let block_root = rig.next_block.canonical_root();
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let slot_start = rig.chain.slot_clock.start_of(slot).unwrap();
+    rig.chain.slot_clock.set_current_time(slot_start);
+
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
+
+    for i in 0..min_columns_for_reconstruction - 1 {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    // No further column arrives for longer than the reconstruction delay. There are too few
+    // columns to reconstruct, so nothing is dispatched.
+    rig.assert_no_events_for(QUEUED_RECONSTRUCTION_DELAY * 2)
+        .await;
+
+    rig.enqueue_gossip_data_columns(min_columns_for_reconstruction - 1);
+    rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+        .await;
+    rig.assert_event_journal_completes(&[WorkType::ColumnReconstruction])
+        .await;
+
+    // Reconstruction ran, so the cache now holds every column.
+    assert_eq!(
+        rig.chain
+            .cached_data_column_indexes(&block_root, epoch)
+            .map(|indexes| indexes.len()),
+        Some(E::number_of_columns())
+    );
+}
+
+// Test that reconstruction runs when the columns needed for it are processed concurrently.
+#[tokio::test]
+async fn data_column_reconstruction_with_concurrent_columns() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip/reconstruction flow doesn't apply.
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot = rig.next_block.slot();
+    let block_root = rig.next_block.canonical_root();
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let slot_start = rig.chain.slot_clock.start_of(slot).unwrap();
+
+    // Past the deadline reconstruction is dispatched without a delay.
+    let slot_duration = rig.chain.slot_clock.slot_duration().as_millis() as u64;
+    let reconstruction_deadline_millis =
+        (slot_duration * RECONSTRUCTION_DEADLINE.0) / RECONSTRUCTION_DEADLINE.1;
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
+
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
     for i in 0..min_columns_for_reconstruction {
         rig.enqueue_gossip_data_columns(i);
     }
 
-    // Expect all gossip events + reconstruction
+    // Only the column that reaches half of the columns requests reconstruction, so there is a
+    // single reconstruction event after all gossip events.
     let mut expected_events: Vec<WorkType> = (0..min_columns_for_reconstruction)
         .map(|_| WorkType::GossipDataColumnSidecar)
         .collect();
     expected_events.push(WorkType::ColumnReconstruction);
-
     rig.assert_event_journal_contains_ordered(&expected_events)
         .await;
+
+    // Reconstruction ran, so the cache now holds every column.
+    assert_eq!(
+        rig.chain
+            .cached_data_column_indexes(&block_root, epoch)
+            .map(|indexes| indexes.len()),
+        Some(E::number_of_columns())
+    );
 }
 
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.
@@ -2078,6 +2182,202 @@ async fn rpc_columns_notify_after_deferred_block_import() {
     );
 }
 
+/// Before Gloas, column reconstruction completes a block import and should notify the
+/// reprocessing queue with `BlockImported`.
+#[tokio::test]
+async fn reconstructed_columns_notify_after_deferred_block_import() {
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use types::BlockImportSource;
+
+    let spec = test_spec::<E>();
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
+        return;
+    }
+
+    let rig = TestRig::new_supernode(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+    let slot = rig.next_block.slot();
+
+    let block_result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(block_root, rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await;
+    assert_matches!(
+        block_result,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
+            if pending_root == block_root
+    );
+
+    let mut partial_columns = rig
+        .next_data_columns
+        .clone()
+        .expect("the next block should have data columns pre-Gloas");
+    partial_columns.truncate(E::number_of_columns() / 2);
+    let partial_result = rig.chain.process_rpc_custody_columns(partial_columns).await;
+    assert_matches!(
+        partial_result,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
+            if pending_root == block_root
+    );
+
+    let (processor, mut beacon_processor_rx) = rig.processor_with_reprocess_receiver();
+    processor
+        .attempt_data_column_reconstruction(slot, block_root)
+        .await;
+
+    assert!(
+        rig.chain.is_block_data_imported(block_root),
+        "reconstruction should import the block"
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Ok(WorkEvent {
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                block_root: notified_root
+            }),
+            ..
+        }) if notified_root == block_root
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+}
+
+/// Under Gloas, column reconstruction completes an envelope import and should notify the
+/// reprocessing queue with `PayloadEnvelopeImported`.
+#[tokio::test]
+async fn reconstructed_columns_notify_after_deferred_envelope_import() {
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use types::BlockImportSource;
+
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let rig = TestRig::new_supernode(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+    let slot = rig.next_block.slot();
+
+    let block_result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(block_root, rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await;
+    assert_matches!(block_result, Ok(AvailabilityProcessingStatus::Imported(..)));
+
+    let (processor, mut beacon_processor_rx) = rig.processor_with_reprocess_receiver();
+    processor
+        .clone()
+        .process_lookup_envelope(
+            block_root,
+            rig.next_block_envelope
+                .clone()
+                .expect("the next block should have an envelope post-Gloas"),
+            BlockProcessType::SinglePayloadEnvelope(1),
+        )
+        .await;
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_none(),
+        "envelope should await custody columns"
+    );
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_some(),
+        "executed envelope should remain pending on custody columns"
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+
+    let bid = rig
+        .next_block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas payload bid");
+    let blobs = {
+        let generator = rig._harness.execution_block_generator();
+        generator
+            .blobs_bundles
+            .values()
+            .find(|bundle| {
+                bundle
+                    .commitments
+                    .iter()
+                    .eq(bid.message().blob_kzg_commitments().iter())
+            })
+            .expect("blobs for next block")
+            .blobs
+            .clone()
+    };
+    let mut partial_columns = blobs_to_data_column_sidecars_gloas(
+        &blobs.iter().collect::<Vec<_>>(),
+        block_root,
+        slot,
+        &rig.chain.kzg,
+        &rig.chain.spec,
+    )
+    .expect("build Gloas columns");
+    partial_columns.truncate(E::number_of_columns() / 2);
+    let partial_result = rig.chain.process_rpc_custody_columns(partial_columns).await;
+    assert_matches!(
+        partial_result,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
+            if pending_root == block_root
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+
+    processor
+        .attempt_data_column_reconstruction(slot, block_root)
+        .await;
+
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_some(),
+        "reconstruction should import the envelope"
+    );
+    assert!(
+        rig.chain.is_block_data_imported(block_root),
+        "reconstruction should import the envelope"
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Ok(WorkEvent {
+            work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
+                block_root: notified_root
+            }),
+            ..
+        }) if notified_root == block_root
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
 #[tokio::test]
@@ -2607,6 +2907,78 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
         !unique_received.is_empty(),
         "Should have received at least some data columns"
     );
+}
+
+/// Test that DataColumnsByRange keeps serving the columns the node custodied before a CGC
+/// increase for ranges custody backfill has not reached yet, and only refuses requests that
+/// need a column the node does not have there.
+#[tokio::test]
+async fn test_data_columns_by_range_during_cgc_backfill() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+    let slot_count = 4;
+
+    let custody_columns = rig
+        .chain
+        .custody_context
+        .custody_columns_for_epoch(Some(Epoch::new(0)))
+        .to_vec();
+    let custodied_column = custody_columns[0];
+    let missing_column = (0..E::number_of_columns() as u64)
+        .find(|column| !custody_columns.contains(column))
+        .expect("a full node should not custody every column");
+
+    // Perform a CGC increase that takes effect next epoch and has not been backfilled.
+    let cgc_change = rig
+        .chain
+        .custody_context
+        .register_validators(vec![(42, 1337)], rig.chain.slot().unwrap())
+        .expect("should trigger a CGC increase");
+    assert_eq!(cgc_change.effective_epoch, rig.chain.epoch().unwrap() + 1);
+    assert!(cgc_change.new_custody_group_count > cgc_change.old_custody_group_count);
+    rig.chain.update_data_column_custody_info(Some(
+        cgc_change.effective_epoch.start_slot(E::slots_per_epoch()),
+    ));
+
+    // A column custodied before the increase is still served.
+    rig.enqueue_data_columns_by_range_request(slot_count, vec![custodied_column]);
+    let mut received_columns = 0;
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::DataColumnsByRange(data_column),
+            inbound_request_id: _,
+        } = next
+        {
+            if let Some(column) = data_column {
+                assert_eq!(*column.index(), custodied_column);
+                received_columns += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert!(
+        received_columns > 0,
+        "Should have received at least some data columns"
+    );
+
+    // A request that needs a column the node did not custody at that epoch is refused.
+    rig.enqueue_data_columns_by_range_request(slot_count, vec![custodied_column, missing_column]);
+    match rig.network_rx.recv().await.expect("a network message") {
+        NetworkMessage::SendErrorResponse { error, .. } => {
+            assert_matches!(
+                error,
+                lighthouse_network::rpc::RpcErrorResponse::ResourceUnavailable
+            );
+        }
+        other => panic!("expected SendErrorResponse, got {:?}", other),
+    }
 }
 
 /// Test that DataColumnsByRange does not return duplicate data columns for skip slots.

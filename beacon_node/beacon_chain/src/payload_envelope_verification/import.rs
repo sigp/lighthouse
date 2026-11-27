@@ -285,8 +285,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // corrupt the node's database permanently.
 
         // Store the envelope, its post-state, and any data columns.
-        // If the write fails, revert fork choice to the version from disk, else we can
-        // end up with envelopes in fork choice that are missing from disk.
+        // If the write fails, poison fork choice and shut down, else we can end up with envelopes
+        // in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
         let (signed_envelope, columns) = signed_envelope.deconstruct();
 
@@ -311,16 +311,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
-                msg = "Restoring fork choice from disk",
                 error = ?e,
                 "Database write failed!"
             );
+            self.handle_import_block_db_write_error(fork_choice, block_root);
             return Err(e.into());
-            // TODO(gloas) handle db write failure
-            // return Err(self
-            //    .handle_import_block_db_write_error(fork_choice)
-            //    .err()
-            //    .unwrap_or(e.into()));
         }
 
         drop(db_span);
@@ -438,8 +433,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
         )?;
 
-        // EIP-8025: execution layer verifications must be done on the CL.
-        if self.execution_proofs_enabled() && self.config.verify_envelope_payload_hash_on_cl {
+        // No execution layer to check the payload hash, so check it here.
+        if self.execution_layer.is_none() {
             verify_envelope_payload_hash(&signed_envelope, &block)?;
         }
 

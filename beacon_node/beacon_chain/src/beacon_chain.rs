@@ -92,7 +92,7 @@ use crate::sync_committee_verification::{
 use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
 };
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache};
 use crate::{
     AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
     CachedHead, ChainDumpSnapshot, metrics,
@@ -1617,10 +1617,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
-    /// even if those validators aren't included in the head state. It is important to remember
-    /// that just because a validator exists here, it doesn't necessarily exist in all
-    /// `BeaconStates`.
+    /// This query uses the `validator_pubkey_cache` which only contains finalized validators.
+    /// Validators that are not finalized yet will not be found, use
+    /// `Self::validator_index_for_state` to look them up. It is important to remember that just
+    /// because a validator exists here, it doesn't necessarily exist in all `BeaconStates`.
     ///
     /// ## Errors
     ///
@@ -1629,6 +1629,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get_index(pubkey))
+    }
+
+    /// Returns the index (if any) of the validator with the given public key in `state`.
+    ///
+    /// Unlike `Self::validator_index`, this also finds validators that are in `state` but not yet
+    /// in the `validator_pubkey_cache`, which only holds finalized validators.
+    pub fn validator_index_for_state(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        pubkey: &PublicKeyBytes,
+    ) -> Option<usize> {
+        self.validator_pubkey_cache
+            .read()
+            .get_index_for_state(state, pubkey)
     }
 
     /// Return the validator indices of all public keys fetched from an iterator.
@@ -1651,22 +1665,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .collect()
     }
 
+    /// Returns the `validator_pubkey_cache` paired with the head state, for looking up the public
+    /// keys of validators that sign messages received from the network.
+    ///
+    /// See `HeadPubkeys` for details.
+    pub fn head_pubkeys(&self) -> HeadPubkeys<'_, T> {
+        HeadPubkeys::new(&self.canonical_head, &self.validator_pubkey_cache)
+    }
+
     /// Returns the validator pubkey (if any) for the given validator index.
     ///
     /// ## Notes
     ///
-    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
-    /// even if those validators aren't included in the head state. It is important to remember
-    /// that just because a validator exists here, it doesn't necessarily exist in all
-    /// `BeaconStates`.
+    /// This query returns the validators of the head state, see `Self::head_pubkeys`. The
+    /// `validator_pubkey_cache` only contains finalized validators, so validators that are missing
+    /// from it are read from the head state. It is important to remember that just because a
+    /// validator exists here, it doesn't necessarily exist in all `BeaconStates`.
     ///
     /// ## Errors
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<PublicKey>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
-
-        Ok(pubkey_cache.get(validator_index).cloned())
+        Ok(self
+            .head_pubkeys()
+            .get(validator_index)
+            .map(Cow::into_owned))
     }
 
     /// As per `Self::validator_pubkey`, but returns `PublicKeyBytes`.
@@ -1674,9 +1697,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_index: usize,
     ) -> Result<Option<PublicKeyBytes>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
-
-        Ok(pubkey_cache.get_pubkey_bytes(validator_index).copied())
+        Ok(self.head_pubkeys().get_pubkey_bytes(validator_index))
     }
 
     /// As per `Self::validator_pubkey_bytes` but will resolve multiple indices at once to avoid
@@ -1688,12 +1709,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_indices: &[usize],
     ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
+        let pubkeys = self.head_pubkeys();
 
         let mut map = HashMap::with_capacity(validator_indices.len());
         for &validator_index in validator_indices {
-            if let Some(pubkey) = pubkey_cache.get_pubkey_bytes(validator_index) {
-                map.insert(validator_index, *pubkey);
+            if let Some(pubkey) = pubkeys.get_pubkey_bytes(validator_index) {
+                map.insert(validator_index, pubkey);
             }
         }
         Ok(map)
@@ -1792,12 +1813,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?
         };
 
-        let pubkey_cache = self.validator_pubkey_cache.read();
+        let pubkeys = self.head_pubkeys();
 
         let duties = validator_indices
             .iter()
             .map(|&validator_index| -> Result<Option<PtcDuty>, Error> {
-                let Some(&pubkey) = pubkey_cache.get_pubkey_bytes(validator_index as usize) else {
+                let Some(pubkey) = pubkeys.get_pubkey_bytes(validator_index as usize) else {
                     return Ok(None);
                 };
                 let slot_opt =
@@ -4473,20 +4494,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Check against weak subjectivity checkpoint.
         self.check_block_against_weak_subjectivity_checkpoint(block, block_root, &state)?;
 
-        // If there are new validators in this block, update our pubkey cache.
+        // If there are newly finalized validators in this block's state, update our pubkey cache.
         //
-        // The only keys imported here will be ones for validators deposited in this block, because
-        // the cache *must* already have been updated for the parent block when it was imported.
-        // Newly deposited validators are not active and their keys are not required by other parts
-        // of block processing. The reason we do this here and not after making the block attestable
-        // is so we don't have to think about lock ordering with respect to the fork choice lock.
-        // There are a bunch of places where we lock both fork choice and the pubkey cache and it
-        // would be difficult to check that they all lock fork choice first.
+        // The only keys imported here will be ones for validators that are finalized according to
+        // `state`, see `ValidatorPubkeyCache::import_new_pubkeys`. Validators that are not
+        // finalized are not active, and block signature verification reads their keys from the
+        // state if they are required. The reason we do this here and not after making the block
+        // attestable is so we don't have to think about lock ordering with respect to the fork
+        // choice lock. There are a bunch of places where we lock both fork choice and the pubkey
+        // cache and it would be difficult to check that they all lock fork choice first.
         let mut ops = {
             let _timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_PUBKEY_CACHE_LOCK);
             let pubkey_cache = self.validator_pubkey_cache.upgradable_read();
 
-            // Only take a write lock if there are new keys to import.
+            // Only take a write lock if there might be new keys to import.
             if state.validators().len() > pubkey_cache.len() {
                 let _pubkey_span = debug_span!(
                     "pubkey_cache_update",
@@ -4735,8 +4756,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Store the block and its state, and execute the confirmation batch for the intermediate
         // states, which will delete their temporary flags.
-        // If the write fails, revert fork choice to the version from disk, else we can
-        // end up with blocks in fork choice that are missing from disk.
+        // If the write fails, poison fork choice and shut down, else we can end up with blocks
+        // in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, block_data) = signed_block.deconstruct();
 
@@ -4832,13 +4853,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_root)
     }
 
-    /// Handle a database write failure during block import, which causes fork choice
-    /// to contain a block that the store does not.
+    /// Handle a database write failure during block or payload envelope import, which causes fork
+    /// choice to contain a block or payload that the store does not.
     ///
     /// Poison fork choice so the diverged version is never persisted, and shut down the
     /// node. On restart, the normal startup procedure loads the last consistent fork
     /// choice from disk.
-    fn handle_import_block_db_write_error(
+    pub(crate) fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
@@ -4846,20 +4867,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         fork_choice_write_lock: ForkChoiceWriteGuard<T>,
         block_root: Hash256,
     ) {
+        // Poison before releasing the lock, so anything waiting on it to persist fork choice sees
+        // the flag.
+        self.canonical_head.poison_fork_choice();
         drop(fork_choice_write_lock);
 
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.
         self.early_attester_cache.clear();
 
-        self.canonical_head.poison_fork_choice();
         crit!(
             ?block_root,
             advice = "restart the node to recover the last consistent fork choice from disk",
             "Shutting down due to database write failure"
         );
         if let Err(e) = self.shutdown_sender().try_send(ShutdownReason::Failure(
-            "Database write failure during block import",
+            "Database write failure during block or payload envelope import",
         )) {
             crit!(error = ?e, "Failed to send shutdown signal");
         }
@@ -7261,11 +7284,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match forkchoice_updated_response {
             Ok(status) => match status {
                 PayloadStatus::Valid => {
-                    // EIP-8025: only the proofs promote a payload to valid.
-                    if self.execution_proofs_enabled() {
-                        return Ok(());
-                    }
-
                     // Ensure that fork choice knows that the payload is no longer optimistic. The
                     // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
                     // ancestor's payload, not the head block's.

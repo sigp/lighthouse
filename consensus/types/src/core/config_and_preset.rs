@@ -176,6 +176,12 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "compounding_withdrawal_prefix".to_uppercase() => u8_hex(spec.compounding_withdrawal_prefix_byte),
         "unset_deposit_requests_start_index".to_uppercase() => spec.unset_deposit_requests_start_index.to_string().into(),
         "full_exit_request_amount".to_uppercase() => spec.full_exit_request_amount.to_string().into(),
+        // Gloas
+        "builder_payment_threshold_numerator".to_uppercase() => spec.builder_payment_threshold_numerator.to_string().into(),
+        "builder_payment_threshold_denominator".to_uppercase() => spec.builder_payment_threshold_denominator.to_string().into(),
+        "builder_withdrawal_prefix".to_uppercase() => u8_hex(spec.builder_withdrawal_prefix_byte),
+        "builder_index_self_build".to_uppercase() => consts::gloas::BUILDER_INDEX_SELF_BUILD.to_string().into(),
+        "builder_index_flag".to_uppercase() => consts::gloas::BUILDER_INDEX_FLAG.to_string().into(),
     }
 }
 
