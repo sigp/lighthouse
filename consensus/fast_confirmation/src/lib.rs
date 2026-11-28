@@ -851,13 +851,13 @@ impl FastConfirmationRule {
 
     /// Spec: `get_node_support_between_slots`.
     ///
-    /// The node is `block` with `payload_status`, which is `None` for a pre-Gloas block.
+    /// The nodes are `block` with any of `payload_statuses`, which is `None` for a pre-Gloas block.
     #[allow(clippy::too_many_arguments)]
     fn get_node_support_between_slots(
         &self,
         balance_source: &BalanceSourceData,
         block: &ProtoNode,
-        payload_status: Option<PayloadStatus>,
+        payload_statuses: Option<&[PayloadStatus]>,
         start_slot: Slot,
         end_slot: Slot,
         votes: &[VoteTracker],
@@ -868,7 +868,7 @@ impl FastConfirmationRule {
         // - Are active in `balance_source` tracked here as `balance > 0`
         // - Are not slashed in `balance_source` tracked here as `slashed == false`
         // - Do not belong to the `store.equivocating_indices` set
-        // - Their vote supports exactly the node
+        // - Their vote supports exactly one of the nodes
         let mut score = 0u64;
         for (val_idx, balance) in balance_source.unslashed_and_active_indices() {
             let Some(vote) = votes.get(val_idx) else {
@@ -879,8 +879,9 @@ impl FastConfirmationRule {
                     .slot_assignments
                     .is_in_range(val_idx, start_slot, end_slot)?
                 && vote.current_root() == block.root()
-                && payload_status
-                    .is_none_or(|status| vote.current_payload_status(block.slot()) == status)
+                && payload_statuses.is_none_or(|statuses| {
+                    statuses.contains(&vote.current_payload_status(block.slot()))
+                })
                 && !equivocating_indices.contains(&(val_idx as u64))
             {
                 score = score.safe_add(balance)?;
@@ -922,15 +923,19 @@ impl FastConfirmationRule {
             return Ok(0);
         }
 
-        let parent_payload_status = match block.get_parent_payload_status() {
-            ParentPayloadStatus::Full => Some(PayloadStatus::Full),
-            ParentPayloadStatus::Empty => Some(PayloadStatus::Empty),
+        // Gloas counts support for the parent's pending node together with the parent node
+        // this block builds on.
+        let parent_payload_statuses = match block.get_parent_payload_status() {
+            ParentPayloadStatus::Full => Some([PayloadStatus::Pending, PayloadStatus::Full]),
+            ParentPayloadStatus::Empty => Some([PayloadStatus::Pending, PayloadStatus::Empty]),
             ParentPayloadStatus::PreGloas => None,
         };
         let parent_support_in_empty_slots = self.get_node_support_between_slots(
             balance_source,
             parent_block,
-            parent_payload_status,
+            parent_payload_statuses
+                .as_ref()
+                .map(|statuses| statuses.as_slice()),
             parent_block.slot().safe_add(1)?,
             block.slot().safe_sub(1)?,
             votes,
