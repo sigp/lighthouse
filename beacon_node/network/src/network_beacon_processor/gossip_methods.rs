@@ -2137,7 +2137,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 let validation_result = match e {
                     BeaconChainError::ExitValidationError(ExitValidationError::Invalid(
-                        ExitInvalid::FutureEpoch { .. } | ExitInvalid::AlreadyExited(_),
+                        ExitInvalid::FutureEpoch { .. }
+                        | ExitInvalid::AlreadyExited(_)
+                        | ExitInvalid::PendingWithdrawalInQueue(_),
                     )) => MessageAcceptance::Ignore,
                     BeaconChainError::ExitValidationError(ExitValidationError::Invalid(_)) => {
                         self.gossip_penalize_peer(
