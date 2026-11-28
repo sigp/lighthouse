@@ -63,9 +63,15 @@ pub enum Error {
     UnableToObtainHeadState(String),
     UnableToObtainCheckpointState(String),
     MissingCheckpointState(Checkpoint),
-    AncestorNotFound { block: Hash256, slot: Slot },
+    AncestorNotFound {
+        block: Hash256,
+        slot: Slot,
+    },
     UnrealizedJustificationNotFound(Hash256),
-    CheckpointBlockNotFound { block: Hash256, epoch: types::Epoch },
+    CheckpointBlockNotFound {
+        block: Hash256,
+        epoch: types::Epoch,
+    },
     HeadCheckpointNotFound(Hash256),
     MissingPrecomputedScore(Hash256),
     BlockEpochNone(Hash256),
@@ -75,6 +81,10 @@ pub enum Error {
     IndexOutOfBounds(usize),
     AttestationShufflingIdError(BeaconStateError),
     CommitteeCacheError(BeaconStateError),
+    SupportDiscountExceedsMaximumSupport {
+        support_discount: u64,
+        maximum_support: u64,
+    },
     ArithError(ArithError),
     ProtoArrayError(proto_array::Error),
 }
@@ -993,16 +1003,18 @@ impl FastConfirmationRule {
             equivocating_indices,
         )?;
 
-        let threshold_numerator = maximum_support
-            .safe_add(proposer_score)?
-            .safe_add(adversarial_weight.safe_mul(2)?)?;
-        if support_discount < threshold_numerator {
-            Ok(threshold_numerator
-                .safe_sub(support_discount)?
-                .safe_div(2)?)
-        } else {
-            Ok(0)
+        if support_discount > maximum_support {
+            return Err(Error::SupportDiscountExceedsMaximumSupport {
+                support_discount,
+                maximum_support,
+            });
         }
+
+        Ok(maximum_support
+            .safe_add(proposer_score)?
+            .safe_add(adversarial_weight.safe_mul(2)?)?
+            .safe_sub(support_discount)?
+            .safe_div(2)?)
     }
 
     /// Spec: `get_adversarial_weight`.
