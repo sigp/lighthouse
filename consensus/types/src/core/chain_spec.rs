@@ -334,6 +334,7 @@ pub struct ChainSpec {
      * Networking Gloas
      */
     pub max_request_payloads: u64,
+    pub min_transaction_gas: u64,
 
     /*
      * Networking Heze
@@ -1465,6 +1466,7 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
             gas_limit_schedule: GasLimitSchedule::default(),
             max_request_payloads: 128,
+            min_transaction_gas: 4096,
 
             /*
              * Heze hard fork params
@@ -1925,6 +1927,7 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
             gas_limit_schedule: GasLimitSchedule::default(),
             max_request_payloads: 128,
+            min_transaction_gas: 4096,
 
             /*
              * Heze hard fork params
@@ -2473,6 +2476,9 @@ pub struct Config {
     #[serde(default = "default_max_request_payloads")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_payloads: u64,
+    #[serde(default = "default_min_transaction_gas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_transaction_gas: u64,
     #[serde(default = "GasLimitSchedule::default")]
     #[serde(skip_serializing_if = "GasLimitSchedule::skip_serializing")]
     pub gas_limit_schedule: GasLimitSchedule,
@@ -2850,6 +2856,10 @@ fn default_max_request_payloads() -> u64 {
     128
 }
 
+fn default_min_transaction_gas() -> u64 {
+    4096
+}
+
 impl Default for Config {
     fn default() -> Self {
         let chain_spec = MainnetEthSpec::default_spec();
@@ -3044,6 +3054,7 @@ impl Config {
             max_request_inclusion_list: spec.max_request_inclusion_list,
             min_slots_for_inclusion_lists_requests: spec.min_slots_for_inclusion_lists_requests,
             max_request_payloads: spec.max_request_payloads,
+            min_transaction_gas: spec.min_transaction_gas,
             consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas: spec
                 .max_per_epoch_activation_churn_limit_gloas,
@@ -3160,6 +3171,7 @@ impl Config {
             max_request_inclusion_list,
             min_slots_for_inclusion_lists_requests,
             max_request_payloads,
+            min_transaction_gas,
             ref gas_limit_schedule,
         } = self;
 
@@ -3314,6 +3326,7 @@ impl Config {
             max_request_inclusion_list,
             min_slots_for_inclusion_lists_requests,
             max_request_payloads,
+            min_transaction_gas,
 
             ..chain_spec.clone()
         };

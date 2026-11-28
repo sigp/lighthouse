@@ -249,6 +249,8 @@ pub enum EnvelopeError {
     IncorrectTimestamp { expected: u64, envelope: u64 },
     /// The payload contains an empty transaction.
     EmptyTransaction { index: usize },
+    /// The payload has more transactions than its maximum gas limit allows.
+    TooManyTransactions { count: usize, max: u64 },
     /// The payload's withdrawals don't match the withdrawals expected by the block's post-state.
     WithdrawalsMismatch {
         expected: Hash256,
@@ -316,6 +318,7 @@ impl EnvelopeError {
             | EnvelopeError::ParentHashMismatch { .. }
             | EnvelopeError::IncorrectTimestamp { .. }
             | EnvelopeError::EmptyTransaction { .. }
+            | EnvelopeError::TooManyTransactions { .. }
             | EnvelopeError::WithdrawalsMismatch { .. }
             | EnvelopeError::InvalidPayloadHash(_)
             | EnvelopeError::ExecutionRequestsRootMismatch { .. }

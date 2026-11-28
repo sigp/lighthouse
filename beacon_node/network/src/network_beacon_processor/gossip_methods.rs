@@ -3966,6 +3966,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::ParentHashMismatch { .. }
                     | EnvelopeError::IncorrectTimestamp { .. }
                     | EnvelopeError::EmptyTransaction { .. }
+                    | EnvelopeError::TooManyTransactions { .. }
                     | EnvelopeError::WithdrawalsMismatch { .. }
                     | EnvelopeError::InvalidPayloadHash(_)
                     | EnvelopeError::ExecutionRequestsRootMismatch { .. }

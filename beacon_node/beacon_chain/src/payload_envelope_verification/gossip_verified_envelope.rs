@@ -172,6 +172,59 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     Ok(())
 }
 
+/// Spec: the transaction count bound of `validate_execution_payload_envelope_gossip`.
+fn verify_payload_transaction_count<T: BeaconChainTypes>(
+    envelope: &ExecutionPayloadEnvelope<T::EthSpec>,
+    execution_bid: ExecutionPayloadBidRef<T::EthSpec>,
+    ctx: &GossipVerificationContext<'_, T>,
+) -> Result<(), EnvelopeError> {
+    let max_gas_limit = get_max_payload_gas_limit(envelope.beacon_block_root, execution_bid, ctx);
+    let max = max_gas_limit
+        .checked_div(ctx.spec.min_transaction_gas)
+        .ok_or_else(|| EnvelopeError::InternalError("min_transaction_gas is zero".into()))?;
+    let count = envelope.payload.transactions.len();
+    if count as u64 > max {
+        return Err(EnvelopeError::TooManyTransactions { count, max });
+    }
+    Ok(())
+}
+
+/// Spec: `get_max_payload_gas_limit`.
+///
+/// Walks fork choice back to the closest ancestor whose payload the chain builds on. If there is
+/// no such ancestor, or its gas limit is not cached, the bid's gas limit is the bound.
+fn get_max_payload_gas_limit<T: BeaconChainTypes>(
+    beacon_block_root: Hash256,
+    execution_bid: ExecutionPayloadBidRef<T::EthSpec>,
+    ctx: &GossipVerificationContext<'_, T>,
+) -> u64 {
+    let parent_block_hash = execution_bid.parent_block_hash();
+    let Some(parent_gas_limit) = ctx
+        .observed_execution_payloads
+        .get_gas_limit(parent_block_hash)
+    else {
+        return execution_bid.gas_limit();
+    };
+
+    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+    let mut block = fork_choice.get_block(&beacon_block_root);
+    while let Some(parent) = block
+        .as_ref()
+        .and_then(|block| block.parent_root)
+        .and_then(|parent_root| fork_choice.get_block(&parent_root))
+    {
+        // A pre-Gloas parent carries its payload in the block.
+        let parent_is_full = parent
+            .execution_payload_block_hash
+            .is_none_or(|block_hash| block_hash == parent_block_hash);
+        if parent_is_full {
+            return parent_gas_limit.saturating_add((parent_gas_limit / 1024).saturating_sub(1));
+        }
+        block = Some(parent);
+    }
+    execution_bid.gas_limit()
+}
+
 /// Spec: `payload.timestamp == compute_time_at_slot(state.genesis_time, block.slot)`.
 fn verify_payload_timestamp<T: BeaconChainTypes>(
     envelope: &ExecutionPayloadEnvelope<T::EthSpec>,
@@ -289,6 +342,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .message();
 
         verify_envelope_consistency(envelope, &block, execution_bid, latest_finalized_slot)?;
+        verify_payload_transaction_count(envelope, execution_bid, ctx)?;
         verify_payload_timestamp(envelope, block_slot, ctx)?;
 
         // Verify the envelope signature.
