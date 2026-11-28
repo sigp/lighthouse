@@ -20,7 +20,8 @@ use crate::{
     canonical_head::CanonicalHead,
     observed_execution_payloads::ObservedExecutionPayloads,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeProcessingSnapshot, EnvelopeSource, load_snapshot_from_state_root,
+        EnvelopeError, EnvelopeProcessingSnapshot, EnvelopeSource, build_new_payload_request,
+        load_snapshot_from_state_root,
     },
     validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache},
 };
@@ -431,6 +432,11 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             )?),
         };
         verify_payload_withdrawals(envelope, &snapshot)?;
+        if ctx.source == EnvelopeSource::Gossip {
+            build_new_payload_request(&signed_envelope, &block)?
+                .verify_payload_block_hash()
+                .map_err(|e| EnvelopeError::InvalidPayloadHash(format!("{e:?}")))?;
+        }
         let opt_snapshot = Some(snapshot);
 
         let gossip_verified_envelope = Self {

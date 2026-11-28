@@ -1259,7 +1259,7 @@ impl<E: EthSpec> GossipTester<E> {
                 self.harness
                     .chain
                     .clone()
-                    .verify_envelope_for_gossip(Arc::new(envelope), EnvelopeSource::Gossip),
+                    .verify_envelope_for_gossip(Arc::new(envelope), EnvelopeSource::Rpc),
             )?
             .map_err(|e| {
                 Error::InternalError(format!(
