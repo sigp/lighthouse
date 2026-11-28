@@ -1,6 +1,7 @@
 mod metrics;
 mod rayon_pool_provider;
 pub mod test_utils;
+mod tracking;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
@@ -11,6 +12,8 @@ use tracing::{Span, debug};
 use crate::rayon_pool_provider::RayonPoolProvider;
 pub use crate::rayon_pool_provider::RayonPoolType;
 pub use tokio::task::JoinHandle;
+pub use tokio_util::task::TaskTracker;
+pub use tracking::wait_for_tracked_tasks;
 
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -84,6 +87,8 @@ pub struct TaskExecutor {
     signal_tx: Sender<ShutdownReason>,
 
     rayon_pool_provider: Arc<RayonPoolProvider>,
+    /// Opt-in lifetime tracking, independent of metrics and preserved by executor clones.
+    task_tracker: Option<TaskTracker>,
 }
 
 impl TaskExecutor {
@@ -104,7 +109,15 @@ impl TaskExecutor {
             exit,
             signal_tx,
             rayon_pool_provider: Arc::new(RayonPoolProvider::default()),
+            task_tracker: None,
         }
+    }
+
+    /// Track actual task lifetimes so callers can wait for producer cleanup before draining
+    /// auxiliary services. Enable before spawning root services; children inherit the tracker.
+    pub fn with_task_tracker(mut self, tracker: TaskTracker) -> Self {
+        self.task_tracker = Some(tracker);
+        self
     }
 
     /// A convenience wrapper for `Self::spawn` which ignores a `Result` as long as both `Ok`/`Err`
@@ -188,6 +201,7 @@ impl TaskExecutor {
                 int_gauge_1.dec();
                 futures::future::ready(())
             });
+            let future = tracking::future(self.task_tracker.as_ref(), future);
 
             int_gauge.inc();
             if let Some(handle) = self.handle() {
@@ -251,13 +265,14 @@ impl TaskExecutor {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let span = Span::current();
 
+        let task = tracking::Work::new(self.task_tracker.as_ref(), task);
         thread_pool.spawn(move || {
             let _guard = span.enter();
-            let result = task();
+            let result = task.run();
             let _ = tx.send(result);
         });
 
-        rx.await
+        rx.await.map(tracking::Output::into_inner)
     }
 
     /// Spawn a future on the tokio runtime wrapped in an `async-channel::Receiver` returning an optional
@@ -288,6 +303,7 @@ impl TaskExecutor {
                     int_gauge_1.dec();
                     result
                 };
+                let fut = tracking::future(self.task_tracker.as_ref(), fut);
                 #[cfg(tokio_unstable)]
                 return Some(
                     tokio::task::Builder::new()
@@ -325,10 +341,11 @@ impl TaskExecutor {
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
 
         let span = Span::current();
+        let task = tracking::Work::new(self.task_tracker.as_ref(), task);
         let join_handle = if let Some(handle) = self.handle() {
             handle.spawn_blocking(move || {
                 let _guard = span.enter();
-                task()
+                task.run()
             })
         } else {
             debug!("Couldn't spawn task. Runtime shutting down");
@@ -337,7 +354,7 @@ impl TaskExecutor {
 
         let future = async move {
             let result = match join_handle.await {
-                Ok(result) => Ok(result),
+                Ok(result) => Ok(result.into_inner()),
                 Err(error) => {
                     debug!(%error, "Blocking task ended unexpectedly");
                     Err(error)

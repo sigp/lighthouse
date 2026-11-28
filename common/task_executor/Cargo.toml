@@ -11,6 +11,7 @@ metrics = { workspace = true }
 num_cpus = { workspace = true }
 rayon = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio-util = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 
 [lints.rust]

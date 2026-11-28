@@ -1363,10 +1363,8 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
                                 if pq_measurement::global().is_some() && fork_name == ForkName::Pq {
                                     let slot = aggregate.message().aggregate().data().slot.as_u64();
                                     let validator = aggregate.message().aggregator_index();
-                                    for key in pq_measurement::duty::keys_for_validators(&[validator], "committee") {
-                                        if pq_measurement::duty::export(&key).is_some_and(|(_,_,schedule,_)|schedule["slot"]==slot) {
-                                            pq_measurement::duty::complete(&key,"suppressed","already_covered",false);
-                                        }
+                                    if let Some(committee) = aggregate.message().aggregate().committee_index() {
+                                        pq_measurement::duty::committee_suppressed(slot, committee, validator);
                                     }
                                 }
                                 continue;

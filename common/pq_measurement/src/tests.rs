@@ -397,6 +397,7 @@ async fn global_hook_lifecycles_export_real_canonical_records() {
     .unwrap();
     let recorder = global().unwrap().clone();
     crate::gossip::exercise_test_lifecycle();
+    crate::gossip::exercise_test_observation_loss();
     let (handoff_owner, handoff_operation) = crate::handoff::exercise_test_ownership();
 
     let proposal_key = duty::proposal_key(100);
@@ -505,6 +506,21 @@ async fn global_hook_lifecycles_export_real_canonical_records() {
     duty::proposal_published(106, &published_at, &recorder.point(), true);
     assert!(duty::get(&submitted_key).is_none());
 
+    // The actual suppression observation arrives after the nominal broadcast deadline.
+    let suppressed_key = duty::committee_key(107, 1, 0);
+    let other_key = duty::committee_key(107, 2, 0);
+    let mut schedule = json!({"kind":"committee","slot":107,"collection_unix_ns":"1","broadcast_unix_ns":"2","committee_index":1,"committee_members":128,"committees_per_slot":16});
+    let suppressed_owner =
+        duty::schedule(suppressed_key.clone(), schedule.clone(), Some(7)).unwrap();
+    schedule["committee_index"] = json!(2);
+    let other_owner = duty::schedule(other_key.clone(), schedule, Some(7)).unwrap();
+    assert!(duty::keys_for_validators(&[7], "committee").is_empty());
+    duty::submitted(&suppressed_key);
+    duty::committee_suppressed(107, 1, 7);
+    duty::committee_suppressed(107, 1, 7);
+    assert!(duty::get(&suppressed_key).is_none());
+    assert_eq!(duty::get(&other_key), Some(other_owner));
+
     // A completed blocking call is only ready once the waiting consumer accepts it.
     for accept in [true, false] {
         let plan=proof::Plan::new(Mode::Production,json!({"kind":"merge","purpose":"reusable_preparation","vote_slots":[104],"sequence":recorder.reference()}),None).unwrap();
@@ -534,15 +550,59 @@ async fn global_hook_lifecycles_export_real_canonical_records() {
             .iter()
             .filter(|r| r["event_name"] == "pq.aggregate_received")
             .count(),
-        6
+        10
     );
     assert_eq!(
         records
             .iter()
             .filter(|r| r["event_name"] == "pq.aggregate_processed")
             .count(),
-        8
+        12
     );
+    let processed = |number| {
+        records
+            .iter()
+            .find(|record| {
+                record["event_name"] == "pq.aggregate_processed"
+                    && record["data"]["message"]["gossip_id"] == format!("0x{number:040x}")
+            })
+            .unwrap()
+    };
+    assert_eq!(processed(201)["data"]["started"]["missing"], "not_exposed");
+    assert!(processed(201)["data"]["finished"]["mono_ns"].is_string());
+    assert_eq!(processed(201)["data"]["pool_outcome"], "inserted");
+    assert!(processed(202)["data"]["started"]["mono_ns"].is_string());
+    assert_eq!(processed(202)["data"]["finished"]["missing"], "not_exposed");
+    assert_eq!(processed(202)["data"]["pool_outcome"], "not_inserted");
+    assert_eq!(processed(202)["data"]["reason"], "queue_full");
+    let retry_records: Vec<_> = records
+        .iter()
+        .filter(|record| {
+            record["event_name"] == "pq.aggregate_processed"
+                && record["data"]["message"]["gossip_id"] == format!("0x{:040x}", 203)
+        })
+        .collect();
+    assert_eq!(retry_records.len(), 2);
+    assert!(
+        retry_records
+            .iter()
+            .any(|record| record["data"]["pool_outcome"] == "inserted")
+    );
+    assert!(
+        !records
+            .iter()
+            .any(|record| record["event_name"] == "pq.aggregate_processed"
+                && record["data"]["message"]["gossip_id"] == format!("0x{:040x}", 204))
+    );
+    let suppressed: Vec<_> = records
+        .iter()
+        .filter(|record| {
+            record["event_name"] == "pq.duty_completed"
+                && record["data"]["duty"] == json!(suppressed_owner.0)
+        })
+        .collect();
+    assert_eq!(suppressed.len(), 1);
+    assert_eq!(suppressed[0]["data"]["outcome"], "suppressed");
     let completed: Vec<_> = records
         .iter()
         .filter(|r| r["event_name"] == "pq.operation_completed")

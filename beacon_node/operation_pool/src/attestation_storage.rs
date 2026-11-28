@@ -54,6 +54,37 @@ impl<E: EthSpec> CompactIndexedAttestationPq<E> {
     }
 }
 
+/// Admission result for an already-verified PQ aggregate at the production pool boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PqAttestationInsertOutcome {
+    /// The supplied aggregate remains in the pool after capacity enforcement.
+    Inserted,
+    /// A retained aggregate already covers every claim in the supplied aggregate.
+    Covered,
+    /// The aggregate is too old for the pool's retention window.
+    Expired,
+    /// The aggregate was not retained because of variant, entry or byte limits.
+    Capacity,
+    /// The aggregate has no committee bit and cannot be stored by this pool.
+    Invalid,
+}
+
+/// Keep pool-change notification semantics separate from admission of the incoming aggregate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PqAttestationInsertResult {
+    pub changed: bool,
+    pub outcome: PqAttestationInsertOutcome,
+}
+
+impl PqAttestationInsertResult {
+    pub(crate) fn unchanged(outcome: PqAttestationInsertOutcome) -> Self {
+        Self {
+            changed: false,
+            outcome,
+        }
+    }
+}
+
 const EXTRA_PER_SLOT: usize = 8 << 20;
 const EXTRA_TOTAL: usize = 64 << 20;
 const MAX_VARIANTS: usize = 4;
@@ -74,8 +105,17 @@ pub(crate) struct PqAttestationMap<E: EthSpec> {
 
 impl<E: EthSpec> PqAttestationMap<E> {
     pub(crate) fn insert(&mut self, entry: Arc<CompactIndexedAttestationPq<E>>) -> bool {
+        self.insert_with_outcome(entry).changed
+    }
+
+    pub(crate) fn insert_with_outcome(
+        &mut self,
+        entry: Arc<CompactIndexedAttestationPq<E>>,
+    ) -> PqAttestationInsertResult {
+        use PqAttestationInsertOutcome::{Capacity, Covered, Inserted, Invalid};
+
         let Some(committee) = entry.attestation.committee_index() else {
-            return false;
+            return PqAttestationInsertResult::unchanged(Invalid);
         };
         let slot = self.slots.entry(entry.attestation.data.slot).or_default();
         let key = (entry.attestation.data.tree_hash_root(), committee);
@@ -84,7 +124,7 @@ impl<E: EthSpec> PqAttestationMap<E> {
             .min(EXTRA_TOTAL.saturating_sub(self.extra_bytes));
         if let Some(variants) = slot.committees.get_mut(&key) {
             if variants.iter().any(|known| known.covers(&entry)) {
-                return false;
+                return PqAttestationInsertResult::unchanged(Covered);
             }
             let old_extra: usize = variants
                 .iter()
@@ -93,10 +133,11 @@ impl<E: EthSpec> PqAttestationMap<E> {
                 .sum();
             let old_ptrs: Vec<_> = variants.iter().map(Arc::as_ptr).collect();
             variants.retain(|known| !entry.covers(known));
+            let incoming = Arc::as_ptr(&entry);
             variants.push(entry);
             variants.sort_by_key(|entry| std::cmp::Reverse(entry.attesting_indices.len()));
             let Some(primary) = variants.first().cloned() else {
-                return false;
+                return PqAttestationInsertResult::unchanged(Invalid);
             };
             variants[1..].sort_by_key(|entry| {
                 std::cmp::Reverse(
@@ -131,7 +172,14 @@ impl<E: EthSpec> PqAttestationMap<E> {
                 .extra_bytes
                 .saturating_sub(old_extra)
                 .saturating_add(new_extra);
-            return !variants.iter().map(Arc::as_ptr).eq(old_ptrs);
+            return PqAttestationInsertResult {
+                changed: !variants.iter().map(Arc::as_ptr).eq(old_ptrs),
+                outcome: if variants.iter().any(|entry| Arc::as_ptr(entry) == incoming) {
+                    Inserted
+                } else {
+                    Capacity
+                },
+            };
         }
         let max_entries = E::max_committees_per_slot_pq().saturating_mul(4);
         if slot.committees.len() >= max_entries {
@@ -147,10 +195,10 @@ impl<E: EthSpec> PqAttestationMap<E> {
                         .map(|entry| (*key, entry.attesting_indices.len()))
                 })
             else {
-                return false;
+                return PqAttestationInsertResult::unchanged(Capacity);
             };
             if weakest >= entry.attesting_indices.len() {
-                return false;
+                return PqAttestationInsertResult::unchanged(Capacity);
             }
             if let Some(removed) = slot.committees.remove(&weakest_key) {
                 let bytes = removed
@@ -163,7 +211,10 @@ impl<E: EthSpec> PqAttestationMap<E> {
             }
         }
         slot.committees.insert(key, vec![entry]);
-        true
+        PqAttestationInsertResult {
+            changed: true,
+            outcome: Inserted,
+        }
     }
 
     pub(crate) fn prune(&mut self, current_epoch: Epoch) {
@@ -910,6 +961,145 @@ mod pq_tests {
             attesting_indices: (0..count).collect(),
             proof: Default::default(),
         })
+    }
+
+    fn aggregate_mask(
+        root_suffix: u8,
+        mask: u8,
+    ) -> Arc<CompactIndexedAttestationPq<MinimalEthSpec>> {
+        let mut aggregate = aggregate(root_suffix, 0, 0);
+        let entry = Arc::get_mut(&mut aggregate).unwrap();
+        for index in 0..8 {
+            if mask & (1 << index) != 0 {
+                entry.attestation.aggregation_bits.set(index, true).unwrap();
+                entry.attesting_indices.push(index as u64);
+                entry
+                    .statement
+                    .pubkeys
+                    .push(pq_prover::XmssPublicKey::from([index as u8; 32]));
+            }
+        }
+        aggregate
+    }
+
+    #[test]
+    fn pq_pool_reports_fifth_novel_variant_as_capacity_not_coverage() {
+        let mut pool = PqAttestationMap::default();
+        for index in 0..MAX_VARIANTS {
+            let result = pool.insert_with_outcome(aggregate_mask(0, 1 << index));
+            assert_eq!(result.outcome, PqAttestationInsertOutcome::Inserted);
+            assert!(result.changed);
+        }
+        let fifth = aggregate_mask(0, 1 << MAX_VARIANTS);
+        let result = pool.insert_with_outcome(Arc::clone(&fifth));
+        assert_eq!(
+            result,
+            PqAttestationInsertResult::unchanged(PqAttestationInsertOutcome::Capacity)
+        );
+        assert!(
+            !pool.insert(Arc::clone(&fifth)),
+            "legacy notification stays unchanged"
+        );
+        let retained = pool.candidates(Slot::new(0));
+        assert_eq!(retained.len(), MAX_VARIANTS);
+        assert!(!retained.iter().any(|known| known.covers(&fifth)));
+    }
+
+    #[test]
+    fn pq_pool_reports_covered_and_invalid_entries_without_changes() {
+        let mut pool = PqAttestationMap::default();
+        let primary = aggregate_mask(0, 0b11);
+        assert!(pool.insert(Arc::clone(&primary)));
+        assert_eq!(
+            pool.insert_with_outcome(aggregate_mask(0, 0b1)),
+            PqAttestationInsertResult::unchanged(PqAttestationInsertOutcome::Covered)
+        );
+        let mut invalid = aggregate_mask(1, 0b1);
+        Arc::get_mut(&mut invalid)
+            .unwrap()
+            .attestation
+            .committee_bits
+            .set(0, false)
+            .unwrap();
+        assert_eq!(
+            pool.insert_with_outcome(invalid),
+            PqAttestationInsertResult::unchanged(PqAttestationInsertOutcome::Invalid)
+        );
+        let retained = pool.candidates(Slot::new(0));
+        assert_eq!(retained.len(), 1);
+        assert!(Arc::ptr_eq(&retained[0], &primary));
+    }
+
+    #[test]
+    fn pq_pool_reports_real_extra_byte_capacity_rejection() {
+        let mut pool = PqAttestationMap::default();
+        let mut retained_extras = 0;
+        for root in 0..3 {
+            assert!(pool.insert(aggregate_mask(root, 1)));
+            for bit in 1..4 {
+                let mut incoming = aggregate_mask(root, 1 << bit);
+                Arc::get_mut(&mut incoming).unwrap().proof =
+                    AttestationProof::<MinimalEthSpec>::new(vec![0; 1 << 20]).unwrap();
+                let result = pool.insert_with_outcome(Arc::clone(&incoming));
+                if retained_extras == 7 {
+                    assert_eq!(
+                        result,
+                        PqAttestationInsertResult::unchanged(PqAttestationInsertOutcome::Capacity)
+                    );
+                    assert!(!pool.insert(Arc::clone(&incoming)));
+                    assert!(
+                        !pool
+                            .candidates(Slot::new(0))
+                            .iter()
+                            .any(|known| known.covers(&incoming))
+                    );
+                    assert!(pool.extra_bytes < EXTRA_PER_SLOT);
+                    assert!(pool.extra_bytes + incoming.retained_bytes() > EXTRA_PER_SLOT);
+                    return;
+                }
+                assert_eq!(result.outcome, PqAttestationInsertOutcome::Inserted);
+                retained_extras += 1;
+            }
+        }
+        panic!("expected byte limit rejection before filling nine variants");
+    }
+
+    #[test]
+    fn pq_pool_reports_entry_capacity_and_keeps_stronger_replacement() {
+        let mut pool = PqAttestationMap::default();
+        let capacity = MinimalEthSpec::max_committees_per_slot_pq() * 4;
+        for root in 0..capacity {
+            assert!(pool.insert(aggregate_mask(root as u8, 1)));
+        }
+        let root = u8::try_from(capacity).unwrap();
+        assert_eq!(
+            pool.insert_with_outcome(aggregate_mask(root, 1)),
+            PqAttestationInsertResult::unchanged(PqAttestationInsertOutcome::Capacity)
+        );
+        let stronger = aggregate_mask(root, 0b11);
+        assert_eq!(
+            pool.insert_with_outcome(Arc::clone(&stronger)),
+            PqAttestationInsertResult {
+                changed: true,
+                outcome: PqAttestationInsertOutcome::Inserted
+            }
+        );
+        let retained = pool.candidates(Slot::new(0));
+        assert_eq!(retained.len(), capacity);
+        assert!(retained.iter().any(|known| Arc::ptr_eq(known, &stronger)));
+    }
+
+    #[test]
+    fn pq_pool_reports_expired_without_claiming_coverage() {
+        let pool = crate::OperationPool::new();
+        let entry = aggregate_mask(0, 1);
+        assert!(pool.insert_pq_attestation(Epoch::new(0), Arc::clone(&entry)));
+        assert_eq!(
+            pool.insert_pq_attestation_with_outcome(Epoch::new(2), Arc::clone(&entry)),
+            PqAttestationInsertResult::unchanged(PqAttestationInsertOutcome::Expired)
+        );
+        assert!(!pool.insert_pq_attestation(Epoch::new(2), entry));
+        assert!(pool.pq_attestation_candidates(Slot::new(0)).is_empty());
     }
 
     #[test]

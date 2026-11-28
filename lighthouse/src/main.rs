@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{Level, info};
+use tracing::{Level, info, warn};
 use tracing_samplers::PrefixBasedSampler;
 use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
@@ -789,6 +789,8 @@ fn run<E: EthSpec>(
         return Ok(());
     }
 
+    // Enable only for common PQ measurements, before root services create any producers.
+    let mut measurement_tasks = None;
     match LighthouseSubcommands::from_arg_matches(matches) {
         Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) => {
             info!("Running database manager for {} network", network_name);
@@ -796,8 +798,7 @@ fn run<E: EthSpec>(
             return Ok(());
         }
         Ok(LighthouseSubcommands::ValidatorClient(validator_client_config)) => {
-            let context = environment.core_context();
-            let executor = context.executor.clone();
+            let mut context = environment.core_context();
             let config = validator_client::Config::from_cli(matches, &validator_client_config)
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
@@ -808,6 +809,13 @@ fn run<E: EthSpec>(
                 info!("Validator client immediate shutdown triggered.");
                 return Ok(());
             }
+
+            if config.pq_measurement_otlp_endpoint.is_some() {
+                let tracker = task_executor::TaskTracker::new();
+                context.executor = context.executor.with_task_tracker(tracker.clone());
+                measurement_tasks = Some(tracker);
+            }
+            let executor = context.executor.clone();
 
             executor.clone().spawn(
                 async move {
@@ -834,8 +842,7 @@ fn run<E: EthSpec>(
 
     match matches.subcommand() {
         Some(("beacon_node", matches)) => {
-            let context = environment.core_context();
-            let executor = context.executor.clone();
+            let mut context = environment.core_context();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
             config.logger_config = logger_config;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
@@ -846,6 +853,13 @@ fn run<E: EthSpec>(
                 info!("Beacon node immediate shutdown triggered.");
                 return Ok(());
             }
+
+            if config.chain.pq_measurement_otlp_endpoint.is_some() {
+                let tracker = task_executor::TaskTracker::new();
+                context.executor = context.executor.with_task_tracker(tracker.clone());
+                measurement_tasks = Some(tracker);
+            }
+            let executor = context.executor.clone();
 
             executor.clone().spawn(
                 async move {
@@ -875,6 +889,35 @@ fn run<E: EthSpec>(
     info!(reason = ?shutdown_reason, "Shutting down..");
 
     environment.fire_signal();
+
+    if let Some(tracker) = measurement_tasks {
+        // Keep the runtime alive while cancelled service futures are destroyed. In particular,
+        // the network destructor submits completed traffic windows, and native blocking work
+        // owns its own lifetime token rather than relying on a cancellable join waiter.
+        let (producers_finished, remaining, exporter_finished) =
+            environment.runtime().block_on(async {
+                let producers_finished = task_executor::wait_for_tracked_tasks(
+                    &tracker,
+                    std::time::Duration::from_secs(5),
+                )
+                .await;
+                let remaining = tracker.len();
+                let exporter_finished = match pq_measurement::global() {
+                    Some(recorder) => recorder.shutdown(std::time::Duration::from_secs(3)).await,
+                    None => true, // Startup may have been interrupted before recorder installation.
+                };
+                (producers_finished, remaining, exporter_finished)
+            });
+        if !producers_finished {
+            warn!(
+                remaining_tasks = remaining,
+                "PQ measurement producer shutdown timed out; late measurements may be dropped"
+            );
+        }
+        if !exporter_finished {
+            warn!("PQ measurement exporter drain timed out; undelivered measurements may be lost");
+        }
+    }
 
     // Shutdown the environment once all tasks have completed.
     environment.shutdown_on_idle();

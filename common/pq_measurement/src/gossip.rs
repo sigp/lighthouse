@@ -4,7 +4,10 @@ use crate::{Mode, Point, Reference, global};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Mutex, OnceLock},
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 const CAPACITY: usize = 16_384;
@@ -15,6 +18,7 @@ struct Attempt {
     started: Option<Point>,
     finished: Option<Point>,
     closed: bool,
+    loss_epoch: u64,
 }
 struct Receipt {
     topic: String,
@@ -28,14 +32,24 @@ struct State {
     order: VecDeque<String>,
 }
 static STATE: OnceLock<Mutex<State>> = OnceLock::new();
+// A failed nonblocking hook cannot safely mutate its attempt. Conservatively mark missing
+// boundaries in all attempts spanning that loss as unknown, rather than asserting they never ran.
+static LOSS_EPOCH: AtomicU64 = AtomicU64::new(0);
 fn with_state(f: impl FnOnce(&mut State)) {
-    let Some(recorder) = global() else { return };
+    let _ = with_state_result(f);
+}
+fn with_state_result<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
+    let recorder = global()?;
     match STATE
         .get_or_init(|| Mutex::new(State::default()))
         .try_lock()
     {
-        Ok(mut state) => f(&mut state),
-        Err(_) => recorder.record_summary_eviction("pq.aggregate_processed"),
+        Ok(mut state) => Some(f(&mut state)),
+        Err(_) => {
+            LOSS_EPOCH.fetch_add(1, Ordering::Relaxed);
+            recorder.record_summary_eviction("pq.aggregate_processed");
+            None
+        }
     }
 }
 fn point(value: &Option<Point>, missing: &str) -> Value {
@@ -50,6 +64,7 @@ fn fresh(reference: Reference) -> Attempt {
         started: None,
         finished: None,
         closed: false,
+        loss_epoch: LOSS_EPOCH.load(Ordering::Relaxed),
     }
 }
 /// IDs are already computed by gossipsub. The caller supplies lowercase 0x hex.
@@ -169,15 +184,28 @@ fn complete_if(
             if rejected_admission {
                 attempt.queued = None;
             }
-            let queued_missing = if attempt.started.is_some() && attempt.queued.is_none() {
+            let missing = if attempt.loss_epoch != LOSS_EPOCH.load(Ordering::Relaxed) {
                 "not_exposed"
             } else {
                 "not_reached"
             };
+            if expected.is_some() && missing == "not_exposed" {
+                // A fallback Drop guard cannot distinguish cancelled work from a successful
+                // terminal hook lost to contention. Leave that result unknown instead of
+                // replacing it with an invented queue cancellation.
+                attempt.closed = true;
+                recorder.record_summary_eviction("pq.aggregate_processed");
+                return;
+            }
+            let queued_missing = if attempt.started.is_some() && attempt.queued.is_none() {
+                "not_exposed"
+            } else {
+                missing
+            };
             let mut data = json!({
                 "message":{"topic":receipt.topic,"gossip_id":id},"attempt":attempt.reference,"receipt_attempt":receipt.first,
-                "queued":point(&attempt.queued,queued_missing),"started":point(&attempt.started,"not_reached"),
-                "finished":point(&attempt.finished,"not_reached"),"usable":point(&usable,if pool=="already_available" {"not_applicable"} else {"not_reached"}),
+                "queued":point(&attempt.queued,queued_missing),"started":point(&attempt.started,missing),
+                "finished":point(&attempt.finished,missing),"usable":point(&usable,if pool=="already_available" {"not_applicable"} else {missing}),
                 "validation_outcome":validation,"pool_outcome":pool,"terminal_stage":stage,"reason":reason
             });
             if let Some(vote) = &receipt.vote {
@@ -233,26 +261,31 @@ pub fn validation_failed(id: &str, outcome: &str, reason: &str) {
     );
 }
 /// Invoked directly after the production proposal-pool insertion returns.
-pub fn pool_result(id: &str, inserted: bool, too_old: bool) {
+pub fn pool_result(id: &str, outcome: &str) {
     let Some(recorder) = global() else { return };
+    let inserted = outcome == "inserted";
     let usable = inserted.then(|| recorder.point());
     complete(
         id,
         "accepted",
         if inserted {
             "inserted"
-        } else if too_old {
-            "not_inserted"
-        } else {
+        } else if outcome == "covered" {
             "already_available"
+        } else {
+            "not_inserted"
         },
         "pool",
         if inserted {
             "none"
-        } else if too_old {
-            "deadline"
         } else {
-            "already_covered"
+            match outcome {
+                "covered" => "already_covered",
+                "expired" => "deadline",
+                "capacity" => "queue_full",
+                "invalid" => "invalid",
+                _ => "other",
+            }
         },
         usable,
         false,
@@ -343,14 +376,16 @@ pub struct RetryGuard {
 }
 impl RetryGuard {
     pub fn new(id: String) -> Self {
-        if let Some(recorder) = global() {
-            with_state(|state| {
-                if let Some(receipt) = state.messages.get_mut(&id) {
-                    receipt.current = fresh(recorder.reference());
-                }
-            });
-        }
-        let reference = attempt(&id);
+        // Capture ownership atomically with creating the attempt. A lost capture must never
+        // fall back to an unqualified cancellation of whatever later attempt occupies this ID.
+        let reference = global().and_then(|recorder| {
+            with_state_result(|state| {
+                let receipt = state.messages.get_mut(&id)?;
+                receipt.current = fresh(recorder.reference());
+                Some(receipt.current.reference.clone())
+            })
+            .flatten()
+        });
         Self {
             id,
             reference,
@@ -363,7 +398,9 @@ impl RetryGuard {
 }
 impl Drop for RetryGuard {
     fn drop(&mut self) {
-        if self.armed {
+        if self.armed
+            && let Some(reference) = &self.reference
+        {
             complete_if(
                 &self.id,
                 "cancelled",
@@ -372,7 +409,7 @@ impl Drop for RetryGuard {
                 "other",
                 None,
                 false,
-                self.reference.as_ref(),
+                Some(reference),
             );
         }
     }
@@ -399,6 +436,70 @@ pub fn abandoned(id: &str, expected: &Reference) {
 }
 
 #[cfg(test)]
+pub(crate) fn exercise_test_observation_loss() {
+    let topic = "/eth2/01234567/beacon_aggregate_and_proof/ssz_snappy";
+    let id = format!("0x{:040x}", 201);
+    received(topic, &id, 500);
+    queued(&id);
+    {
+        let _locked = STATE.get().unwrap().lock().unwrap();
+        started(&id);
+    }
+    finished(&id);
+    pool_result(&id, "inserted");
+
+    let id = format!("0x{:040x}", 202);
+    received(topic, &id, 500);
+    queued(&id);
+    started(&id);
+    {
+        let _locked = STATE.get().unwrap().lock().unwrap();
+        finished(&id);
+    }
+    pool_result(&id, "capacity");
+
+    let id = format!("0x{:040x}", 203);
+    received(topic, &id, 500);
+    queued(&id);
+    started(&id);
+    finished(&id);
+    validation_failed(&id, "deferred", "missing_state");
+    let unowned = {
+        let _locked = STATE.get().unwrap().lock().unwrap();
+        RetryGuard::new(id.clone())
+    };
+    assert!(unowned.reference.is_none());
+    let retry = RetryGuard::new(id.clone());
+    let owned = retry.reference.clone().unwrap();
+    drop(unowned);
+    assert_eq!(attempt(&id), Some(owned));
+    assert!(
+        !STATE.get().unwrap().lock().unwrap().messages[&id]
+            .current
+            .closed
+    );
+    queued(&id);
+    retry.executing();
+    started(&id);
+    finished(&id);
+    pool_result(&id, "inserted");
+
+    // Losing the actual successful terminal must not let the package's fallback Drop guard
+    // rewrite it as a queue cancellation.
+    let id = format!("0x{:040x}", 204);
+    received(topic, &id, 500);
+    queued(&id);
+    started(&id);
+    finished(&id);
+    let reference = attempt(&id).unwrap();
+    {
+        let _locked = STATE.get().unwrap().lock().unwrap();
+        pool_result(&id, "inserted");
+    }
+    abandoned(&id, &reference);
+}
+
+#[cfg(test)]
 pub(crate) fn exercise_test_lifecycle() {
     let topic = "/eth2/01234567/beacon_aggregate_and_proof/ssz_snappy";
     let first = format!("0x{:040x}", 1);
@@ -407,7 +508,7 @@ pub(crate) fn exercise_test_lifecycle() {
     queued(&first);
     started(&first);
     finished(&first);
-    pool_result(&first, true, false);
+    pool_result(&first, "inserted");
     for (number, failure) in [
         (2, decode_failed as fn(&str)),
         (3, queue_dropped),
@@ -434,7 +535,7 @@ pub(crate) fn exercise_test_lifecycle() {
     retry.executing();
     started(&id);
     finished(&id);
-    pool_result(&id, false, false);
+    pool_result(&id, "covered");
     let cancelled = format!("0x{:040x}", 6);
     received(topic, &cancelled, 500);
     queued(&cancelled);

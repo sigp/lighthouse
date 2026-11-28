@@ -11,7 +11,8 @@ mod sync_aggregate_id;
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::{AttMaxCover, PROPOSER_REWARD_DENOMINATOR, earliest_attestation_validators};
 pub use attestation_storage::{
-    CompactAttestationRef, CompactIndexedAttestationPq, SplitAttestation,
+    CompactAttestationRef, CompactIndexedAttestationPq, PqAttestationInsertOutcome,
+    PqAttestationInsertResult, SplitAttestation,
 };
 pub use max_cover::MaxCover;
 pub use persistence::{
@@ -119,6 +120,22 @@ impl<E: EthSpec> OperationPool<E> {
         pool.prune(current_epoch);
         entry.attestation.data.target.epoch.saturating_add(1u64) >= current_epoch
             && pool.insert(entry)
+    }
+
+    /// Return the incoming aggregate's admission outcome under the same lock as insertion.
+    /// `changed` retains the existing scheduler notification semantics independently of admission.
+    pub fn insert_pq_attestation_with_outcome(
+        &self,
+        current_epoch: Epoch,
+        entry: Arc<CompactIndexedAttestationPq<E>>,
+    ) -> PqAttestationInsertResult {
+        let mut pool = self.pq_attestations.write();
+        pool.prune(current_epoch);
+        if entry.attestation.data.target.epoch.saturating_add(1u64) < current_epoch {
+            PqAttestationInsertResult::unchanged(PqAttestationInsertOutcome::Expired)
+        } else {
+            pool.insert_with_outcome(entry)
+        }
     }
 
     pub fn prune_pq_attestations(&self, current_epoch: Epoch) {

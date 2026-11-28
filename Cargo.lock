@@ -6769,6 +6769,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "pq_measurement",
  "sensitive_url",
  "serde",
  "serde_json",
@@ -10546,6 +10547,7 @@ dependencies = [
  "num_cpus",
  "rayon",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -10837,6 +10839,7 @@ dependencies = [
  "futures-core",
  "futures-io",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "slab",

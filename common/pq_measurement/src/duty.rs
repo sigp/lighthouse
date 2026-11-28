@@ -155,6 +155,24 @@ pub fn keys_for_validators(validators: &[u64], kind: &str) -> Vec<String> {
         .collect()
 }
 
+/// A submitted aggregate is normally processed after its nominal broadcast instant. Terminal
+/// observations therefore match retained identity, not the future-only preparation lookup.
+pub fn committee_suppressed(slot: u64, committee: u64, validator: u64) {
+    let Some(recorder) = global() else { return };
+    let point = recorder.point();
+    if let Some(mut registry) = lock()
+        && let Some(duty) = registry.duties.values_mut().find(|duty| {
+            !duty.terminal
+                && duty.schedule["kind"] == "committee"
+                && duty.schedule["slot"] == slot
+                && duty.schedule["committee_index"] == committee
+                && duty.validator == Some(validator)
+        })
+    {
+        close(duty, &point, "suppressed", "already_covered", false);
+    }
+}
+
 /// Import only a validated carrier attached to an actual duty request. This does not
 /// invent another scheduled event: the referenced VC is the original owner.
 pub fn import_reference(

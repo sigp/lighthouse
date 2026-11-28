@@ -2834,18 +2834,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     proof: indexed.proof.clone(),
                     statement: statement.clone(),
                 });
-                let changed = self
+                let insertion = self
                     .op_pool
-                    .insert_pq_attestation(epoch, Arc::clone(&entry));
+                    .insert_pq_attestation_with_outcome(epoch, Arc::clone(&entry));
+                let changed = insertion.changed;
                 if pq_measurement::global().is_some() {
                     if let Some(gossip_id) = gossip_id {
                         let id = format!("0x{}", gossip_id());
                         pq_measurement::gossip::pool_result(
                             &id,
-                            changed,
-                            entry.attestation.data.target.epoch.saturating_add(1u64) < epoch,
+                            match insertion.outcome {
+                                operation_pool::PqAttestationInsertOutcome::Inserted => "inserted",
+                                operation_pool::PqAttestationInsertOutcome::Covered => "covered",
+                                operation_pool::PqAttestationInsertOutcome::Expired => "expired",
+                                operation_pool::PqAttestationInsertOutcome::Capacity => "capacity",
+                                operation_pool::PqAttestationInsertOutcome::Invalid => "invalid",
+                            },
                         );
-                        if changed {
+                        if insertion.outcome == operation_pool::PqAttestationInsertOutcome::Inserted
+                        {
                             if let Some(message) = pq_measurement::gossip::message(&id) {
                                 pq_measurement::duty::remember_message(
                                     entry.proof.as_ref(),
