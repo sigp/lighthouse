@@ -245,7 +245,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
         let fast_confirmation = path
             .iter()
             .any(|component| component == "fast_confirmation");
-        let config = load_config(path)?;
+        let config = load_config::<E>(path, fork_name)?;
         let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
 
         #[allow(clippy::type_complexity)]

@@ -62,6 +62,8 @@ pub struct BalanceSourceData {
     /// Used to filter support votes
     /// (spec: `get_node_support_between_slots` excludes slashed validators).
     pub slashed: Vec<bool>,
+    /// Spec: `EFFECTIVE_BALANCE_INCREMENT`, the floor of `get_total_balance`.
+    pub effective_balance_increment: u64,
 }
 
 impl BalanceSourceData {
@@ -107,11 +109,21 @@ impl BalanceSourceData {
             total_unslashed_active_balance,
             effective_balances,
             slashed,
+            effective_balance_increment: spec.effective_balance_increment,
         })
     }
 
     pub(crate) fn balance(&self, val_idx: usize) -> u64 {
         self.effective_balances.get(val_idx).copied().unwrap_or(0)
+    }
+
+    /// Active validators with their effective balance, slashed included.
+    pub(crate) fn active_indices(&self) -> impl Iterator<Item = (usize, u64)> + '_ {
+        self.effective_balances
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, balance)| *balance > 0)
     }
 
     pub(crate) fn unslashed_and_active_indices(&self) -> impl Iterator<Item = (usize, u64)> + '_ {

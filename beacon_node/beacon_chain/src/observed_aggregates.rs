@@ -99,7 +99,8 @@ pub trait SubsetItem {
     /// The item that is stored for later comparison with new incoming aggregate items.
     type Item;
 
-    /// Returns `true` if `self` is a non-strict subset of `other` and `false` otherwise.
+    /// Returns `true` if `self` is a non-strict subset of `other` and `false` otherwise. Items of
+    /// different lengths are never subsets of each other.
     fn is_subset(&self, other: &Self::Item) -> bool;
 
     /// Returns `true` if `self` is a non-strict superset of `other` and `false` otherwise.
@@ -132,12 +133,15 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 }
                 false
             }
-            Self::Electra(att) => att.aggregation_bits.is_subset(other),
+            Self::Electra(att) => {
+                att.aggregation_bits.len() == other.len() && att.aggregation_bits.is_subset(other)
+            }
             Self::Gloas(att) => {
                 if let Ok(aggregation_bits) =
                     progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
                 {
-                    return aggregation_bits.is_subset(other);
+                    return aggregation_bits.len() == other.len()
+                        && aggregation_bits.is_subset(other);
                 }
                 false
             }
@@ -152,12 +156,15 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 }
                 false
             }
-            Self::Electra(att) => other.is_subset(&att.aggregation_bits),
+            Self::Electra(att) => {
+                att.aggregation_bits.len() == other.len() && other.is_subset(&att.aggregation_bits)
+            }
             Self::Gloas(att) => {
                 if let Ok(aggregation_bits) =
                     progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
                 {
-                    return other.is_subset(&aggregation_bits);
+                    return aggregation_bits.len() == other.len()
+                        && other.is_subset(&aggregation_bits);
                 }
                 false
             }

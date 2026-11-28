@@ -177,6 +177,13 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         epoch_cache: mem::take(&mut pre.epoch_cache),
     });
     // [New in Gloas:EIP7732]
+    let fork_slot_index = post
+        .slot()
+        .as_usize()
+        .safe_rem(E::slots_per_historical_root())?;
+    post.execution_payload_availability_mut()?
+        .set(fork_slot_index, false)
+        .map_err(|_| Error::InvalidBitfield)?;
     onboard_builders_from_pending_deposits(&mut post, context.cache(), spec)?;
     initialize_ptc_window(&mut post, spec)?;
 

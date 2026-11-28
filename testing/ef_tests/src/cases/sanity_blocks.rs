@@ -29,7 +29,7 @@ pub struct SanityBlocks<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for SanityBlocks<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let config = load_config(path)?;
+        let config = load_config::<E>(path, fork_name)?;
         let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), spec)?;

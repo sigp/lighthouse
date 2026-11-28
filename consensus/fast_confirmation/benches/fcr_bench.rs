@@ -258,6 +258,7 @@ fn build_chain_inner(
         total_unslashed_active_balance: total_active_balance,
         effective_balances: vec![BALANCE; num_validators],
         slashed: vec![false; num_validators],
+        effective_balance_increment: E::default_spec().effective_balance_increment,
     };
 
     // `new` builds head assignments/balances from the state; the bench overwrites balances and

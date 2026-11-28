@@ -233,6 +233,29 @@ pub enum EnvelopeError {
     /// This must hold before the payload block hash is recomputed, since the envelope's
     /// `parent_beacon_block_root` is an input to the execution block header.
     ParentBeaconBlockRootMismatch { block: Hash256, envelope: Hash256 },
+    /// The payload's previous randao doesn't match the committed bid.
+    PrevRandaoMismatch {
+        committed_bid: Hash256,
+        envelope: Hash256,
+    },
+    /// The payload's gas limit doesn't match the committed bid.
+    GasLimitMismatch { committed_bid: u64, envelope: u64 },
+    /// The payload doesn't build on the execution block the committed bid builds on.
+    ParentHashMismatch {
+        committed_bid: ExecutionBlockHash,
+        envelope: ExecutionBlockHash,
+    },
+    /// The payload's timestamp doesn't match the block's slot.
+    IncorrectTimestamp { expected: u64, envelope: u64 },
+    /// The payload contains an empty transaction.
+    EmptyTransaction { index: usize },
+    /// The payload has more transactions than its maximum gas limit allows.
+    TooManyTransactions { count: usize, max: u64 },
+    /// The payload's withdrawals don't match the withdrawals expected by the block's post-state.
+    WithdrawalsMismatch {
+        expected: Hash256,
+        envelope: Hash256,
+    },
     /// The recomputed execution block hash (or blob versioned hashes) of the envelope's
     /// payload doesn't match its committed `block_hash`.
     InvalidPayloadHash(String),
@@ -290,6 +313,13 @@ impl EnvelopeError {
             | EnvelopeError::SlotMismatch { .. }
             | EnvelopeError::BlockHashMismatch { .. }
             | EnvelopeError::ParentBeaconBlockRootMismatch { .. }
+            | EnvelopeError::PrevRandaoMismatch { .. }
+            | EnvelopeError::GasLimitMismatch { .. }
+            | EnvelopeError::ParentHashMismatch { .. }
+            | EnvelopeError::IncorrectTimestamp { .. }
+            | EnvelopeError::EmptyTransaction { .. }
+            | EnvelopeError::TooManyTransactions { .. }
+            | EnvelopeError::WithdrawalsMismatch { .. }
             | EnvelopeError::InvalidPayloadHash(_)
             | EnvelopeError::ExecutionRequestsRootMismatch { .. }
             | EnvelopeError::UnknownValidator { .. }

@@ -2137,7 +2137,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 let validation_result = match e {
                     BeaconChainError::ExitValidationError(ExitValidationError::Invalid(
-                        ExitInvalid::FutureEpoch { .. } | ExitInvalid::AlreadyExited(_),
+                        ExitInvalid::FutureEpoch { .. }
+                        | ExitInvalid::AlreadyExited(_)
+                        | ExitInvalid::PendingWithdrawalInQueue(_),
                     )) => MessageAcceptance::Ignore,
                     BeaconChainError::ExitValidationError(ExitValidationError::Invalid(_)) => {
                         self.gossip_penalize_peer(
@@ -3959,6 +3961,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::SlotMismatch { .. }
                     | EnvelopeError::BlockHashMismatch { .. }
                     | EnvelopeError::ParentBeaconBlockRootMismatch { .. }
+                    | EnvelopeError::PrevRandaoMismatch { .. }
+                    | EnvelopeError::GasLimitMismatch { .. }
+                    | EnvelopeError::ParentHashMismatch { .. }
+                    | EnvelopeError::IncorrectTimestamp { .. }
+                    | EnvelopeError::EmptyTransaction { .. }
+                    | EnvelopeError::TooManyTransactions { .. }
+                    | EnvelopeError::WithdrawalsMismatch { .. }
                     | EnvelopeError::InvalidPayloadHash(_)
                     | EnvelopeError::ExecutionRequestsRootMismatch { .. }
                     | EnvelopeError::UnknownValidator { .. }
