@@ -3961,6 +3961,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::SlotMismatch { .. }
                     | EnvelopeError::BlockHashMismatch { .. }
                     | EnvelopeError::ParentBeaconBlockRootMismatch { .. }
+                    | EnvelopeError::PrevRandaoMismatch { .. }
+                    | EnvelopeError::GasLimitMismatch { .. }
+                    | EnvelopeError::ParentHashMismatch { .. }
+                    | EnvelopeError::IncorrectTimestamp { .. }
+                    | EnvelopeError::EmptyTransaction { .. }
+                    | EnvelopeError::WithdrawalsMismatch { .. }
                     | EnvelopeError::InvalidPayloadHash(_)
                     | EnvelopeError::ExecutionRequestsRootMismatch { .. }
                     | EnvelopeError::UnknownValidator { .. }

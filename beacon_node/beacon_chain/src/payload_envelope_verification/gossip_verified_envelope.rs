@@ -3,6 +3,7 @@ use std::sync::Arc;
 use educe::Educe;
 use eth2::types::{EventKind, SseExecutionPayloadGossip};
 use parking_lot::{Mutex, RwLock};
+use safe_arith::SafeArith;
 use store::DatabaseBlock;
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -37,6 +38,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub observed_payload_envelopes: &'a ObservedPayloadEnvelopes,
     pub genesis_validators_root: Hash256,
+    pub genesis_time: u64,
     pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
     pub observed_execution_payloads: &'a ObservedExecutionPayloads,
 }
@@ -66,11 +68,32 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         });
     }
 
+    if envelope.parent_beacon_block_root != block.parent_root() {
+        return Err(EnvelopeError::ParentBeaconBlockRootMismatch {
+            block: block.parent_root(),
+            envelope: envelope.parent_beacon_block_root,
+        });
+    }
+
     // Builder index matches committed bid.
     if envelope.builder_index != execution_bid.builder_index() {
         return Err(EnvelopeError::BuilderIndexMismatch {
             committed_bid: execution_bid.builder_index(),
             envelope: envelope.builder_index,
+        });
+    }
+
+    if envelope.payload.prev_randao != execution_bid.prev_randao() {
+        return Err(EnvelopeError::PrevRandaoMismatch {
+            committed_bid: execution_bid.prev_randao(),
+            envelope: envelope.payload.prev_randao,
+        });
+    }
+
+    if envelope.payload.gas_limit != execution_bid.gas_limit() {
+        return Err(EnvelopeError::GasLimitMismatch {
+            committed_bid: execution_bid.gas_limit(),
+            envelope: envelope.payload.gas_limit,
         });
     }
 
@@ -119,6 +142,23 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         });
     }
 
+    // For a valid block, `bid.parent_block_hash` equals the state's `latest_block_hash`.
+    if envelope.payload.parent_hash != execution_bid.parent_block_hash() {
+        return Err(EnvelopeError::ParentHashMismatch {
+            committed_bid: execution_bid.parent_block_hash(),
+            envelope: envelope.payload.parent_hash,
+        });
+    }
+
+    if let Some(index) = envelope
+        .payload
+        .transactions
+        .iter()
+        .position(|transaction| transaction.is_empty())
+    {
+        return Err(EnvelopeError::EmptyTransaction { index });
+    }
+
     // The SSZ root of the envelope's execution requests must match the committed bid, per
     // `verify_execution_payload_envelope` in the spec.
     let execution_requests_root = requests.tree_hash_root();
@@ -129,6 +169,47 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         });
     }
 
+    Ok(())
+}
+
+/// Spec: `payload.timestamp == compute_time_at_slot(state.genesis_time, block.slot)`.
+fn verify_payload_timestamp<T: BeaconChainTypes>(
+    envelope: &ExecutionPayloadEnvelope<T::EthSpec>,
+    block_slot: Slot,
+    ctx: &GossipVerificationContext<'_, T>,
+) -> Result<(), EnvelopeError> {
+    let slot_duration_ms = ctx.spec.get_slot_duration().as_millis() as u64;
+    let expected = block_slot
+        .as_u64()
+        .safe_sub(ctx.spec.genesis_slot.as_u64())
+        .and_then(|slots| slots.safe_mul(slot_duration_ms))
+        .and_then(|ms| ms.safe_div(1000))
+        .and_then(|secs| ctx.genesis_time.safe_add(secs))
+        .map_err(|e| EnvelopeError::InternalError(format!("timestamp overflow: {e:?}")))?;
+    if envelope.payload.timestamp != expected {
+        return Err(EnvelopeError::IncorrectTimestamp {
+            expected,
+            envelope: envelope.payload.timestamp,
+        });
+    }
+    Ok(())
+}
+
+/// Spec: the payload's withdrawals match `payload_expected_withdrawals` of the block's post-state.
+fn verify_payload_withdrawals<E: EthSpec>(
+    envelope: &ExecutionPayloadEnvelope<E>,
+    snapshot: &EnvelopeProcessingSnapshot<E>,
+) -> Result<(), EnvelopeError> {
+    let expected_withdrawals = snapshot.pre_state.payload_expected_withdrawals()?;
+    let withdrawals = &envelope.payload.withdrawals;
+    if withdrawals.len() != expected_withdrawals.len()
+        || !withdrawals.iter().eq(expected_withdrawals.iter())
+    {
+        return Err(EnvelopeError::WithdrawalsMismatch {
+            expected: expected_withdrawals.tree_hash_root(),
+            envelope: withdrawals.tree_hash_root(),
+        });
+    }
     Ok(())
 }
 
@@ -208,6 +289,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .message();
 
         verify_envelope_consistency(envelope, &block, execution_bid, latest_finalized_slot)?;
+        verify_payload_timestamp(envelope, block_slot, ctx)?;
 
         // Verify the envelope signature.
         //
@@ -285,6 +367,18 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             return Err(EnvelopeError::BadSignature);
         }
 
+        // Check after the signature, so that invalid envelopes cannot force a state load.
+        let snapshot = match opt_snapshot {
+            Some(snapshot) => snapshot,
+            None => Box::new(load_snapshot_from_state_root::<T>(
+                beacon_block_root,
+                proto_block.state_root,
+                ctx.store,
+            )?),
+        };
+        verify_payload_withdrawals(envelope, &snapshot)?;
+        let opt_snapshot = Some(snapshot);
+
         let gossip_verified_envelope = Self {
             signed_envelope,
             block,
@@ -350,6 +444,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             observed_payload_envelopes: &self.observed_payload_envelopes,
             genesis_validators_root: self.genesis_validators_root,
+            genesis_time: self.genesis_time,
             event_handler: &self.event_handler,
             observed_execution_payloads: &self.observed_execution_payloads,
         }
@@ -574,11 +669,12 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(builder_index, block_hash);
 
-        // Not a gossip condition; the sync-only rejection is inlined in
-        // `RangeSyncBlock` construction.
-        assert!(
-            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0)).is_ok()
-        );
+        let result =
+            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0));
+        assert!(matches!(
+            result,
+            Err(EnvelopeError::ParentBeaconBlockRootMismatch { .. })
+        ));
     }
 
     #[test]
