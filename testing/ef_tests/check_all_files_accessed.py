@@ -51,6 +51,8 @@ excluded_paths = [
     "tests/.*/eip7805",
     # Heze fork is not implemented
     "tests/.*/heze/.*",
+    # Every case has a config.yaml since v1.7.0-beta.5, only some handlers apply it.
+    "tests/.*/config\\.yaml",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
     # TODO: partial data column not implemented yet

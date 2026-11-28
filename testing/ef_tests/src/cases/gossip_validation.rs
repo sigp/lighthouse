@@ -99,6 +99,8 @@ struct SetupBlock {
     failed: bool,
     #[serde(default)]
     payload_status: Option<PayloadStatus>,
+    #[serde(default)]
+    late: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -421,7 +423,18 @@ impl<E: EthSpec> GossipTester<E> {
                 setup_block.payload_status
             };
             if initial_block_index != Some(index) {
-                let block_time_ms = slot_time_ms(block.slot(), &self.spec)?;
+                let mut block_time_ms = slot_time_ms(block.slot(), &self.spec)?;
+                // A late block arrives at the attestation deadline of its slot.
+                if setup_block.late {
+                    let attestation_due_ms =
+                        u64::try_from(self.spec.get_attestation_due::<E>(block.slot()).as_millis())
+                            .map_err(|_| {
+                                Error::FailedToParseTest(
+                                    "attestation due does not fit in u64".into(),
+                                )
+                            })?;
+                    block_time_ms = block_time_ms.saturating_add(attestation_due_ms);
+                }
                 if block_time_ms > self.current_time_ms {
                     self.set_time_ms(block_time_ms)?;
                 }
