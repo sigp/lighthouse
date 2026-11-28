@@ -1031,7 +1031,8 @@ impl ChainSpec {
         self.inclusion_list_due
     }
 
-    /// Calculate the duration into a slot for a given slot component
+    /// Calculate the duration into a slot for a given slot component, rounded to the nearest
+    /// millisecond.
     pub fn compute_slot_component_duration(
         &self,
         component_basis_points: u64,
@@ -1039,6 +1040,7 @@ impl ChainSpec {
         Ok(Duration::from_millis(
             component_basis_points
                 .safe_mul(self.slot_duration_ms)?
+                .safe_add(BASIS_POINTS.safe_div(2)?)?
                 .safe_div(BASIS_POINTS)?,
         ))
     }
